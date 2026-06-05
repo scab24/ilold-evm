@@ -1,10 +1,4 @@
 <script lang="ts">
-  // F4 — the floating NodeDetailPanel used to pop up on top of the canvas
-  // whenever a node was selected. Now it's a tab inside SessionSidebar, so
-  // this component renders plain content (no DraggablePanel wrapper, no
-  // close button — "closing" means clicking the pane or switching tabs).
-  //
-  // Empty state is the default: if nothing is selected we show a hint.
   import Collapsible from '$lib/Collapsible.svelte';
 
   interface Props {

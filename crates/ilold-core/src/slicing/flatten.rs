@@ -5,11 +5,6 @@ use crate::model::statement::{Statement, StatementKind};
 
 use super::types::{StatementOrigin, StatementPath};
 
-/// A single statement in the flattened walk of a function body, carrying
-/// its position in program order, nesting depth, a back-link to its
-/// lexical parent (another `FlatStatement` index) when nested inside
-/// If/For/While/Block/TryCatch, and an `origin` tag distinguishing
-/// statements lifted from the function body vs from a wrapping modifier.
 pub struct FlatStatement<'a> {
     pub path: StatementPath,
     pub statement: &'a Statement,
@@ -18,22 +13,6 @@ pub struct FlatStatement<'a> {
     pub origin: StatementOrigin,
 }
 
-/// Walk a function and every applied modifier in execution order, emitting
-/// one `FlatStatement` per encountered statement.
-///
-/// Order: for `function f() mod1 mod2 { body }` we walk
-///   `mod1.before` → `mod2.before` → `body` → `mod2.after` → `mod1.after`
-/// where each modifier body is split at the first top-level `_;`
-/// placeholder. Modifiers without an explicit placeholder are treated
-/// entirely as `before` (over-inclusive but lossless).
-///
-/// Modifier resolution walks the inheritance chain via
-/// `Project::resolve_modifier`; unresolved modifiers are silently
-/// skipped (the slicer should not crash on a partially-parsed project).
-///
-/// Paths are single-element `[global_index]` values that match the
-/// position of the entry in the returned vector — the same scheme as
-/// before, just over a larger flat list.
 pub fn flatten_function<'a>(
     project: &'a Project,
     contract: &'a ContractDef,
@@ -43,9 +22,6 @@ pub fn flatten_function<'a>(
 
     let body: &'a [Statement] = function.body.as_deref().unwrap_or(&[]);
 
-    // Resolve every applied modifier and split its body at the first
-    // top-level Placeholder. We collect the references up-front so we
-    // can iterate the "after" parts in reverse order at the end.
     struct ModifierParts<'a> {
         name: &'a str,
         before: &'a [Statement],
@@ -71,7 +47,6 @@ pub fn flatten_function<'a>(
         });
     }
 
-    // Walk every modifier's "before" half, in declaration order.
     for parts in &modifier_parts {
         let origin = StatementOrigin::Modifier(parts.name.to_string());
         for stmt in parts.before {
@@ -79,13 +54,10 @@ pub fn flatten_function<'a>(
         }
     }
 
-    // Walk the function body itself.
     for stmt in body {
         walk(stmt, 0, None, &StatementOrigin::FunctionBody, &mut out);
     }
 
-    // Walk every modifier's "after" half in reverse — innermost modifier
-    // unwraps first, matching Solidity's call stack semantics.
     for parts in modifier_parts.iter().rev() {
         let origin = StatementOrigin::Modifier(parts.name.to_string());
         for stmt in parts.after {

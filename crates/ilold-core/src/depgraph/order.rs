@@ -22,10 +22,6 @@ impl LayerGroup {
     }
 }
 
-/// Group contracts into topological layers: layer 0 has no in-project
-/// dependencies (read first), each later layer depends on earlier ones.
-/// Dependency cycles are condensed (Tarjan SCC) into a single group so the
-/// order stays well-defined; a group with >1 member is a cycle.
 pub fn layers(graph: &DepGraph) -> Vec<Layer> {
     let sccs = tarjan_scc(graph);
     if sccs.is_empty() {
@@ -108,7 +104,6 @@ mod tests {
 
     #[test]
     fn linear_chain_orders_base_first() {
-        // A depends on B depends on C  =>  C layer 0, B layer 1, A layer 2.
         let mut g = DepGraph::new();
         let a = node(&mut g, "A");
         let b = node(&mut g, "B");
@@ -125,7 +120,6 @@ mod tests {
 
     #[test]
     fn cycle_is_condensed_into_one_group() {
-        // A <-> B, both depend on C  =>  C layer 0, {A,B} cycle in layer 1.
         let mut g = DepGraph::new();
         let a = node(&mut g, "A");
         let b = node(&mut g, "B");

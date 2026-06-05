@@ -14,38 +14,22 @@
     type GraphNodeData,
   } from '$lib/stores/graph.svelte';
 
-  // ── Props — event delegation to parent ──────────────────────
   interface Props {
     onnodetap?: (node: Node<GraphNodeData>, event: MouseEvent) => void;
     onbackgroundtap?: () => void;
     oncontextmenu?: (event: MouseEvent, node: Node<GraphNodeData>) => void;
     onready?: (api: { fitView: (opts?: any) => Promise<boolean> }) => void;
-    /** Fires when the user presses Delete/Backspace with nodes selected.
-     *  The parent is responsible for mutating the graph store — without a
-     *  handler SvelteFlow would only remove nodes from its local binding
-     *  and the store $effect would put them back. */
     onnodesdelete?: (nodes: Node<GraphNodeData>[]) => void;
-    /** When false, Delete/Backspace do nothing on the canvas (e.g. Session
-     *  mode renders the scenarios tree which must not be deleted by DEL). */
     canDeleteNodes?: boolean;
-    /** Fires whenever the set of selected nodes changes (shift+click,
-     *  lasso, pane click). Thin wrapper over xyflow's onselectionchange
-     *  that only forwards the node list — the parent usually just wants a
-     *  count for the status bar. */
     onselectionchange?: (nodes: Node<GraphNodeData>[]) => void;
-    /** Pointer enters/leaves a node — used by the project graph to highlight
-     *  a contract's relationships on hover. */
     onnodemouseenter?: (node: Node<GraphNodeData>) => void;
     onnodemouseleave?: (node: Node<GraphNodeData>) => void;
   }
 
   let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave }: Props = $props();
 
-  // Explicit null disables SvelteFlow's built-in delete shortcut; otherwise
-  // we listen to both Delete and Backspace (Figma/Excalidraw convention).
   const deleteKeysProp = $derived<string[] | null>(canDeleteNodes ? ['Delete', 'Backspace'] : null);
 
-  // ── Custom node type registry ─────────────────────────────
   const nodeTypes: NodeTypes = {
     function: FunctionNode,
     block: BlockNode,
@@ -53,25 +37,15 @@
     contract: ContractNode,
   } as unknown as NodeTypes;
 
-  // ── Reactive bridge: graph store → SvelteFlow ──────────────
-  // The graph store is the source of truth for graph STRUCTURE (nodes/edges existing).
-  // SvelteFlow's bind:nodes mutates flowNodes locally for drag/select POSITIONS.
-  //
-  // When the store changes (e.g. addNodes for CFG expand), we MERGE:
-  //   - For existing nodes: keep the live drag position from flowNodes
-  //   - For new nodes: use the store position
-  // This preserves drag state across structural mutations.
 
   let flowNodes = $state<Node[]>([]);
   let flowEdges = $state<Edge[]>([]);
 
   $effect(() => {
     const storeNodes = getNodes();
-    // Read flowNodes WITHOUT tracking — we only react to store changes, not local
     const liveByID = new Map(untrack(() => flowNodes).map(n => [n.id, n]));
     flowNodes = storeNodes.map(sn => {
       const live = liveByID.get(sn.id);
-      // If node existed and has been dragged, preserve its visual position
       if (live?.position) {
         return { ...sn, position: live.position } as Node;
       }
@@ -84,24 +58,14 @@
     flowEdges = storeEdges;
   });
 
-  /** Read the live (drag-aware) position of a node from SvelteFlow's local state */
   export function getLiveNode(id: string): Node | undefined {
     return flowNodes.find(n => n.id === id);
   }
 
-  // ── Canvas mode toggle (Excalidraw/Figma-style) ────────────
-  // `pan`     → left-drag pans the viewport; lasso disabled.
-  // `select`  → left-drag draws a rectangular lasso; middle/right still pan.
-  // In both modes: nodes draggable, right-click context menu, shift+click multi-select.
   let canvasMode = $state<'pan' | 'select'>('pan');
   let panOnDragProp = $derived<boolean | number[]>(canvasMode === 'pan' ? true : [1, 2]);
   let selectionOnDragProp = $derived(canvasMode === 'select');
 
-  /**
-   * Keyboard shortcuts for mode switching.
-   * Excludes edits inside text inputs / textareas / contenteditable — the
-   * EmbeddedTerminal captures keystrokes via xterm.js and does not interfere.
-   */
   function handleKeydown(e: KeyboardEvent) {
     const t = e.target;
     if (
@@ -153,8 +117,6 @@
       onnodeclick={({ event, node }) => onnodetap?.(node as Node<GraphNodeData>, event as MouseEvent)}
       onpaneclick={() => onbackgroundtap?.()}
       onnodecontextmenu={({ event, node }) => {
-        // Belt-and-suspenders: preventDefault on the MouseEvent itself in case
-        // a future wrapper refactor drops the container-level handler above.
         (event as MouseEvent).preventDefault();
         oncontextmenu?.(event as MouseEvent, node as Node<GraphNodeData>);
       }}
@@ -223,12 +185,6 @@
     fill: var(--color-accent-hover);
   }
 
-  /* xyflow only ships selection styling for its built-in node types
-     (input/default/output/group). Our canvas uses custom node types
-     (function/block/sequence), so click-to-select would mark the node as
-     selected internally but leave no visible feedback — which also meant
-     users couldn't tell they could press Delete/Backspace. This rule
-     applies a clear accent outline to any selected custom node. */
   :global(.svelte-flow__node.selected) {
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;

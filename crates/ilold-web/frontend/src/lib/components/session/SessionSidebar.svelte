@@ -8,11 +8,6 @@
   import { promptScenarioName } from '$lib/scenarios/name';
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
 
-  // Inspector props are optional so existing callers don't break, but
-  // +page.svelte passes them all as part of F4 to replace the floating
-  // NodeDetailPanel. When `selectedNode` is null the Inspector shows an
-  // empty state in-place instead of the panel disappearing — the tab
-  // itself stays available.
   let {
     contract,
     selectedNode = null,
@@ -44,16 +39,9 @@
   let open = $state(true);
   let activeTab: 'timeline' | 'state' | 'inspector' = $state('timeline');
 
-  // Auto-switch to the Inspector tab the moment the user selects a node
-  // on the canvas. Mirrors Figma / VSCode — selection should reveal the
-  // details without the user having to hunt for a tab. We only switch on
-  // the null → non-null transition so re-selecting a different node
-  // doesn't keep yanking the user back to this tab mid-navigation.
   let prevSelectedId = $state<string | null>(null);
   $effect(() => {
     const currentId = selectedNode?.id ?? null;
-    // Read the tracker via untrack so writing it at the end doesn't
-    // re-trigger this effect — only selectedNode changes should flow in.
     const prev = untrack(() => prevSelectedId);
     if (currentId && !prev) {
       activeTab = 'inspector';
@@ -61,7 +49,6 @@
     prevSelectedId = currentId;
   });
 
-  // Reactive view of scenarios (ordered map + active name, both from session store)
   const scenarioEntries = $derived(Array.from(getScenarios().entries()));
   const activeScenario = $derived(getActiveScenario());
 
@@ -76,13 +63,10 @@
     await dispatchScenarioAction({ New: { name } }, contract, 'new');
   }
 
-  // Backend guards: cannot delete the active scenario or the only one.
-  // The pill hides ✕ on the active row, so we only reach here for safe cases.
   async function deleteScenario(name: string) {
     await dispatchScenarioAction({ Delete: { name } }, contract, 'delete');
   }
 
-  // Resizable sidebar width (drag handle on left edge)
   let sidebarWidth = $state(480);
   const MIN_WIDTH = 320;
   const MAX_WIDTH = 900;
@@ -96,7 +80,6 @@
     const startW = sidebarWidth;
 
     function onMove(ev: MouseEvent) {
-      // Sidebar grows to the left, so drag left = wider
       const delta = startX - ev.clientX;
       sidebarWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + delta));
     }

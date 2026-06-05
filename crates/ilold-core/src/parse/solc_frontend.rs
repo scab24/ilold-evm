@@ -109,8 +109,6 @@ impl SolcFrontend {
     }
 }
 
-/// Walk up from the first input path until a `foundry.toml` is found; that
-/// directory is the project root solc compiles against.
 fn project_root(paths: &[PathBuf]) -> Result<PathBuf, ParseError> {
     let first = paths.first().ok_or_else(|| ParseError::Internal {
         message: "no input paths".into(),
@@ -245,10 +243,6 @@ fn map_state_var(node: &Node, index: &LineIndex) -> StateVar {
     }
 }
 
-/// Declaration ids referenced anywhere in a variable's `typeName` (handles
-/// arrays and mappings). Each id resolves via the decl table — only those
-/// pointing at a contract/interface become `holds` edges; struct/enum types
-/// resolve to non-contract decls and are dropped downstream.
 fn type_decl_ids(node: &Node) -> Vec<DeclId> {
     let mut out = Vec::new();
     if let Some(type_name) = node.attribute::<serde_json::Value>("typeName") {
@@ -353,8 +347,6 @@ fn map_block(node: &Node, index: &LineIndex) -> Vec<Statement> {
         .collect()
 }
 
-/// A loop/branch body is either a `Block` (use its statements) or a single
-/// braceless statement.
 fn map_body(node: &Node, index: &LineIndex) -> Vec<Statement> {
     match node.node_type {
         NodeType::Block | NodeType::UncheckedBlock => map_block(node, index),
@@ -476,7 +468,6 @@ fn map_catch(node: &Node, index: &LineIndex) -> CatchClause {
     }
 }
 
-/// Name + arguments of an `eventCall`/`errorCall` (both are `FunctionCall`s).
 fn call_parts(node: &Node, key: &str, index: &LineIndex) -> (String, Vec<Expression>) {
     let Some(call) = node.attribute::<Node>(key) else {
         return (String::new(), Vec::new());
@@ -634,8 +625,7 @@ fn type_expr_name(node: &Node) -> String {
         .unwrap_or_else(|| type_string(node))
 }
 
-/// solc uses negative `referencedDeclaration` ids for builtins (msg, require…),
-/// which are not real declarations; keep only user-declaration ids.
+// solc marks builtins with negative ids
 fn referenced_decl(node: &Node) -> Option<DeclId> {
     node.attribute::<isize>("referencedDeclaration")
         .filter(|&id| id >= 0)
@@ -1014,7 +1004,6 @@ mod tests {
             .find(|c| c.name == "Vault")
             .expect("Vault contract");
 
-        // depositVia: `return pool.supply(total)` — call through typed state var.
         let deposit_via = vault
             .functions
             .iter()

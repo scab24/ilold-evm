@@ -1,9 +1,3 @@
-// Cross-step variable timeline.
-//
-// `build_variable_timeline` walks an `ExplorationSession` and collects
-// every mutation of a target variable, annotating each one with the
-// path conditions that had to be true to reach the write (extracted
-// from the persisted FlowTree of the corresponding session step).
 
 use serde::{Deserialize, Serialize};
 
@@ -33,9 +27,6 @@ pub struct TimelineEntry {
     pub scope: MutationScope,
 }
 
-/// Build a chronological timeline of every write to `variable` across the
-/// session. Matches by base name (`balances[user]` matches `balances`).
-/// Path conditions are extracted from each step's persisted FlowTree.
 pub fn build_variable_timeline(
     session: &ExplorationSession,
     variable: &str,
@@ -75,8 +66,6 @@ pub fn build_variable_timeline(
         }
     }
 
-    // Stable order: by session step index then by flow_step_id (None last
-    // so legacy mutations without ids appear after the resolved ones).
     let sort_key = |e: &TimelineEntry| (e.session_step_index, e.flow_step_id.unwrap_or(usize::MAX));
     state_entries.sort_by_key(sort_key);
     local_entries.sort_by_key(sort_key);
@@ -88,8 +77,6 @@ pub fn build_variable_timeline(
     }
 }
 
-/// True if `target` (a mutation target like `balances[msg.sender]` or
-/// `config.fee`) refers to the variable `query`.
 fn matches_variable(target: &str, query: &str) -> bool {
     target_base_name(target) == query
 }
@@ -136,7 +123,6 @@ mod tests {
         assert_eq!(tl.state_entries.len(), 2);
         assert!(tl.local_entries.is_empty());
 
-        // Order: session step 0 first, then 1.
         assert_eq!(tl.state_entries[0].session_step_index, 0);
         assert_eq!(tl.state_entries[0].function, "deposit");
         assert_eq!(tl.state_entries[0].target, "balances[user]");
@@ -154,7 +140,6 @@ mod tests {
         ]));
 
         let tl = build_variable_timeline(&session, "balances");
-        // Only `balances[a]` matches; `balancesOther` is a different name.
         assert_eq!(tl.state_entries.len(), 1);
         assert_eq!(tl.state_entries[0].target, "balances[a]");
 
@@ -178,7 +163,6 @@ mod tests {
     #[test]
     fn timeline_legacy_mutation_has_empty_reached_when() {
         let mut session = ExplorationSession::new("C", "p");
-        // No flow_tree (legacy session) and no flow_step_id on the mutation.
         session.steps.push(make_step("f", vec![
             make_mutation("balances", AssignOperator::Assign, "1", None),
         ]));

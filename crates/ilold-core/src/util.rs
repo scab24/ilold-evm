@@ -1,8 +1,6 @@
-//! Shared utility helpers used across multiple analysis passes.
-
+// `Type(expr)` is a cast; a bare name is a call
 pub fn is_type_cast(name: &str) -> bool {
     let name = name.trim();
-    // `Type(expr)` is a cast; a bare non-elementary name (internalTransfer) is a call.
     if let Some((head, _)) = name.split_once('(') {
         return is_elementary_type(head) || is_user_type_name(head);
     }
@@ -26,11 +24,6 @@ fn is_user_type_name(head: &str) -> bool {
         && head.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
-/// Extract the base variable name from an assignment target expression.
-///
-/// Strips any indexing (`balances[user]` → `balances`) and field access
-/// (`config.fee` → `config`). Used by mutation harvesters and path
-/// analyzers to match target expressions against state variable names.
 pub fn target_base_name(target: &str) -> &str {
     let base = target.split('[').next().unwrap_or(target);
     base.split('.').next().unwrap_or(base)

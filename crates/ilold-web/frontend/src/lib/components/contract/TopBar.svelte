@@ -1,8 +1,4 @@
 <script lang="ts">
-  // Docked top bar — predictable strip at the top of the viewport (Linear /
-  // Figma / Cursor pattern). Holds brand + breadcrumb, the view-mode
-  // segmented switcher, session controls, search, center and the terminal
-  // toggle. No drag state — position is fixed by the parent flex layout.
   import { toggleTerminal, isTerminalVisible } from '$lib/stores/terminal.svelte';
 
   let {
@@ -23,14 +19,10 @@
     onsearch: () => void;
     oncenter: () => void;
     onseqdirection: (dir: 'TB' | 'LR') => void;
-    /** Remove the last step of the active scenario (REPL `b`). */
     onsessionback: () => void;
-    /** Clear every step of the active scenario (REPL `cl`). */
     onsessionclear: () => void;
   } = $props();
 
-  // Detect Mac to show ⌘ vs Ctrl on the search shortcut chip. Safe on SSR
-  // since the check runs only when the template renders in the browser.
   const isMac = typeof navigator !== 'undefined'
     && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
   const modKey = isMac ? '⌘' : 'Ctrl';
@@ -159,7 +151,6 @@
     flex-shrink: 0;
   }
 
-  /* Segmented group — buttons visually connected */
   .seg {
     display: inline-flex;
     align-items: center;
@@ -192,7 +183,6 @@
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent);
   }
 
-  /* Standalone tool buttons */
   .tool-btn {
     appearance: none;
     background: transparent;
@@ -228,7 +218,6 @@
     padding-right: 6px;
   }
 
-  /* Keyboard shortcut chip — matches browser `<kbd>` conventions */
   .kbd {
     font-family: var(--font-mono, monospace);
     font-size: 9px;

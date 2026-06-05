@@ -28,7 +28,6 @@ pub fn separator(label: &str) -> String {
     )
 }
 
-/// Pass PLAIN text lines (no ANSI colors). The box handles its own coloring.
 pub fn header_box(lines: &[&str]) -> String {
     let max_content = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let inner_width = max_content + 2;
@@ -69,7 +68,6 @@ pub fn pad_right(s: &str, width: usize) -> String {
     }
 }
 
-// Flow tree renderer — trace command output.
 
 pub fn render_flow_tree(tree: &FlowTree) -> String {
     let mut out = String::new();
@@ -91,8 +89,6 @@ pub fn render_flow_tree(tree: &FlowTree) -> String {
 
     append_expand_hint(tree, &mut out);
 
-    // Collect state-written variables for cross-ref hints. We extract the
-    // base name (before any `[`) because the slicer works on base identifiers.
     let mut raw_vars: Vec<&str> = Vec::new();
     collect_written_vars(&tree.root, &mut raw_vars);
     let mut base_vars: Vec<String> = raw_vars.iter()
@@ -129,9 +125,6 @@ fn collect_written_vars<'a>(node: &'a FlowNode, out: &mut Vec<&'a str>) {
     }
 }
 
-/// If the rendered tree contains depth-limited InternalCalls, append a
-/// footer listing their canonical step_ids so the auditor knows what to
-/// pass to `tr <func> +N`. Caps at 10 candidates.
 fn append_expand_hint(tree: &FlowTree, out: &mut String) {
     let mut candidates: Vec<usize> = Vec::new();
     collect_depth_limited(&tree.root, &mut candidates);
@@ -311,9 +304,6 @@ fn color_for_kind_text(kind: &FlowKind, text: &str) -> colored::ColoredString {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Variable timeline renderer
-// ─────────────────────────────────────────────────────────────────────────────
 
 pub fn render_variable_timeline(tl: &VariableTimeline) -> String {
     let mut out = String::new();
@@ -341,7 +331,6 @@ pub fn render_variable_timeline(tl: &VariableTimeline) -> String {
         render_entries(&tl.local_entries, &mut out);
     }
 
-    // Collect unique function names from all entries for slice hints.
     let all_entries = tl.state_entries.iter().chain(tl.local_entries.iter());
     let mut seen = std::collections::HashSet::new();
     let hints: Vec<String> = all_entries
@@ -359,7 +348,6 @@ pub fn render_variable_timeline(tl: &VariableTimeline) -> String {
 fn render_entries(entries: &[TimelineEntry], out: &mut String) {
     let mut prev_step: Option<usize> = None;
     for entry in entries {
-        // Group header per session step.
         if Some(entry.session_step_index) != prev_step {
             out.push_str(&format!(
                 "    {} {}\n",
@@ -401,9 +389,6 @@ fn render_entries(entries: &[TimelineEntry], out: &mut String) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Dataflow slice renderer
-// ─────────────────────────────────────────────────────────────────────────────
 
 pub fn render_slice_result(res: &SliceResult) -> String {
     let mut out = String::new();
@@ -472,9 +457,6 @@ fn render_slice_side(label: &str, entries: &[SliceEntry], var: &str, out: &mut S
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Scenario renderers
-// ─────────────────────────────────────────────────────────────────────────────
 
 pub fn render_scenario_list(items: &[ScenarioInfo]) -> String {
     if items.is_empty() {
@@ -488,7 +470,6 @@ pub fn render_scenario_list(items: &[ScenarioInfo]) -> String {
         .unwrap_or(0)
         .max(4);
 
-    // Build header-box lines (plain text; header_box colors the frame).
     let title = format!(
         "scenarios — {} total, active: {}",
         items.len(),
@@ -602,9 +583,6 @@ mod tests {
 
     #[test]
     fn render_require_message_not_double_escaped() {
-        // Regression: `{:?}` on the message used to produce `"\"LOCKED\""`.
-        // After the fix with `{}`, the output should contain the unescaped
-        // form `"LOCKED"`.
         let tree = make_require_tree(Some("\"LOCKED\""));
         let rendered = strip_ansi(&render_flow_tree(&tree));
 

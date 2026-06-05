@@ -1,0 +1,17 @@
+[package]
+name = "ilold-evm-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server exposing the Ilold EVM analysis as tools for LLM agents"
+
+[dependencies]
+rmcp = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+
+[dev-dependencies]
+httpmock = "0.7"

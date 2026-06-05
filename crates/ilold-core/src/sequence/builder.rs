@@ -9,7 +9,6 @@ pub fn build_sequence_tree(
     path_trees: &[PathTree],
     max_depth: usize,
 ) -> SequenceTree {
-    // Collect public/external functions, excluding constructors (REQ-SEQ-6)
     let functions: Vec<SequenceFunction> = contract
         .functions
         .iter()
@@ -34,7 +33,6 @@ pub fn build_sequence_tree(
     let n = functions.len();
     let mut sequences: Vec<TransactionSequence> = Vec::new();
 
-    // Depth 1: each function alone
     for i in 0..n {
         sequences.push(TransactionSequence {
             steps: vec![i],
@@ -44,7 +42,6 @@ pub fn build_sequence_tree(
         });
     }
 
-    // Depth 2..D: extend previous depth by appending each function
     for d in 2..=max_depth {
         let prev: Vec<TransactionSequence> = sequences
             .iter()

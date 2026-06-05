@@ -1,5 +1,3 @@
-// FlowTree builder: walks a function CFG and produces a temporal execution
-// trace with inlined internal calls and per-arm branch walks.
 
 use std::collections::{HashMap, HashSet};
 
@@ -13,9 +11,6 @@ use crate::model::expression::AssignOperator;
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 
-/// Hard cap on the canonical walk's call-nesting depth. Cycle detection
-/// via `visited_calls` is the primary safeguard; this is a second line of
-/// defence against pathological cases and ensures termination.
 const CANONICAL_WALK_SAFETY_CAP: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,8 +105,6 @@ impl Default for FlowConfig {
     }
 }
 
-/// A raw write event harvested from a FlowTree, decoupled from any
-/// session-level mutation model. The caller filters and converts.
 #[derive(Debug, Clone)]
 pub struct FlowMutation {
     pub flow_step_id: usize,
@@ -133,9 +126,6 @@ pub fn build_flow_tree(
     filter_for_render(canonical, config)
 }
 
-/// Build a FlowTree and harvest every write event in one canonical walk.
-/// Mutations are harvested from the pre-filter tree so writes inside
-/// depth-limited calls are still reported.
 pub fn build_flow_tree_with_mutations(
     contract: &ContractDef,
     function: &FunctionDef,
@@ -150,8 +140,6 @@ pub fn build_flow_tree_with_mutations(
     (rendered, mutations)
 }
 
-/// Internal: run the canonical walk with stable step_ids but no depth
-/// filtering. Used by both `build_flow_tree` and `build_flow_tree_with_mutations`.
 fn build_canonical_tree(
     contract: &ContractDef,
     function: &FunctionDef,
@@ -196,10 +184,6 @@ fn build_canonical_tree(
     }
 }
 
-/// Second pass over a canonical FlowTree: collapses internal calls whose
-/// children exceed `config.max_depth`, unless their canonical `step_id` is
-/// in `config.expand_set`. Step_ids on remaining nodes are preserved, so
-/// references (e.g. `tr <func> +N`) stay valid across different configs.
 fn filter_for_render(mut tree: FlowTree, config: &FlowConfig) -> FlowTree {
     filter_node_children(&mut tree.root, config);
     tree
@@ -237,9 +221,6 @@ fn count_subtree_nodes(children: &[FlowNode]) -> usize {
     total
 }
 
-/// Pre-order DFS over the tree collecting one FlowMutation per write.
-/// Dedupes by (target, operator, value); first occurrence wins so the
-/// flow_step_id is the earliest in pre-order.
 fn harvest_mutations_from_tree(tree: &FlowTree) -> Vec<FlowMutation> {
     let mut out = Vec::new();
     let mut seen: HashSet<(String, AssignOperator, String)> = HashSet::new();
@@ -279,8 +260,6 @@ fn harvest_node(
             }
         }
         FlowKind::InternalCall { function, .. } => {
-            // Recurse with the extended chain, then early-return so the
-            // fallthrough loop below doesn't re-walk children.
             let mut new_chain: Vec<String> = call_chain.to_vec();
             new_chain.push(function.clone());
             for child in &node.children {
@@ -303,13 +282,6 @@ fn call_chain_via(chain: &[String]) -> Option<String> {
     }
 }
 
-/// Find the chain of branch conditions that had to be true to reach the
-/// node with `target_step_id` in the tree. Returns `None` if the target
-/// is not present.
-///
-/// `BranchTrue { cond }` contributes `cond`; `BranchFalse { cond }`
-/// contributes `!(cond)`. The branch node's own conditions are NOT
-/// included in its own path — they describe the path TO its children.
 pub fn collect_path_conditions(
     tree: &FlowTree,
     target_step_id: usize,
@@ -468,8 +440,7 @@ fn walk_block(
         .map(|e| (e.target(), e.weight().clone()))
         .collect();
 
-    // Deterministic edge ordering so step_ids are stable across runs,
-    // independent of petgraph's iteration order.
+    // stable edge order so step_ids stay consistent across runs
     edges.sort_by_key(|(target, edge)| (edge.variant_order(), target.index()));
 
     if edges.is_empty() {
@@ -493,7 +464,6 @@ fn walk_block(
         return;
     }
 
-    // Drop arms going to Revert blocks (require/assert/if-then-revert).
     let mut useful: Vec<(petgraph::stable_graph::NodeIndex, BranchEdge)> = Vec::new();
     for (target, edge) in edges {
         if cfg[target].kind == BlockKind::Revert && !config.include_reverts {
@@ -506,7 +476,6 @@ fn walk_block(
         return;
     }
 
-    // One useful arm: collapse require/assert into linear walk.
     if useful.len() == 1 {
         let (target, _edge) = useful.into_iter().next().unwrap();
         walk_block(
@@ -525,8 +494,6 @@ fn walk_block(
         return;
     }
 
-    // Real if/else: clone visited_blocks per arm so each branch is complete.
-    // Post-merge code is duplicated under each arm.
     for (target, edge) in useful {
         let mut arm_visited = visited_blocks.clone();
         let mut children = Vec::new();
@@ -730,9 +697,6 @@ fn build_internal_call_node(
 
     let call_key = (owning_name.clone(), callee_name.to_string());
     let already_visited = visited_calls.contains(&call_key);
-    // Canonical walk always inlines up to the safety cap. Depth-based
-    // pruning is applied by `filter_for_render` as a second pass so that
-    // step_ids remain stable across different max_depth / expand_set values.
     let depth_exhausted = depth + 1 > CANONICAL_WALK_SAFETY_CAP;
 
     if already_visited || depth_exhausted {
@@ -772,7 +736,6 @@ fn build_internal_call_node(
         &mut children,
     );
 
-    // Pop the call stack so sibling calls to the same function still inline.
     visited_calls.remove(&call_key);
 
     let ops_count = children.len();
@@ -856,13 +819,6 @@ mod tests {
         }
     }
 
-    /// Build a synthetic tree:
-    ///   Entry (0)
-    ///   ├── BranchTrue("a > 0") (1)
-    ///   │   └── BranchFalse("b > 0") (2)
-    ///   │       └── Write reserve0 (3)
-    ///   └── BranchFalse("a > 0") (4)
-    ///       └── Write balance (5)
     fn fixture_tree() -> FlowTree {
         let inner_write = leaf(3, FlowKind::Write {
             target: "reserve0".into(),
@@ -898,7 +854,6 @@ mod tests {
     #[test]
     fn collect_path_conditions_inside_nested_branches() {
         let tree = fixture_tree();
-        // Step 3 lives inside BranchTrue(a>0) → BranchFalse(b>0) → Write
         let path = collect_path_conditions(&tree, 3).expect("step 3 should be reachable");
         assert_eq!(path, vec!["a > 0".to_string(), "!(b > 0)".to_string()]);
     }
@@ -906,7 +861,6 @@ mod tests {
     #[test]
     fn collect_path_conditions_in_other_branch() {
         let tree = fixture_tree();
-        // Step 5 lives inside BranchFalse(a>0) → Write
         let path = collect_path_conditions(&tree, 5).expect("step 5 should be reachable");
         assert_eq!(path, vec!["!(a > 0)".to_string()]);
     }
@@ -914,7 +868,6 @@ mod tests {
     #[test]
     fn collect_path_conditions_root_returns_empty_path() {
         let tree = fixture_tree();
-        // Root itself has step_id 0 — no conditions on the path TO the root.
         let path = collect_path_conditions(&tree, 0).expect("root should be reachable");
         assert!(path.is_empty());
     }
@@ -922,8 +875,6 @@ mod tests {
     #[test]
     fn collect_path_conditions_branch_node_itself() {
         let tree = fixture_tree();
-        // Step 2 IS the BranchFalse(b>0) node. Its own condition is NOT
-        // included; only the parent BranchTrue(a>0) is.
         let path = collect_path_conditions(&tree, 2).expect("step 2 should be reachable");
         assert_eq!(path, vec!["a > 0".to_string()]);
     }

@@ -20,7 +20,6 @@
   const steps = $derived(getSteps());
   const highlighted = $derived(getHighlightedFunction());
 
-  // Auto-scroll when new steps arrive
   let prevLength = 0;
   $effect(() => {
     const len = steps.length;
@@ -168,7 +167,6 @@
 </div>
 
 <style>
-  /* Access badges — refined pill style */
   .badge {
     font-size: 9px;
     padding: 2px 6px;
@@ -198,7 +196,6 @@
     background: color-mix(in srgb, var(--color-purple) 12%, transparent);
   }
 
-  /* Scrollbar — pseudo-elements require scoped CSS */
   .timeline-body::-webkit-scrollbar { width: 4px; }
   .timeline-body::-webkit-scrollbar-track { background: transparent; }
   .timeline-body::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }

@@ -1,9 +1,4 @@
 <script lang="ts">
-  // F5 — centered Cmd+K command palette. Replaces the old draggable
-  // SearchPanel. Routes publish context-specific commands via
-  // `setPaletteCommands`; this component filters + renders them and also
-  // streams WebSocket path-search results under a `Path` category when
-  // the query is long enough, so path search stays one keystroke away.
   import { onDestroy, onMount, tick } from 'svelte';
   import {
     isPaletteOpen,
@@ -26,32 +21,18 @@
   let inputEl: HTMLInputElement | null = $state(null);
   let listEl: HTMLDivElement | null = $state(null);
 
-  // WebSocket path-search plumbing — keyed off the palette query but only
-  // fires once the user has typed ≥ 2 chars, matching the old SearchPanel
-  // threshold so we don't spam the backend on every keystroke.
   let pathResults = $state<SearchResult[]>([]);
   let pathSearching = $state(false);
   let pathTotal = $state<number | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let cancelActiveSearch: (() => void) | null = null;
 
-  // Fallback pills when the backend hasn't returned a suggestions payload
-  // yet (or fails). Keeps the palette useful the moment it opens on a
-  // contract instead of showing an empty suggestions list.
   const FALLBACK_SUGGESTIONS: readonly string[] = [
     'transfer', 'balances', 'revert', 'external', 'owner', 'approve',
   ];
 
-  // Suggestions (identifiers in the current contract — functions, state
-  // vars, events, external calls). Loaded once per palette open when a
-  // contract context is active. Clicking a suggestion pre-fills the query,
-  // which then streams live path results via the debounced WS search.
   let suggestions = $state<SearchSuggestions | null>(null);
 
-  // Most-recently-used command ids — persisted in localStorage so the
-  // user's "Recent" list survives reloads. Suggestions and Path rows
-  // aren't worth replaying (they're searches, not actions) so we filter
-  // those out before persisting. Capped at MRU_MAX entries.
   const MRU_KEY = 'ilold:palette:mru';
   const MRU_MAX = 5;
   let mruIds = $state<string[]>(loadMru());
@@ -70,8 +51,6 @@
 
   function recordMru(cmd: Command) {
     if (cmd.category === 'Suggestion' || cmd.category === 'Path') return;
-    // Recent rows are clones whose id is `recent:<original>` — strip the
-    // prefix so re-running a recent collapses to the same MRU entry.
     const canonicalId = cmd.id.startsWith('recent:') ? cmd.id.slice(7) : cmd.id;
     const next = [canonicalId, ...mruIds.filter((id) => id !== canonicalId)].slice(0, MRU_MAX);
     mruIds = next;
@@ -80,10 +59,6 @@
     }
   }
 
-  // Mirror the global WS state so the palette can warn when path search
-  // is unavailable (server killed, reconnect in flight). We hydrate
-  // synchronously from the existing getter and subscribe only while
-  // mounted to avoid leaking on hot-reload.
   let wsState = $state<ConnectionState>(getConnectionState());
   onMount(() => {
     const unsub = subscribe('connection', (e: ConnectionEvent) => { wsState = e.state; });
@@ -120,9 +95,6 @@
     }
   }
 
-  // Suggestion section sub-headers — same colour mapping the old
-  // SearchPanel used so auditors who'd memorised those colours don't lose
-  // the visual cue.
   function suggestionHeaderColor(label: string): string {
     switch (label) {
       case 'Functions': return 'var(--color-accent-hover)';
@@ -135,12 +107,6 @@
   }
 
   const paletteOpen = $derived(isPaletteOpen());
-  // Safety net: Svelte's keyed each throws on duplicate ids, and upstream
-  // publishers (ProjectMap with repeated interfaces, overloaded Solidity
-  // functions) occasionally produce collisions. We silently keep the
-  // first occurrence so the palette stays renderable even if a caller
-  // slips up — the id uniqueness is their contract, this is belt-and-
-  // suspenders.
   const baseCommands = $derived.by(() => {
     const raw = getPaletteCommands();
     const seen = new Set<string>();
@@ -153,8 +119,6 @@
     return out;
   });
 
-  // Rank commands. Empty query preserves registration order grouped by
-  // category; non-empty query scores everything and drops non-matches.
   const ranked = $derived.by(() => {
     const q = query.trim();
     if (!q) {
@@ -166,9 +130,6 @@
       .sort((a, b) => b.s - a.s);
   });
 
-  // Appended live path-search results. We don't merge them into the main
-  // `ranked` list because they arrive asynchronously and shouldn't bump
-  // the user's current keyboard selection around.
   const pathCommands = $derived<Command[]>(
     pathResults.map((r, i) => ({
       id: `path:${r.contract}:${r.function}:${r.path_id}:${i}`,
@@ -187,10 +148,6 @@
     })),
   );
 
-  // Suggestions → `Suggestion` category commands, shown ONLY when the
-  // query is empty. Clicking pre-fills the query so the user can then see
-  // live path matches stream in. Falls back to a curated list when the
-  // backend hasn't delivered suggestions yet.
   const suggestionCommands = $derived.by<Command[]>(() => {
     if (query) return [];
     const make = (item: string, cat: string, idx: number): Command => ({
@@ -207,20 +164,12 @@
         cat.items.map((item, i) => make(item, cat.label, i)),
       );
     }
-    // Only show fallback when a contract is loaded — on the home screen
-    // path search is meaningless anyway.
     if (getSearchContext()) {
       return FALLBACK_SUGGESTIONS.map((s, i) => make(s, 'Common', i));
     }
     return [];
   });
 
-  // Recent commands — only when the query is empty (otherwise the user
-  // is typing a different intent). Resolves each MRU id back to the
-  // current Command so a stale id (command no longer registered after
-  // navigating away) is silently dropped. Cloned with a `recent:` id
-  // prefix so they have a unique key when also present in their original
-  // category (and the keyed-each block stays valid).
   const recentCommands = $derived<Command[]>(
     !query
       ? mruIds
@@ -237,8 +186,6 @@
     ...pathCommands.map((cmd) => ({ cmd })),
   ]);
 
-  // Group the visible rows by category while preserving the sorted order
-  // inside each group. CATEGORY_ORDER dictates section ordering.
   const grouped = $derived.by(() => {
     const byCat = new Map<CommandCategory, Command[]>();
     for (const { cmd } of visible) {
@@ -254,13 +201,8 @@
     return out;
   });
 
-  // Flat list used by keyboard navigation — mirrors the render order.
   const flat = $derived<Command[]>(grouped.flatMap((g) => g.cmds));
 
-  // Reset + focus on open; tear down search on close. Also fetch the
-  // per-contract suggestion list once per open — we intentionally don't
-  // reuse a stale list across opens so the caller (the contract page)
-  // can update its analysis and we'll pick up fresh pills.
   $effect(() => {
     if (paletteOpen) {
       query = '';
@@ -280,16 +222,11 @@
     }
   });
 
-  // Clamp selection when the result set shrinks so Enter never fires a
-  // stale row.
   $effect(() => {
     const n = flat.length;
     if (selectedIdx >= n) selectedIdx = Math.max(0, n - 1);
   });
 
-  // Debounced path search. Fires only on the contract page (where
-  // getSearchContext() returns a name) and only for queries that survive
-  // the 2-char threshold.
   $effect(() => {
     const q = query.trim();
     const ctx = getSearchContext();
@@ -329,8 +266,6 @@
       q,
       {
         onResult: (r) => {
-          // Same cap the old SearchPanel used — past 100 the +N-more hint
-          // tells the user to refine instead of flooding the list.
           if (pathResults.length < 100) pathResults = [...pathResults, r];
         },
         onComplete: (total) => {
@@ -350,9 +285,6 @@
     if (!paletteOpen) return;
     if (e.key === 'Escape') {
       e.preventDefault();
-      // Two-step Escape (same as the old SearchPanel): first press clears
-      // a non-empty query so the user can go back to the full command
-      // list; second press actually closes the palette.
       if (query) {
         query = '';
         selectedIdx = 0;
@@ -377,9 +309,6 @@
       e.preventDefault();
       const cmd = flat[selectedIdx];
       if (cmd) {
-        // Close BEFORE running so async handlers don't race with the
-        // palette being re-opened by a subsequent Cmd+K. Suggestions
-        // opt out with keepOpenOnRun so they can pre-fill the query.
         if (!cmd.keepOpenOnRun) closePalette();
         recordMru(cmd);
         await cmd.run();
@@ -412,15 +341,10 @@
     }
   }
 
-  // Stable flat-index lookup so the click handlers can know whether a row
-  // is the currently highlighted one.
   function flatIndexOf(cmd: Command): number {
     return flat.findIndex((c) => c.id === cmd.id);
   }
 
-  // Group suggestion commands by their `detail` (which holds the backend
-  // category label like "Functions"). Preserves first-seen order so the
-  // visual ordering tracks how the backend returned them.
   function subgroupSuggestions(cmds: Command[]): { label: string; cmds: Command[] }[] {
     const map = new Map<string, Command[]>();
     for (const c of cmds) {
@@ -602,8 +526,6 @@
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    /* clamp the top padding so it scales with viewport height but
-       collapses on phone-landscape / very short panes. */
     padding-top: clamp(24px, 12vh, 110px);
     background: rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(4px);
@@ -620,12 +542,7 @@
   .palette {
     position: relative;
     z-index: 1;
-    /* clamp(min, preferred, max) — narrow viewports get most of the
-       width minus a small inset, wide viewports cap at 560px. */
     width: clamp(280px, 90vw, 560px);
-    /* Bound by both viewport and an absolute ceiling so on a 13" laptop
-       in landscape (~700px tall) the palette doesn't bleed below the
-       fold. The list inside scrolls. */
     max-height: min(70vh, 520px);
     display: flex;
     flex-direction: column;
@@ -701,9 +618,6 @@
     letter-spacing: 0.08em;
     user-select: none;
   }
-  /* Suggestion sub-headers are styled inline with category-specific
-     colours; this base only sets the spacing so they sit slightly
-     indented under the implicit Suggestions section. */
   .group-label.sub { padding-top: 6px; }
 
   .row {
@@ -739,9 +653,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Per-character highlight for fuzzy-matched chars. The accent colour
-     pops against both selected and idle rows; bold weight reinforces
-     the cue without changing layout. */
   .row-label .hl {
     color: var(--color-accent-hover);
     font-weight: 700;
@@ -759,9 +670,6 @@
   }
   .row.selected .row-detail { color: var(--color-text-muted); }
 
-  /* Rich rendering for path-search rows (pathMeta present). Colours the
-     terminal pill, each match token by field kind, and keeps the origin
-     contract on the far right. */
   .row-terminal {
     font-size: 9px;
     font-weight: 700;
@@ -799,8 +707,6 @@
   }
   .row.selected .row-contract { color: var(--color-text-muted); }
 
-  /* Right-edge shortcut chip — same kbd styling as the footer hints so
-     the visual language stays consistent. */
   .row-shortcut {
     margin-left: auto;
     display: inline-flex;

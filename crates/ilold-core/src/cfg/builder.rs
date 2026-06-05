@@ -14,31 +14,17 @@ pub struct CfgBuilder {
     graph: CfgGraph,
     next_block_id: usize,
     current_block: NodeIndex,
-    /// Modifier name attached to statements being processed right now, or
-    /// `None` when processing the function's own body.
-    ///
-    /// Limitation: only top-level statements of a modifier are tagged. If a
-    /// modifier contains a compound statement (if/for/while) with the
-    /// placeholder inside, statements nested under that compound node lose
-    /// their modifier provenance because `process_statement` does not save/
-    /// restore this field across recursive descent. This is acceptable for
-    /// common modifiers (onlyOwner, nonReentrant, lock, whenNotPaused).
+    // provenance is tagged on top-level statements
     current_modifier: Option<String>,
     state_vars: Vec<String>,
-    /// `T storage x = stateVar` aliases → the state-var expression, so a write
-    /// through `x.field` is attributed to the underlying state variable.
     storage_aliases: std::collections::HashMap<String, String>,
 }
 
 impl CfgBuilder {
-    /// Build a CFG without cross-contract context. Modifier resolution is
-    /// limited to the current contract — inherited modifiers will be skipped.
     pub fn build(function: &FunctionDef, contract: &ContractDef) -> Result<CfgGraph, CfgError> {
         Self::build_with_project(function, contract, None)
     }
 
-    /// Build a CFG with an optional `Project` reference, enabling modifier
-    /// resolution through the inheritance chain.
     pub fn build_with_project(
         function: &FunctionDef,
         contract: &ContractDef,
@@ -47,7 +33,7 @@ impl CfgBuilder {
         let mut builder = CfgBuilder {
             graph: CfgGraph::new(),
             next_block_id: 0,
-            current_block: NodeIndex::new(0), // will be replaced
+            current_block: NodeIndex::new(0),
             current_modifier: None,
             state_vars: match project {
                 Some(p) => p.inherited_state_vars(contract).into_iter().map(|sv| sv.name).collect(),
@@ -61,10 +47,9 @@ impl CfgBuilder {
 
         let body = match &function.body {
             Some(body) => body.clone(),
-            None => return Ok(builder.graph), // interface/abstract — no body
+            None => return Ok(builder.graph),
         };
 
-        // Inline modifiers if any
         let tagged_body: Vec<super::modifier::TaggedStatement> = if function.modifiers.is_empty() {
             body
                 .into_iter()
@@ -98,7 +83,6 @@ impl CfgBuilder {
         }
         builder.current_modifier = None;
 
-        // If current block has no outgoing edges and is NOT already terminal, add implicit return
         if !builder.block_is_terminal(builder.current_block)
             && builder
                 .graph
@@ -131,8 +115,6 @@ impl CfgBuilder {
 
     fn resolve_alias(&self, var: &str) -> String {
         let base = crate::util::target_base_name(var);
-        // Only resolve `alias.field` / `alias[i]`; a bare alias is the pointer
-        // declaration itself, not a write through it.
         if var.len() > base.len() {
             if let Some(target) = self.storage_aliases.get(base) {
                 return format!("{}{}", target, &var[base.len()..]);
@@ -236,8 +218,6 @@ impl CfgBuilder {
                 self.add_stmt_to_current(CfgStatement::AssemblyBlock { span: None, from_modifier });
             }
             StatementKind::Break | StatementKind::Continue | StatementKind::Placeholder => {
-                // Break/Continue handled by loop processors
-                // Placeholder should have been replaced by modifier inlining
             }
         }
     }
@@ -251,7 +231,6 @@ impl CfgBuilder {
         let cond_str = expr_to_string(condition);
         let before = self.current_block;
 
-        // Then branch
         let then_block = self.add_block(BlockKind::Normal);
         self.add_edge(
             before,
@@ -264,7 +243,6 @@ impl CfgBuilder {
         }
         let then_end = self.current_block;
 
-        // Else branch
         let else_end = if let Some(else_stmts) = else_body {
             let else_block = self.add_block(BlockKind::Normal);
             self.add_edge(
@@ -278,7 +256,6 @@ impl CfgBuilder {
             }
             self.current_block
         } else {
-            // No else: false branch goes directly to join
             let join = self.add_block(BlockKind::Normal);
             self.add_edge(
                 before,
@@ -288,13 +265,12 @@ impl CfgBuilder {
             join
         };
 
-        // Join block: connect non-terminal branches
         let then_needs_join = !self.block_is_terminal(then_end);
         let else_needs_join = else_body.is_some() && !self.block_is_terminal(else_end);
 
         if then_needs_join || else_needs_join || else_body.is_none() {
             let join = if else_body.is_none() {
-                else_end // already created as the join
+                else_end
             } else {
                 self.add_block(BlockKind::Normal)
             };
@@ -316,12 +292,10 @@ impl CfgBuilder {
         increment: Option<&Expression>,
         body: &[Statement],
     ) {
-        // Init
         if let Some(init_stmt) = init {
             self.process_statement(init_stmt);
         }
 
-        // Condition check
         let cond_block = self.add_block(BlockKind::LoopCondition);
         self.add_edge(self.current_block, cond_block, BranchEdge::Unconditional);
 
@@ -341,19 +315,15 @@ impl CfgBuilder {
                 BranchEdge::ConditionalFalse { condition: cond_str },
             );
         } else {
-            // for(;;) — always enters body
             self.add_edge(cond_block, body_block, BranchEdge::Unconditional);
         }
 
-        // Body
         self.current_block = body_block;
         for s in body {
             self.process_statement(s);
         }
 
-        // Increment + loop back
         if let Some(_incr) = increment {
-            // increment is an expression, not a separate block for simplicity
         }
         if !self.block_is_terminal(self.current_block) {
             self.add_edge(self.current_block, cond_block, BranchEdge::LoopBack);
@@ -455,7 +425,6 @@ impl CfgBuilder {
         for (i, clause) in clauses.iter().enumerate() {
             let clause_block = self.add_block(BlockKind::Normal);
             let edge = if i == 0 {
-                // First clause is the success case (returns)
                 BranchEdge::ExternalCallSuccess
             } else {
                 BranchEdge::CatchClause {
@@ -477,7 +446,6 @@ impl CfgBuilder {
     }
 
     fn process_expression_stmt(&mut self, expr: &Expression) {
-        // Check if this is a require/assert call
         if let ExpressionKind::FunctionCall { callee, arguments } = &expr.kind {
             if let ExpressionKind::Identifier { name, .. } = &callee.kind {
                 match name.as_str() {
@@ -494,7 +462,6 @@ impl CfgBuilder {
             }
         }
 
-        // Not require/assert — classify and add to current block
         for s in classify_expression(expr, &self.current_modifier) {
             self.add_stmt_to_current(s);
         }
@@ -515,7 +482,6 @@ impl CfgBuilder {
 
         let before = self.current_block;
 
-        // True branch: continues
         let next = self.add_block(BlockKind::Normal);
         self.add_edge(
             before,
@@ -523,7 +489,6 @@ impl CfgBuilder {
             BranchEdge::ConditionalTrue { condition: cond_str.clone() },
         );
 
-        // False branch: reverts
         let revert = self.add_block(BlockKind::Revert);
         self.add_edge(
             before,
@@ -570,13 +535,7 @@ impl CfgBuilder {
     }
 }
 
-// ============================================================================
-// Expression classification
-// ============================================================================
 
-/// Classify an expression into CfgStatements for the detection engine.
-/// Returns multiple statements when an expression contains embedded calls
-/// (e.g., `x = foo()` produces both an Assignment and an InternalCall).
 fn classify_expression(expr: &Expression, from_modifier: &Option<String>) -> Vec<CfgStatement> {
     let mut stmts = Vec::new();
     collect_calls(expr, &mut stmts, from_modifier);
@@ -596,8 +555,6 @@ fn classify_expression(expr: &Expression, from_modifier: &Option<String>) -> Vec
     stmts
 }
 
-/// Emit a StateWrite for every `++`/`--`/`delete` mutation in `expr`, including
-/// when it sits on the RHS of an assignment (`x = counter++`).
 fn collect_mutations(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier: &Option<String>) {
     match &expr.kind {
         ExpressionKind::UnaryOp { operator, operand } if operator.mutates_operand() => {
@@ -616,14 +573,11 @@ fn collect_mutations(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modi
     }
 }
 
-/// Recursively scan an expression for function calls and add them as CfgStatements.
 fn collect_calls(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier: &Option<String>) {
     match &expr.kind {
         ExpressionKind::FunctionCall { callee, arguments } => {
             let args = arguments.iter().map(|a| expr_to_string(a)).collect::<Vec<_>>().join(", ");
-            // Classify this call
             match &callee.kind {
-                // `uint32(x)` etc. — type conversion, not a call.
                 ExpressionKind::TypeMeta { .. } => {}
                 ExpressionKind::Identifier { name, .. } => {
                     if !crate::util::is_type_cast(name) {
@@ -683,12 +637,10 @@ fn collect_calls(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier
                     });
                 }
             }
-            // Also recurse into arguments (they might contain calls too)
             for arg in arguments {
                 collect_calls(arg, stmts, from_modifier);
             }
         }
-        // Recurse into sub-expressions
         ExpressionKind::Assignment { target, value, .. } => {
             collect_calls(target, stmts, from_modifier);
             collect_calls(value, stmts, from_modifier);
@@ -740,8 +692,6 @@ fn expr_to_string(expr: &Expression) -> String {
             format!("{}.{}", expr_to_string(object), member)
         }
         ExpressionKind::FunctionCall { callee, arguments } => {
-            // Render type conversion `uint32(x)` as `uint32(x)` instead of
-            // `type(uint32)(x)` when the callee is a TypeMeta expression.
             if let ExpressionKind::TypeMeta { type_name } = &callee.kind {
                 let args: Vec<String> = arguments.iter().map(expr_to_string).collect();
                 return format!("{type_name}({})", args.join(", "));

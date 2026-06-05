@@ -43,7 +43,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 | Tool | Parameters | Returns |
 | --- | --- | --- |
 | `ilold_contract_detail` | `contract` | Functions (visibility, mutability, modifiers, params, path stats), state variables, inheritance, inherited members. |
-| `ilold_entry_points` | `contract` (optional) | Externally callable functions with their access level (public, or restricted to a role). |
+| `ilold_entry_points` | `contract` | Externally callable functions with their access level (public, or restricted to a role). |
 | `ilold_search` | `contract` | Searchable names in a contract: functions, state variables, events, external-call targets. |
 
 ### Function analysis
@@ -61,9 +61,9 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `ilold_slice` | `contract`, `function`, `variable`, `direction` (backward/forward/both) | Backward and forward dataflow of a variable in a function. A forward slice of a parameter is a taint analysis. |
+| `ilold_slice` | `function`, `variable`, `direction` (backward/forward/both) | Backward and forward dataflow of a variable in a function of the active contract. A forward slice of a parameter is a taint analysis. Requires `ilold_use`. |
 | `ilold_who_touches` | `contract`, `variable` | Functions that read and write a state variable, with their access level. |
-| `ilold_timeline` | `variable` | Mutations of a variable across the steps of the active session. |
+| `ilold_timeline` | `variable` | Mutations of a variable across the steps of the active session. Requires `ilold_use`. |
 
 ### Sequences (multi-function)
 
@@ -90,14 +90,15 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 
 1. `ilold_project_overview` and `ilold_dependency_graph` to orient: which contracts are foundational, which build on them.
 2. `ilold_entry_points` per contract to find the externally callable surface and what is access-gated.
-3. `ilold_function_analysis`, `ilold_trace`, and `ilold_slice` to study a function: its paths, its resolved external calls, and the data flow of its inputs.
-4. `ilold_contract_dependencies` to check the blast radius before judging a change.
-5. `ilold_record_finding` and `ilold_export` to produce the deliverable.
+3. `ilold_function_analysis` and `ilold_trace` to study a function: its paths and its resolved external calls.
+4. `ilold_use` to focus on a contract, then `ilold_slice` and `ilold_session_call` to trace the data flow of inputs and build attack sequences.
+5. `ilold_contract_dependencies` to check the blast radius before judging a change.
+6. `ilold_record_finding` and `ilold_export` to produce the deliverable.
 
 ## Notes
 
 - The server must be running and reachable at `--server-url`.
-- The analysis tools are read-only; the session and findings tools change session state and require an active contract set with `ilold_use`.
+- Most tools are read-only and take an explicit `contract`. `ilold_slice` and `ilold_timeline` only read but operate on the active contract set with `ilold_use`; the session and findings tools also need it and mutate the session.
 - Resolution has the same boundaries as the rest of the tool: calls through `address.call(...)` or assembly have no typed target and are not resolved. See [Known Limitations](./limitations.md).
 
 ## Related pages

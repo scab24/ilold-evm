@@ -1,12 +1,4 @@
 <script lang="ts">
-  // Docked bottom strip (VSCode / Linear pattern). Surfaces live canvas
-  // awareness the user would otherwise have to dig for: WS link health,
-  // how many functions are currently on the canvas, the active scenario,
-  // selection count, plus the set of keyboard shortcuts that apply in the
-  // current mode. No new stores: WS state is subscribed locally because a
-  // transient component-scoped state is simpler than spinning a global
-  // store for a single consumer, and canvas/scenario data comes through
-  // props from +page.svelte which already owns that reactive state.
   import { onMount } from 'svelte';
   import { subscribe, getConnectionState } from '$lib/api/ws';
   import type { ConnectionEvent, ConnectionState } from '$lib/api/types';
@@ -26,8 +18,6 @@
     selectionCount: number;
   } = $props();
 
-  // Prime with sync snapshot so the first paint matches reality — without
-  // this, the bar would briefly say "Offline" even on a healthy socket.
   let wsState = $state<ConnectionState>(getConnectionState());
 
   onMount(() => {
@@ -37,8 +27,6 @@
     return unsub;
   });
 
-  // Short-circuit when not in session mode: avoids pulling scenario steps
-  // on every canvas tick during CFG/Seq exploration.
   const sessionStepsCount = $derived(mode === 'session' ? getSteps().length : 0);
 
   const wsDot = $derived(

@@ -16,7 +16,6 @@ pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph 
     let mut graph = CallGraph::new();
     let mut node_index: HashMap<String, NodeIndex> = HashMap::new();
 
-    // Add a node for each function in the contract
     for func in &contract.functions {
         let key = format!("{}::{}", contract.name, func.name);
         let idx = graph.add_node(CallNode {
@@ -29,7 +28,6 @@ pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph 
         node_index.insert(key, idx);
     }
 
-    // Build CFG for each function and extract call edges
     for func in &contract.functions {
         let caller_key = format!("{}::{}", contract.name, func.name);
         let caller_idx = match node_index.get(&caller_key) {
@@ -42,7 +40,6 @@ pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph 
             Err(_) => continue,
         };
 
-        // Scan all blocks for call statements
         for block in cfg.node_weights() {
             for stmt in &block.statements {
                 match stmt {
@@ -59,9 +56,6 @@ pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph 
                         }
                     }
                     CfgStatement::ExternalCall { target, function, resolved, .. } => {
-                        // The is_type_cast heuristic drops `uint256(x)`-style
-                        // non-calls, but a resolved id means it's a real call
-                        // (e.g. `IPool(addr).supply()`), so only filter unresolved ones.
                         let unresolved_cast = resolved.is_none()
                             && (is_type_cast(function) || is_type_cast(target));
                         if !unresolved_cast {
@@ -92,13 +86,11 @@ fn resolve_internal(
     graph: &mut CallGraph,
     index: &mut HashMap<String, NodeIndex>,
 ) -> NodeIndex {
-    // 1. Check current contract
     let key = format!("{}::{}", contract.name, function_name);
     if let Some(&idx) = index.get(&key) {
         return idx;
     }
 
-    // 2. Check parent contracts (inheritance)
     for parent_name in &contract.inherits {
         if let Some(&parent_idx) = project.contract_index.get(parent_name) {
             let parent = &project.contracts[parent_idx];
@@ -107,7 +99,6 @@ fn resolve_internal(
                 if let Some(&idx) = index.get(&key) {
                     return idx;
                 }
-                // Add inherited function as a node
                 let idx = graph.add_node(CallNode {
                     contract: parent_name.clone(),
                     function: function_name.to_string(),
@@ -121,7 +112,6 @@ fn resolve_internal(
         }
     }
 
-    // 3. Unresolved — create external node
     let key = format!("?::{function_name}");
     if let Some(&idx) = index.get(&key) {
         return idx;
@@ -175,7 +165,6 @@ fn resolve_external(
 }
 
 fn add_or_increment_edge(graph: &mut CallGraph, from: NodeIndex, to: NodeIndex) {
-    // Check if edge already exists
     if let Some(edge) = graph.find_edge(from, to) {
         graph[edge].call_count += 1;
     } else {

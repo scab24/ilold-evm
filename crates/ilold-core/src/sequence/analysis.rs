@@ -13,7 +13,6 @@ pub struct FunctionBehavior {
     pub preconditions: Vec<String>,
     pub state_writes: Vec<String>,
     pub state_reads: Vec<String>,
-    /// Fully qualified, normalized write paths (e.g. `proposals[].executed`).
     #[serde(default)]
     pub state_write_paths: Vec<String>,
     #[serde(default)]
@@ -43,7 +42,6 @@ pub struct FunctionBehavior {
 }
 
 impl FunctionBehavior {
-    /// Returns direct + transitive state writes (base names)
     pub fn effective_state_writes(&self) -> Vec<String> {
         let mut out: Vec<String> = self.state_writes.clone();
         for w in &self.transitive_state_writes {
@@ -212,7 +210,6 @@ pub fn analyze_sequences(
 
     behaviors.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // For each pair A→B, describe what conditions connect them
     let mut transitions = Vec::new();
 
     for a in &behaviors {
@@ -231,7 +228,6 @@ pub fn analyze_sequences(
                 }
             }
 
-            // Only include transitions that have something interesting
             if !shared.is_empty() || !conditions_affected.is_empty() || !a.external_calls.is_empty() || !b.external_calls.is_empty() {
                 transitions.push(TransitionInfo {
                     from: a.name.clone(),
@@ -251,9 +247,6 @@ pub fn analyze_sequences(
     }
 }
 
-// ============================================================================
-// Project-level transitive effect computation
-// ============================================================================
 
 pub fn analyze_project(
     project: &Project,
@@ -264,7 +257,6 @@ pub fn analyze_project(
         .flat_map(|(c, sa)| sa.functions.iter().map(move |b| (c.clone(), b.name.clone())))
         .collect();
 
-    // Read-only snapshot so we can mutate `analyses` in place.
     let snapshot: HashMap<String, SequenceAnalysis> = analyses.clone();
 
     for (contract_name, func_name) in all_funcs {
@@ -407,23 +399,18 @@ fn collect_transitive_for_function(
     }
 }
 
-/// Resolve an internal callee name to its `FunctionBehavior`, walking the
-/// inheritance chain of `starting_contract`. Returns the behavior plus the
-/// name of the contract that owns the resolved function.
 pub fn resolve_internal_callee<'a>(
     callee: &str,
     starting_contract: &'a ContractDef,
     project: &'a Project,
     all: &'a HashMap<String, SequenceAnalysis>,
 ) -> Option<(&'a FunctionBehavior, String)> {
-    // 1. Try starting_contract first
     if let Some(sa) = all.get(&starting_contract.name) {
         if let Some(b) = sa.functions.iter().find(|b| b.name == callee) {
             return Some((b, starting_contract.name.clone()));
         }
     }
 
-    // 2. Walk the inheritance chain (BFS)
     let mut visited: HashSet<String> = HashSet::new();
     let mut queue: Vec<&str> = starting_contract
         .inherits

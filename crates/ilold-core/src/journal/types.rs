@@ -175,7 +175,6 @@ mod tests {
         assert_eq!(j.findings.len(), 1);
         assert_eq!(j.findings[0].id, "F-01");
         assert_eq!(j.findings[0].created_at, "2026-03-31T10:00:00Z");
-        // add_finding also records a FindingRecorded entry
         assert_eq!(j.entries.len(), 1);
     }
 
@@ -192,7 +191,7 @@ mod tests {
             function: "claim".into(), status: ReviewStatus::InProgress, timestamp: "t".into(),
         });
         let (done, total) = j.progress(8);
-        assert_eq!(done, 2); // Clean + Vulnerable are "done", InProgress is not
+        assert_eq!(done, 2);
         assert_eq!(total, 8);
     }
 
@@ -206,7 +205,7 @@ mod tests {
             function: "deposit".into(), status: ReviewStatus::Clean, timestamp: "t2".into(),
         });
         assert_eq!(j.function_status.get("deposit"), Some(&ReviewStatus::Clean));
-        assert_eq!(j.entries.len(), 2); // both events preserved in history
+        assert_eq!(j.entries.len(), 2);
     }
 
     #[test]

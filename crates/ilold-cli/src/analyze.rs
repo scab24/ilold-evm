@@ -39,8 +39,6 @@ pub fn run(
     println!("Parsed {} file(s), {} contract(s)\n",
         project.source_files.len(), project.contracts.len());
 
-    // Precompute all per-contract sequence analyses, then run the
-    // inheritance-aware transitive effect pass.
     let config = PruningConfig::default();
     let mut all_analyses: HashMap<String, SequenceAnalysis> = HashMap::new();
     for contract in &project.contracts {

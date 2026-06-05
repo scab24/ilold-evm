@@ -41,7 +41,6 @@ impl AccessLevel {
     }
 }
 
-// Modifiers that restrict WHO can call (access control)
 const ACCESS_MODIFIERS: &[&str] = &[
     "onlyowner", "onlyadmin", "onlyrole", "onlygovernance",
     "onlyminter", "onlypauser", "onlyoperator", "onlyguardian",
@@ -50,8 +49,6 @@ const ACCESS_MODIFIERS: &[&str] = &[
     "auth", "restricted",
 ];
 
-// Modifiers that restrict WHEN you can call (state guards, not access control)
-// These do NOT make a function "Restricted" — anyone can call when the condition is met
 #[allow(dead_code)]
 const STATE_GUARD_MODIFIERS: &[&str] = &[
     "whennotpaused", "whenpaused",
@@ -60,7 +57,6 @@ const STATE_GUARD_MODIFIERS: &[&str] = &[
 ];
 
 pub fn classify_function(func: &FunctionDef, _contract: &ContractDef) -> AccessLevel {
-    // Constructor, fallback, receive are special — not normal entry points
     match func.kind {
         FunctionKind::Constructor => {
             return AccessLevel::Special { kind: "constructor".into() };
@@ -74,12 +70,10 @@ pub fn classify_function(func: &FunctionDef, _contract: &ContractDef) -> AccessL
         FunctionKind::Function => {}
     }
 
-    // Internal/Private → not externally callable
     if matches!(func.visibility, Visibility::Internal | Visibility::Private) {
         return AccessLevel::Internal;
     }
 
-    // Check modifiers for access control patterns (not state guards)
     for modifier in &func.modifiers {
         let lower = modifier.name.to_lowercase();
         for pattern in ACCESS_MODIFIERS {
@@ -89,10 +83,8 @@ pub fn classify_function(func: &FunctionDef, _contract: &ContractDef) -> AccessL
                 };
             }
         }
-        // State guards are noted but don't change classification
     }
 
-    // Check for require(msg.sender == owner) or similar comparison in function body
     if let Some(body) = &func.body {
         if let Some(role) = find_sender_access_check(body) {
             return AccessLevel::Restricted { role };
@@ -110,9 +102,7 @@ pub fn classify_all(contract: &ContractDef) -> Vec<(String, AccessLevel)> {
         .collect()
 }
 
-/// Walks the AST looking for access control checks: require/assert/if where
-/// msg.sender is COMPARED (==, !=) with another value. This is stricter than
-/// just "mentions msg.sender" — balances[msg.sender] is NOT an access check.
+// matches msg.sender compared with ==/!=
 fn find_sender_access_check(stmts: &[Statement]) -> Option<String> {
     for stmt in stmts {
         if let Some(role) = check_statement_for_access(stmt) {
@@ -152,8 +142,6 @@ fn check_statement_for_access(stmt: &Statement) -> Option<String> {
     None
 }
 
-/// Checks if an expression is require(...) or assert(...) where the condition
-/// contains a msg.sender COMPARISON (==, !=), not just a mention.
 fn is_require_with_sender_comparison(expr: &Expression) -> bool {
     if let ExpressionKind::FunctionCall { callee, arguments } = &expr.kind {
         let is_require = matches!(&callee.kind,
@@ -168,19 +156,14 @@ fn is_require_with_sender_comparison(expr: &Expression) -> bool {
     false
 }
 
-/// Returns true if the expression compares msg.sender with something using == or !=.
-/// This catches: msg.sender == owner, owner == msg.sender, msg.sender != address(0)
-/// But NOT: balances[msg.sender] (that's indexing, not a comparison)
 fn expr_is_sender_comparison(expr: &Expression) -> bool {
     match &expr.kind {
         ExpressionKind::BinaryOp { left, operator, right } => {
             match operator {
                 BinaryOperator::Eq | BinaryOperator::Neq => {
-                    // One side must be msg.sender
                     expr_is_msg_sender(left) || expr_is_msg_sender(right)
                 }
                 BinaryOperator::And | BinaryOperator::Or => {
-                    // Recurse into && and || chains
                     expr_is_sender_comparison(left) || expr_is_sender_comparison(right)
                 }
                 _ => false,
@@ -191,7 +174,6 @@ fn expr_is_sender_comparison(expr: &Expression) -> bool {
     }
 }
 
-/// Returns true only for the exact expression `msg.sender`
 fn expr_is_msg_sender(expr: &Expression) -> bool {
     if let ExpressionKind::MemberAccess { object, member, .. } = &expr.kind {
         if member == "sender" {
@@ -320,7 +302,6 @@ mod tests {
 
     #[test]
     fn when_not_paused_is_still_public() {
-        // whenNotPaused is a state guard, NOT access control
         let f = make_func("deposit", Visibility::External, FunctionKind::Function, vec!["whenNotPaused"], Some(vec![]));
         assert_eq!(classify_function(&f, &contract()), AccessLevel::Public);
     }
@@ -372,7 +353,6 @@ mod tests {
     fn msg_sender_is_exact() {
         assert!(expr_is_msg_sender(&msg_sender_expr()));
 
-        // "sender" without "msg" is NOT msg.sender
         let not_msg = Expression {
             kind: ExpressionKind::MemberAccess {
                 object: Box::new(Expression {

@@ -11,7 +11,6 @@ pub fn export_markdown(journal: &AuditJournal, total_functions: usize) -> String
     writeln!(md, "**Project**: {} | **Started**: {} | **Progress**: {}/{} functions ({}%)",
         journal.project, journal.started_at, done, total, pct).unwrap();
 
-    // Findings
     writeln!(md).unwrap();
     if journal.findings.is_empty() {
         writeln!(md, "## Findings\n\nNo findings recorded.").unwrap();
@@ -37,7 +36,6 @@ pub fn export_markdown(journal: &AuditJournal, total_functions: usize) -> String
         }
     }
 
-    // Coverage
     writeln!(md).unwrap();
     writeln!(md, "## Coverage\n").unwrap();
     if journal.function_status.is_empty() {
@@ -50,7 +48,6 @@ pub fn export_markdown(journal: &AuditJournal, total_functions: usize) -> String
         }
     }
 
-    // Exploration log
     let has_exploration = journal.entries.iter().any(|e| matches!(e,
         JournalEntry::SequenceExplored { .. } | JournalEntry::BranchCreated { .. }
     ));

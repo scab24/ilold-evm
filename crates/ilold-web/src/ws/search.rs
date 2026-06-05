@@ -104,7 +104,6 @@ pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> 
                 });
             }
 
-            // Match on terminal type
             let terminal_str = format!("{:?}", path.terminal);
             if terminal_str.to_lowercase().contains(&q) {
                 matches.push(SearchMatch {
@@ -113,7 +112,6 @@ pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> 
                 });
             }
 
-            // Match on function name
             if function.to_lowercase().contains(&q) {
                 matches.push(SearchMatch {
                     field: "function".into(),

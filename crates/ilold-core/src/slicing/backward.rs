@@ -4,19 +4,6 @@ use super::extract::extract_statement_uses_defs;
 use super::flatten::FlatStatement;
 use super::types::StatementPath;
 
-/// Intraprocedural backward dataflow slice for `variable`.
-///
-/// Iterates to a fixed point over the flattened body:
-/// 1. Any statement whose def set intersects the `relevant` set is added
-///    to the slice and its uses are merged into `relevant`.
-/// 2. Every included statement drags in its lexical ancestors
-///    (If / For / While / Block / TryCatch wrappers) and *their* uses
-///    are merged into `relevant` — that is how `If (c)` conditions pull
-///    the data deps of `c` into the backward slice.
-/// The loop re-runs until neither set grows, so transitive and
-/// control-dependency-driven propagation are both handled.
-///
-/// Returns the selected paths in program order.
 pub fn backward_slice(flat: &[FlatStatement<'_>], variable: &str) -> Vec<StatementPath> {
     let mut relevant: HashSet<String> = HashSet::new();
     relevant.insert(variable.to_string());
@@ -55,10 +42,6 @@ pub fn backward_slice(flat: &[FlatStatement<'_>], variable: &str) -> Vec<Stateme
     included.into_iter().map(|i| flat[i].path.clone()).collect()
 }
 
-/// Walk up the parent chain of every currently-included statement and
-/// add every enclosing control-flow statement to the set, plus fold that
-/// ancestor's own uses into `relevant`. Returns `true` if either set
-/// grew — callers use that as a "re-run fixed-point pass" signal.
 pub(super) fn add_ancestors_with_uses(
     flat: &[FlatStatement<'_>],
     included: &mut BTreeSet<usize>,

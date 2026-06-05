@@ -9,7 +9,6 @@ import type {
   SessionEventCallbacks,
 } from './types';
 
-// ── Singleton state ─────────────────────────────────────────────────────────
 
 let socket: WebSocket | null = null;
 let intentionalClose = false;
@@ -20,10 +19,8 @@ const MAX_BACKOFF = 30_000;
 const MAX_QUEUE = 100;
 let messageQueue: string[] = [];
 
-// Subscribers persist across connection cycles — never cleared on disconnect (S30)
 const subscribers = new Map<string, Set<(msg: unknown) => void>>();
 
-// Backend ServerMessage variants — anything outside this set is truly unknown
 const knownTopics: ReadonlySet<string> = new Set([
   'search_result',
   'search_complete',
@@ -34,7 +31,6 @@ const knownTopics: ReadonlySet<string> = new Set([
   'session_highlight',
 ]);
 
-// ── Pub/Sub core ────────────────────────────────────────────────────────────
 
 export function subscribe<T extends keyof TopicMap>(
   topic: T,
@@ -61,7 +57,6 @@ function dispatch(topic: string, msg: unknown): void {
   for (const cb of set) cb(msg);
 }
 
-// ── Socket lifecycle ────────────────────────────────────────────────────────
 
 function ensureSocket(): WebSocket {
   if (socket) {
@@ -70,7 +65,6 @@ function ensureSocket(): WebSocket {
     socket = null;
   }
 
-  // Reset after teardown() so future sockets can auto-reconnect
   intentionalClose = false;
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -80,7 +74,6 @@ function ensureSocket(): WebSocket {
   socket.onopen = handleOpen;
   socket.onmessage = handleMessage;
   socket.onclose = handleClose;
-  // onerror always followed by onclose — handleClose does all cleanup
   socket.onerror = () => {};
 
   return socket;
@@ -95,7 +88,6 @@ function handleMessage(event: MessageEvent): void {
     return;
   }
 
-  // Discriminant from #[serde(tag = "type")] — internally tagged enum
   const topic = msg.type;
 
   if (!subscribers.has(topic)) {
@@ -120,7 +112,6 @@ function handleOpen(): void {
 function handleClose(): void {
   socket = null;
 
-  // Synthetic error so active search() calls reset via onError (S6)
   dispatch('error', {
     type: 'error',
     message: 'WebSocket disconnected',
@@ -132,7 +123,6 @@ function handleClose(): void {
   if (!intentionalClose) scheduleReconnect();
 }
 
-// ── Reconnection + teardown ─────────────────────────────────────────────────
 
 function scheduleReconnect(): void {
   if (reconnectTimer !== null) {
@@ -196,17 +186,7 @@ export function getConnectionState(): ConnectionState {
   }
 }
 
-// ── Convenience: search ─────────────────────────────────────────────────────
 
-/**
- * Scoped search subscriptions that auto-unsubscribe on complete/error.
- *
- * Limitation: no request-ID correlation from the backend. Overlapping searches
- * will cross-deliver results until the first auto-unsubscribes. Mitigations:
- * 1. Auto-unsub on search_complete keeps the overlap window small
- * 2. CommandPalette debounces at 250ms — one active search at a time
- * 3. Raw subscribe('search_result') gets ALL results — filter if needed
- */
 export function search(
   query: string,
   callbacks: SearchCallbacks,
@@ -249,7 +229,6 @@ export function search(
   return cleanup;
 }
 
-// ── Convenience: session events ─────────────────────────────────────────────
 
 export function onSessionEvent(callbacks: SessionEventCallbacks): () => void {
   const unsubs: Array<() => void> = [];

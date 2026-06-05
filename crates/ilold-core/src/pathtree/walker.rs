@@ -11,16 +11,12 @@ use crate::model::expression::AssignOperator;
 use super::config::PruningConfig;
 use super::types::*;
 
-/// One item on the DFS stack. Represents a path being explored.
 struct WalkState {
     node: NodeIndex,
     path: Vec<PathNode>,
     annotations: PathAnnotations,
     depth: usize,
-    /// How many times each LoopCondition block has been visited in THIS path.
-    /// Each path gets its own copy so loops don't interfere between paths.
     loop_counts: HashMap<usize, usize>,
-    /// The edge that led to this node (for recording in PathNode).
     edge_taken: Option<BranchEdge>,
 }
 
@@ -36,11 +32,9 @@ pub fn build_path_tree(
     let mut max_depth_reached: usize = 0;
     let mut next_path_id: usize = 0;
 
-    // Find the Entry node
     let entry = match cfg.node_indices().find(|&n| cfg[n].kind == BlockKind::Entry) {
         Some(n) => n,
         None => {
-            // No entry = interface function with no body
             return PathTree {
                 contract: contract_name.to_string(),
                 function: function_name.to_string(),
@@ -56,7 +50,6 @@ pub fn build_path_tree(
         }
     };
 
-    // DFS stack — each item is a path being explored
     let mut stack: Vec<WalkState> = vec![WalkState {
         node: entry,
         path: Vec::new(),
@@ -67,7 +60,6 @@ pub fn build_path_tree(
     }];
 
     while let Some(state) = stack.pop() {
-        // Budget check: stop if we've found enough paths
         if paths.len() >= config.max_paths {
             paths_pruned += 1;
             continue;
@@ -79,12 +71,10 @@ pub fn build_path_tree(
         let mut loop_counts = state.loop_counts;
         let depth = state.depth;
 
-        // Track max depth
         if depth > max_depth_reached {
             max_depth_reached = depth;
         }
 
-        // Pruning: max depth
         if depth > config.max_depth {
             paths_pruned += 1;
             path.push(PathNode {
@@ -104,7 +94,6 @@ pub fn build_path_tree(
             continue;
         }
 
-        // Pruning: loop detection
         if block.kind == BlockKind::LoopCondition {
             let count = loop_counts.entry(block.id).or_insert(0);
             *count += 1;
@@ -135,21 +124,18 @@ pub fn build_path_tree(
             scan_reads(condition, state_vars, &mut annotations);
         }
 
-        // Add this block to the path
         path.push(PathNode {
             block_id: block.id,
             block_kind: block.kind,
             branch_taken: state.edge_taken,
         });
 
-        // Collect annotations from this block's statements
         collect_annotations(&block.statements, state_vars, &mut annotations);
 
         if let Some(rv) = &block.return_value {
             scan_reads(rv, state_vars, &mut annotations);
         }
 
-        // Terminal check
         match block.kind {
             BlockKind::Return => {
                 let id = next_path_id;
@@ -178,18 +164,15 @@ pub fn build_path_tree(
             _ => {}
         }
 
-        // Get outgoing edges and push successors onto stack
         let edges: Vec<_> = cfg
             .edges_directed(state.node, Direction::Outgoing)
             .map(|e| (e.target(), e.weight().clone()))
             .collect();
 
         if edges.is_empty() {
-            // Entry with no edges = interface/abstract function (no body) → skip
             if block.kind == BlockKind::Entry && block.statements.is_empty() {
                 continue;
             }
-            // Dead end in a normal block → treat as implicit return
             let id = next_path_id;
             next_path_id += 1;
             paths.push(ExecutionPath {
@@ -202,10 +185,8 @@ pub fn build_path_tree(
             continue;
         }
 
-        // For each outgoing edge, clone the state and push
         for (i, (target, edge)) in edges.into_iter().enumerate() {
             let (p, a, lc) = if i == 0 {
-                // First edge reuses the original (avoids one clone)
                 (path.clone(), annotations.clone(), loop_counts.clone())
             } else {
                 (path.clone(), annotations.clone(), loop_counts.clone())
@@ -238,10 +219,6 @@ pub fn build_path_tree(
     }
 }
 
-/// Normalize a state-var access path by collapsing array indices to `[]`
-/// while preserving struct/field accesses. E.g.
-/// `proposals[id].executed` -> `proposals[].executed`,
-/// `balances[msg.sender]` -> `balances[]`.
 fn normalize_path(target: &str) -> String {
     let mut out = String::with_capacity(target.len());
     let mut depth = 0i32;
@@ -266,8 +243,6 @@ fn normalize_path(target: &str) -> String {
     out
 }
 
-/// Check whether an expression mentions a variable name as an identifier
-/// (not as a substring of a larger identifier).
 fn expression_mentions_var(expr: &str, name: &str) -> bool {
     if name.is_empty() {
         return false;
@@ -293,8 +268,6 @@ fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// Extract qualified state-var paths from an expression for a known var name.
-/// Returns normalized forms like `proposals[].executed` for matches.
 fn extract_qualified_paths(expr: &str, name: &str) -> Vec<String> {
     let mut out = Vec::new();
     if name.is_empty() {
@@ -309,7 +282,6 @@ fn extract_qualified_paths(expr: &str, name: &str) -> Vec<String> {
             let after_idx = i + nb.len();
             let after_ok = after_idx >= bytes.len() || !is_ident_char(bytes[after_idx]);
             if before_ok && after_ok {
-                // Walk forward consuming `[...]` and `.field` chains.
                 let mut end = after_idx;
                 loop {
                     if end < bytes.len() && bytes[end] == b'[' {
@@ -351,7 +323,6 @@ fn extract_qualified_paths(expr: &str, name: &str) -> Vec<String> {
     out
 }
 
-/// Scan a block's statements and accumulate annotations.
 fn collect_annotations(
     statements: &[CfgStatement],
     state_vars: &[StateVar],

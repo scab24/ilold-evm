@@ -1,11 +1,8 @@
-// Session API client — maps to the /api/session/* and /api/cmd endpoints.
-// All functions return typed responses matching the Rust backend structs.
 
 import type { ScenarioInfo, AllScenariosResponse } from './types';
 
 const BASE = '';
 
-// ── Command bus ─────────────────────────────────────────────────────────────
 
 export interface CommandRequest {
   contract?: string;
@@ -49,7 +46,6 @@ export async function postCommand(command: SessionCommand, contract?: string) {
   return res.json();
 }
 
-// ── Session queries ─────────────────────────────────────────────────────────
 
 export async function getSessionState() {
   const res = await fetch(`${BASE}/api/session/state`);
@@ -121,7 +117,6 @@ export async function getFunctionNarrative(contract: string, func: string) {
   return res.json();
 }
 
-// ── Scenarios ───────────────────────────────────────────────────────────────
 
 export async function getScenarios(): Promise<ScenarioInfo[]> {
   const res = await fetch(`${BASE}/api/scenarios`);

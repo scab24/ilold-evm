@@ -2,15 +2,6 @@
   import type { ContractDetail } from '$lib/api/rest';
   import { visibilityLabel } from '$lib/utils/visibility';
 
-  // Sidebar that lists every function declared in the contract (plus
-  // inherited ones), with a live search + visibility/access filters so it
-  // scales to large codebases (Aave has ~300 functions per pool).
-  //
-  // Click semantics (mode-aware):
-  // - Session mode: click dispatches "add step to active scenario"
-  // - CFG/Seq mode: click always adds to canvas (idempotent). To remove,
-  //   the row shows an explicit ✕ on hover when the function is already
-  //   on canvas. A top-level `Clear · N` button wipes the canvas at once.
   let {
     contract,
     canvasFuncs,
@@ -28,16 +19,11 @@
   let sidebarOpen = $state(true);
   let query = $state('');
 
-  // Visibility filter — multi-select. Defaults to entry points only
-  // (Public + External) to preserve the previous default UX; auditors can
-  // expand to Internal/Private with one click.
   type Visibility = 'Public' | 'External' | 'Internal' | 'Private';
   const ALL_VISIBILITIES: Visibility[] = ['External', 'Public', 'Internal', 'Private'];
   let visFilter = $state<Set<Visibility>>(new Set<Visibility>(['Public', 'External']));
   let onlyAccessControl = $state(false);
 
-  // Merge own + inherited; tag each row with its source so we can group
-  // under a divider.
   type Row = {
     name: string;
     visibility: string;
@@ -92,9 +78,6 @@
     onlyAccessControl = false;
   }
 
-  // Snapshot to Array before iterating because `onremove` mutates the
-  // parent's `canvasFuncs` reactive Set — iterating the live Set would
-  // skip entries.
   function clearCanvas() {
     if (!canClear) return;
     const toRemove = Array.from(canvasFuncs);
@@ -254,7 +237,6 @@
   }
   .collapse-btn { border-radius: 6px; }
 
-  /* ── Search ──────────────────────────────────────────────────────────── */
   .search-wrap {
     position: relative;
     display: flex;
@@ -308,7 +290,6 @@
     background: color-mix(in srgb, var(--color-border) 40%, transparent);
   }
 
-  /* ── Filter chips ────────────────────────────────────────────────────── */
   .filters {
     display: flex;
     flex-wrap: wrap;
@@ -345,7 +326,6 @@
     border-color: color-mix(in srgb, var(--color-danger) 70%, transparent);
   }
 
-  /* ── Section divider (own vs inherited) ──────────────────────────────── */
   .section-divider {
     font-size: 9px;
     font-weight: 700;
@@ -355,7 +335,6 @@
     padding: 10px 8px 4px;
   }
 
-  /* ── Empty state ─────────────────────────────────────────────────────── */
   .empty-state {
     display: flex;
     flex-direction: column;
@@ -385,7 +364,6 @@
     background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   }
 
-  /* ── Function rows ───────────────────────────────────────────────────── */
   .row-wrap {
     display: flex;
     align-items: center;
@@ -427,7 +405,6 @@
     white-space: nowrap;
   }
 
-  /* Visibility pill — tinted per value for quick scan */
   .row-vis {
     font-size: 8px;
     font-weight: 600;
@@ -454,8 +431,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Canvas membership toggle — shows ✓ at rest, swaps to ✕ on row hover
-     so the "remove" affordance is discoverable but not noisy. */
   .row-toggle {
     appearance: none;
     background: transparent;

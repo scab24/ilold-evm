@@ -3,8 +3,6 @@ use std::collections::HashSet;
 use crate::model::expression::{Expression, ExpressionKind};
 use crate::model::statement::{Statement, StatementKind};
 
-/// Walk an expression tree and collect every `Identifier` leaf name.
-/// Used to build the "uses" set of a statement.
 pub fn walk_expr_identifiers(expr: &Expression, out: &mut HashSet<String>) {
     match &expr.kind {
         ExpressionKind::Identifier { name, .. } => {
@@ -27,13 +25,8 @@ pub fn walk_expr_identifiers(expr: &Expression, out: &mut HashSet<String>) {
             walk_expr_identifiers(operand, out);
         }
         ExpressionKind::FunctionCall { callee, arguments } => {
-            // The callee may itself mention identifiers (e.g. `someFn`, or
-            // `obj.method` — we care about `obj`). Skip the callee if it's
-            // just a plain Identifier that names the function being called,
-            // since that's not a data read.
             match &callee.kind {
                 ExpressionKind::Identifier { .. } => {
-                    // Pure function name — not a data use.
                 }
                 _ => walk_expr_identifiers(callee, out),
             }
@@ -42,9 +35,6 @@ pub fn walk_expr_identifiers(expr: &Expression, out: &mut HashSet<String>) {
             }
         }
         ExpressionKind::Assignment { target, value, .. } => {
-            // Used when an assignment is part of a bigger expression. The
-            // target's side effects (e.g. `a[i] = x` reads `i`) need to be
-            // captured; the value is a normal use.
             walk_assignment_target_uses(target, out);
             walk_expr_identifiers(value, out);
         }
@@ -79,14 +69,9 @@ pub fn walk_expr_identifiers(expr: &Expression, out: &mut HashSet<String>) {
     }
 }
 
-/// Collect the USE identifiers inside an assignment target. `x = …` has
-/// no uses on the target, but `arr[i] = …` uses `i`, and `obj.field = …`
-/// uses `obj`. The base identifier itself (`x`, `arr`, `obj`) is the DEF
-/// and is NOT added here.
 fn walk_assignment_target_uses(target: &Expression, out: &mut HashSet<String>) {
     match &target.kind {
         ExpressionKind::Identifier { .. } => {
-            // The target identifier is the def, not a use.
         }
         ExpressionKind::IndexAccess { base, index } => {
             walk_assignment_target_uses(base, out);
@@ -98,15 +83,11 @@ fn walk_assignment_target_uses(target: &Expression, out: &mut HashSet<String>) {
             walk_assignment_target_uses(object, out);
         }
         _ => {
-            // Anything else on the LHS is unusual (tuple? deref?) — treat
-            // sub-expressions as uses to stay safe.
             walk_expr_identifiers(target, out);
         }
     }
 }
 
-/// Collect the DEF identifier of an assignment target. Returns the base
-/// variable name being written (e.g. `balances` for `balances[to] = x`).
 pub fn extract_assignment_def(target: &Expression) -> Option<String> {
     match &target.kind {
         ExpressionKind::Identifier { name, .. } => Some(name.clone()),
@@ -116,12 +97,6 @@ pub fn extract_assignment_def(target: &Expression) -> Option<String> {
     }
 }
 
-/// Use/def sets for a single `Statement`. Does NOT recurse into nested
-/// statements — callers handle block walking separately so they can
-/// associate sub-statements with their own paths.
-///
-/// For statements that only introduce control flow (If/For/While), the
-/// returned uses are the condition's uses; defs is empty.
 pub fn extract_statement_uses_defs(stmt: &Statement) -> (HashSet<String>, HashSet<String>) {
     let mut uses: HashSet<String> = HashSet::new();
     let mut defs: HashSet<String> = HashSet::new();
@@ -149,10 +124,6 @@ pub fn extract_statement_uses_defs(stmt: &Statement) -> (HashSet<String>, HashSe
             walk_expr_identifiers(condition, &mut uses);
         }
         StatementKind::For { init: _, condition, increment, .. } => {
-            // `init` is a Statement of its own and will be handled as a
-            // separate flat entry; same for the body. Increment is an
-            // Expression evaluated each iteration — its uses count for
-            // the loop header.
             if let Some(c) = condition {
                 walk_expr_identifiers(c, &mut uses);
             }
@@ -192,9 +163,6 @@ pub fn extract_statement_uses_defs(stmt: &Statement) -> (HashSet<String>, HashSe
     (uses, defs)
 }
 
-/// Render a statement as a short human-readable string for slice output.
-/// This is NOT a full Solidity pretty-printer — just enough to identify
-/// the statement in a slice result.
 pub fn statement_text(stmt: &Statement) -> String {
     match &stmt.kind {
         StatementKind::ExpressionStmt { expression } => expr_to_text(expression),
@@ -235,8 +203,6 @@ pub fn statement_text(stmt: &Statement) -> String {
     }
 }
 
-/// Minimal expression-to-text for slice entries. Keeps the output
-/// compact — full fidelity is not the goal.
 fn expr_to_text(expr: &Expression) -> String {
     match &expr.kind {
         ExpressionKind::Identifier { name, .. } => name.clone(),

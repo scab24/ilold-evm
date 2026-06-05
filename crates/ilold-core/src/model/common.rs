@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Points to a location in source code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSpan {
     pub file_index: usize,

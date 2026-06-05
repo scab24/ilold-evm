@@ -20,7 +20,6 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    /// Analyze Solidity contracts
     Analyze {
         path: PathBuf,
         #[arg(long)]
@@ -32,7 +31,6 @@ enum Commands {
         #[arg(long)]
         deps: bool,
     },
-    /// Generate context for a function or sequence
     Context {
         path: PathBuf,
         #[arg(long)]
@@ -44,7 +42,6 @@ enum Commands {
         #[arg(long)]
         list: bool,
     },
-    /// Start interactive web viewer
     Serve {
         path: PathBuf,
         #[arg(long, default_value = "8080")]
@@ -52,16 +49,18 @@ enum Commands {
         #[arg(long, default_value = "3")]
         max_seq_depth: usize,
     },
-    /// Interactive exploration REPL with web canvas
     Explore {
         path: PathBuf,
         #[arg(long, default_value = "0")]
         port: u16,
         #[arg(long, default_value = "3")]
         max_seq_depth: usize,
-        /// Attach to a running server instead of starting one locally
         #[arg(long)]
         attach: Option<String>,
+    },
+    EvmMcp {
+        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        server_url: String,
     },
 }
 
@@ -86,12 +85,14 @@ async fn main() -> Result<()> {
         }
         Commands::Explore { path, port, max_seq_depth, attach } => {
             if attach.is_some() {
-                // --attach mode: no local analysis needed, connect to remote server
                 explore::run(Vec::new(), port, max_seq_depth, attach).await
             } else {
                 let root = foundry_root(&path)?;
                 explore::run(vec![root], port, max_seq_depth, attach).await
             }
+        }
+        Commands::EvmMcp { server_url } => {
+            ilold_evm_mcp::run(ilold_evm_mcp::Config { server_url }).await
         }
     }
 }

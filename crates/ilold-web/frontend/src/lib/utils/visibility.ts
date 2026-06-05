@@ -1,7 +1,3 @@
-// Shared mapping from Solidity `Visibility` (Public/External/Internal/Private)
-// to the compact badge label and Tailwind class used on function + seq-next
-// cards. Both FunctionNode.svelte and SequenceNode.svelte consume these so
-// the badge stays visually consistent.
 
 export function visibilityLabel(visibility: string | undefined): string | null {
   switch (visibility) {

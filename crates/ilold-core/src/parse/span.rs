@@ -1,6 +1,5 @@
 use crate::model::common::SourceSpan;
 
-/// Byte-offset → 1-based line/column lookup for a single source file.
 pub struct LineIndex {
     file_index: usize,
     line_offsets: Vec<usize>,
@@ -23,7 +22,6 @@ impl LineIndex {
         ((line + 1) as u32, (col + 1) as u32)
     }
 
-    /// Span from a byte range `[start, end)`.
     pub fn span(&self, start: usize, end: usize) -> SourceSpan {
         let (start_line, start_col) = self.line_col(start);
         let (end_line, end_col) = self.line_col(end);

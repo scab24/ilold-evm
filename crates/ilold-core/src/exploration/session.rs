@@ -16,18 +16,10 @@ pub struct ExplorationSession {
     pub contract: String,
     pub steps: Vec<ExplorationStep>,
     pub journal: AuditJournal,
-    /// Set when this scenario was created via `scenario fork`. Records the
-    /// source scenario and the at-step boundary so the frontend can render
-    /// the fork as a branch from the origin instead of a parallel timeline.
-    /// `None` for the default `main` scenario and for any scenario loaded
-    /// from a pre-fork-origin save file (serde defaults to `None`).
     #[serde(default)]
     pub forked_from: Option<ForkOrigin>,
 }
 
-/// Where a scenario was forked from. The `at_step` is the boundary: the
-/// scenario's steps `[0..at_step)` are the inherited prefix (a clone of the
-/// origin's steps at fork time), and steps `[at_step..]` are its own.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ForkOrigin {
     pub scenario: String,
@@ -97,8 +89,6 @@ impl ExplorationSession {
         }
     }
 
-    /// Append a step, building and persisting its FlowTree. Each harvested
-    /// mutation carries a `flow_step_id` into that tree.
     #[allow(clippy::too_many_arguments)]
     pub fn add_step_with_internals(
         &mut self,
@@ -128,8 +118,6 @@ impl ExplorationSession {
             &flow_config,
         );
 
-        // Walker is scope-agnostic; keep only writes whose base name is a
-        // state var and convert into the session-level mutation type.
         let mutations: Vec<StateMutation> = raw_mutations
             .into_iter()
             .filter_map(|fm| {

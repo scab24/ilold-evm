@@ -29,8 +29,7 @@ impl Project {
         rel.rsplit_once('/').map(|(dir, _)| dir.to_string()).unwrap_or_default()
     }
 
-    /// Rebuild the contract_index from the contracts vec.
-    /// Call this after deserialization since serde(skip) means the index is empty.
+    // call after deserialization; serde(skip) leaves the index empty
     pub fn rebuild_index(&mut self) {
         self.contract_index = self
             .contracts
@@ -40,13 +39,6 @@ impl Project {
             .collect();
     }
 
-    /// Find a contract by exact name, or auto-pick the best candidate when
-    /// `filter` is None. Returns Err with a user-facing message on failure.
-    ///
-    /// Auto-pick rules (when filter is None):
-    ///  1. Skip interfaces.
-    ///  2. Prefer "top-level" contracts — those NOT inherited by any other.
-    ///  3. If there's still ambiguity, return Err listing the candidates.
     pub fn find_contract(&self, filter: Option<&str>) -> Result<&ContractDef, String> {
         if let Some(name) = filter {
             return self
@@ -66,7 +58,6 @@ impl Project {
             0 => Err("No contracts found".into()),
             1 => Ok(non_interface[0]),
             _ => {
-                // Collect names that appear as a parent in `inherits` of any contract.
                 let inherited: HashSet<&str> = non_interface
                     .iter()
                     .flat_map(|c| c.inherits.iter().map(|s| s.as_str()))
@@ -210,20 +201,15 @@ impl Project {
         result
     }
 
-    /// Resolve a modifier by name on `contract`, walking the inheritance chain.
-    /// Returns the first matching `ModifierDef` (current contract first, then
-    /// parents BFS).
     pub fn resolve_modifier<'a>(
         &'a self,
         contract: &'a ContractDef,
         mod_name: &str,
     ) -> Option<&'a crate::model::modifier::ModifierDef> {
-        // Try current contract first
         if let Some(m) = contract.modifiers.iter().find(|m| m.name == mod_name) {
             return Some(m);
         }
 
-        // Walk inheritance chain BFS
         let mut visited: HashSet<String> = HashSet::new();
         let mut queue: Vec<&str> = contract.inherits.iter().map(|s| s.as_str()).collect();
 

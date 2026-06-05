@@ -40,8 +40,7 @@ pub enum BranchEdge {
 }
 
 impl BranchEdge {
-    /// Canonical ordering used to make CFG traversal deterministic.
-    /// Lower values are visited first; tiebreaker is the target node index.
+    // traversal order: lower first, then target index
     pub fn variant_order(&self) -> u8 {
         match self {
             BranchEdge::Unconditional => 0,

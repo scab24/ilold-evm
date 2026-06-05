@@ -89,12 +89,10 @@ impl ContractDeps {
         self.index.get(name).copied()
     }
 
-    /// Contracts this one depends on (inherits / calls / holds).
     pub fn dependencies(&self, name: &str) -> Vec<DepRef<'_>> {
         self.neighbors(name, Direction::Outgoing)
     }
 
-    /// Contracts that depend on this one — the blast radius.
     pub fn dependents(&self, name: &str) -> Vec<DepRef<'_>> {
         self.neighbors(name, Direction::Incoming)
     }
@@ -182,7 +180,6 @@ mod tests {
             .iter()
             .any(|d| d.node.name == "BasePool" && d.edge.inherits));
 
-        // BasePool inherits IPool; Vault inherits BasePool, not IPool.
         let used: Vec<String> = deps
             .dependents("IPool")
             .iter()

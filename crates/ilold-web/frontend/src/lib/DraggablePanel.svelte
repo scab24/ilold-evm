@@ -120,7 +120,6 @@
     scrollbar-color: var(--color-border) transparent;
   }
 
-  /* Resize handles — edges and corner */
   .resize-e {
     position: absolute; top: 10px; right: -3px; bottom: 10px; width: 6px;
     cursor: ew-resize;

@@ -6,9 +6,6 @@
       nodeId: string;
       funcName: string;
       nodeType: string;
-      /** Set when the right-clicked node is a session step in the active
-       *  scenario's path (shared prefix or active tail). Carries the step
-       *  index used by `Fork { at_step: stepIndex + 1 }`. */
       sessionStep?: { stepIndex: number };
     } | null;
     expandedFuncs: Set<string>;
@@ -18,29 +15,18 @@
     onremovefunc: (funcName: string) => void;
     onremovenode: (nodeId: string) => void;
     onforkscenario: (stepIndex: number) => void;
-    /** Truncate the active scenario at `stepIndex` — removes this step and
-     *  everything after it. Same semantics as calling REPL `b` repeatedly. */
     onremovefromhere: (stepIndex: number) => void;
-    /** Open the inline source panel for `funcName`. */
     onviewsource: (funcName: string) => void;
-    /** Open the file in the user's IDE (VS Code / Cursor / fork) via the
-     *  `vscode://` URL scheme. */
     onopenide: (funcName: string) => void;
     onclose: () => void;
   }
 
   let { menu, expandedFuncs, seqExpanded, mode, onexpandcfg, onremovefunc, onremovenode, onforkscenario, onremovefromhere, onviewsource, onopenide, onclose }: Props = $props();
 
-  // View source / Open in code are read-only operations meaningful for
-  // any canvas node that identifies a function. Shown in every mode.
   const canViewSource = $derived(
     menu != null && (menu.nodeType === 'function' || menu.nodeType === 'seq-next')
   );
 
-  // Canvas-action buttons (Expand CFG, Remove from canvas, Collapse, Remove
-  // node) belong to exploration modes. In Session mode the canvas is
-  // reserved for the scenarios tree, so these entries are hidden — the menu
-  // then shows only session-level actions (Fork scenario here) + Cancel.
   const showCanvasActions = $derived(mode !== 'session');
 </script>
 

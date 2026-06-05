@@ -77,9 +77,6 @@ fn timestamp_now() -> String {
         .unwrap_or_default()
 }
 
-/// Validate a scenario name and check it is not already taken in the store.
-/// Shared guard for both `ScenarioAction::New` and `ScenarioAction::Fork`.
-/// Returns `Err(CommandResult::Error)` ready to be propagated.
 fn reserve_name(store: &ScenarioStore, name: &str) -> Result<(), CommandResult> {
     if let Err(e) = validate_scenario_name(name) {
         return Err(CommandResult::Error { message: e });
@@ -92,9 +89,6 @@ fn reserve_name(store: &ScenarioStore, name: &str) -> Result<(), CommandResult> 
     Ok(())
 }
 
-/// Execute scenario lifecycle commands against the `ScenarioStore`. Lives
-/// in the web crate because it needs `&mut ScenarioStore` (crate boundary);
-/// `commands.rs` only defines the data types.
 fn execute_scenario(
     store: &mut ScenarioStore,
     action: ScenarioAction,
@@ -126,8 +120,6 @@ fn execute_scenario(
         ScenarioAction::Switch { name } => {
             let from = store.active().to_string();
             if name == from {
-                // idempotent no-op per spec S3.4; caller is responsible for
-                // suppressing WS broadcast when from == to.
                 return CommandResult::ScenarioSwitched { from, to: name };
             }
             match store.set_active(name.clone()) {
@@ -170,10 +162,6 @@ fn fork_scenario(
     let from = store.active().to_string();
     let mut cloned = store.active_session().clone();
 
-    // Resolve effective step count. None (legacy) → keep all steps.
-    // Some(N) → truncate to first N; error if N > current length.
-    // Mutations live inside each ExplorationStep, so truncating `steps`
-    // drops their owning step's mutations as well.
     let len = cloned.steps.len();
     let effective = match at_step {
         None => len,
@@ -191,16 +179,10 @@ fn fork_scenario(
         }
     };
 
-    // Record the fork origin on the cloned session itself. The frontend
-    // reads this (via /api/scenarios/all) to render the scenario as a
-    // branch from its source instead of a parallel timeline.
     cloned.forked_from = Some(ForkOrigin {
         scenario: from.clone(),
         at_step: effective,
     });
-    // The `BranchCreated` variant's field names (`from_function`/`branch_function`)
-    // are reused here as scenario names per design §2.4 — intentionally not
-    // renamed to preserve save-file compatibility.
     cloned.journal.record(JournalEntry::BranchCreated {
         from_function: from.clone(),
         branch_function: new_name.clone(),
@@ -223,18 +205,10 @@ pub async fn handle_command(
     let timestamp = timestamp_now();
 
     let mut scenarios_guard = state.scenarios.write().unwrap();
-    // SaveSession/LoadSession bypass the contract-switch reset: Save doesn't
-    // care about the request's contract field, and Load carries its own
-    // contract inside the JSON. Without the bypass, loading a file from a
-    // different contract would clear the store before the load runs.
     let is_persistence = matches!(
         req.command,
         SessionCommand::SaveSession | SessionCommand::LoadSession { .. }
     );
-    // Contract switch: only reset if the active session has actual steps.
-    // An empty session with a mismatched contract means the auto-seed picked
-    // a default contract that didn't match the first real request — just
-    // swap it transparently (no ClearAll, nothing was ever on the canvas).
     let needs_reset = !is_persistence
         && scenarios_guard.active_session().contract != contract_name;
     if needs_reset {
@@ -247,16 +221,8 @@ pub async fn handle_command(
             }).ok();
         }
     }
-    // Scenario / Save / Load commands operate on the store itself; all
-    // other commands are delegated to the active session. Dispatch happens
-    // here (before `active_session_mut`) to avoid partial-move errors on
-    // `req.command`.
     match req.command {
         SessionCommand::Scenario { sub } => {
-            // Capture the active scenario BEFORE executing the scenario
-            // command. Switch/Delete mutate `active` or remove scenarios; the
-            // lifecycle patch embeds the pre-call name for consistent
-            // routing on the frontend.
             let active_before = scenarios_guard.active().to_string();
             let result = execute_scenario(&mut scenarios_guard, sub, &timestamp, &contract_name);
             if let Some(patch) = canvas_patch_from(&result, &active_before) {
@@ -290,8 +256,6 @@ pub async fn handle_command(
                 }
                 Err(message) => CommandResult::Error { message },
             };
-            // Use the post-load active so the WS Reloaded event names the
-            // scenario the frontend should switch to.
             let active_after = scenarios_guard.active().to_string();
             if let Some(patch) = canvas_patch_from(&result, &active_after) {
                 state.session_tx.send(patch).ok();
@@ -299,10 +263,6 @@ pub async fn handle_command(
             Ok(Json(result))
         }
         other => {
-            // Capture the active scenario name BEFORE delegating — the
-            // session mutation below doesn't change `active`, but grabbing
-            // it here keeps the pattern symmetric with the scenario branch
-            // and avoids a second borrow after `active_session_mut`.
             let active_name = scenarios_guard.active().to_string();
             let session = scenarios_guard.active_session_mut();
             let result = execute_command(other, session, &data, &timestamp);
@@ -329,9 +289,6 @@ pub async fn get_step_detail(
     Ok(Json(narrative))
 }
 
-/// Return the persisted FlowTree of a session step. The tree is read
-/// directly from `step.flow_tree` — no recomputation against the source
-/// — so the result reflects what the auditor saw when `c <func>` ran.
 pub async fn get_session_step_trace(
     State(state): State<Arc<AppState>>,
     Path(step_index): Path<usize>,
@@ -355,7 +312,6 @@ pub async fn get_session_step_trace(
     Ok(Json(tree))
 }
 
-/// Cross-step variable history with path conditions for each write.
 pub async fn get_variable_timeline_handler(
     State(state): State<Arc<AppState>>,
     Path(variable): Path<String>,
@@ -408,8 +364,6 @@ pub struct TraceQuery {
     pub depth: Option<usize>,
     #[serde(default)]
     pub reverts: Option<bool>,
-    /// Comma-separated step_ids to force-inline beyond `depth`. Example:
-    /// `?expand=17,24` will inline both calls regardless of max_depth.
     #[serde(default)]
     pub expand: Option<String>,
 }
@@ -434,16 +388,10 @@ pub async fn get_flow_trace(
 
 #[derive(Deserialize)]
 pub struct SliceQuery {
-    /// `backward`, `forward`, or `both`. Defaults to `both` when absent.
-    /// Short forms `b`/`f` and synonyms `back`/`fwd`/`all` are accepted.
     #[serde(default)]
     pub direction: Option<String>,
 }
 
-/// Dataflow slice for `variable` inside `function` of the session's
-/// current contract. The function is resolved from the active session so
-/// the auditor doesn't have to re-type the contract name; if no session
-/// exists the endpoint returns 404.
 pub async fn get_function_slice(
     State(state): State<Arc<AppState>>,
     Path((func_name, variable)): Path<(String, String)>,
@@ -495,10 +443,6 @@ fn parse_slice_direction(raw: Option<&str>) -> Result<SliceDirection, String> {
     }
 }
 
-/// Lightweight per-step view for the `/api/scenarios/all` snapshot. The
-/// access level is resolved against `AppState.classifications` (same lookup
-/// pattern used by `execute_who` in the core crate) so the frontend can
-/// colour the node without re-classifying.
 #[derive(Serialize)]
 pub struct SessionStepView {
     pub function: String,
@@ -506,8 +450,6 @@ pub struct SessionStepView {
     pub step_index: usize,
 }
 
-/// Per-scenario snapshot in `AllScenariosResponse`. `forked_from` is `None`
-/// for `main` and for any scenario loaded from a pre-fork-origin save file.
 #[derive(Serialize)]
 pub struct ScenarioSnapshot {
     pub name: String,
@@ -518,13 +460,9 @@ pub struct ScenarioSnapshot {
 #[derive(Serialize)]
 pub struct AllScenariosResponse {
     pub active: String,
-    /// Ordered by creation order (main first, then insertion order). Not a
-    /// HashMap — the frontend composes scenarios into a visual tree and needs
-    /// stable iteration so "main" always anchors the canvas.
     pub scenarios: Vec<ScenarioSnapshot>,
 }
 
-/// Return the list of scenarios — mirrors the `scenario list` CLI command.
 pub async fn get_scenarios(
     State(state): State<Arc<AppState>>,
 ) -> Json<Vec<ScenarioInfo>> {
@@ -542,8 +480,6 @@ pub async fn get_scenarios(
     Json(items)
 }
 
-/// Bulk snapshot of every scenario's step list. Used by the frontend canvas
-/// to paint all scenarios at once (e.g. on reconnect / initial load).
 pub async fn get_all_scenarios(
     State(state): State<Arc<AppState>>,
 ) -> Json<AllScenariosResponse> {
@@ -558,9 +494,6 @@ pub async fn get_all_scenarios(
             .iter()
             .enumerate()
             .map(|(idx, step)| {
-                // Same lookup pattern as `execute_who`'s `access_for`
-                // (`commands.rs:515-519`): fall back to `Internal` when the
-                // classification is missing so the response shape is stable.
                 let access = classifs
                     .and_then(|c| c.iter().find(|(n, _)| n == &step.function))
                     .map(|(_, a)| a.clone())
@@ -581,9 +514,6 @@ pub async fn get_all_scenarios(
     Json(AllScenariosResponse { active, scenarios })
 }
 
-/// Parse a comma-separated `expand` query value into a set of step_ids.
-/// Empty input → empty set. Whitespace around values is tolerated.
-/// Returns `Err` with a descriptive message if any value is not a usize.
 fn parse_expand_set(raw: Option<&str>) -> Result<std::collections::HashSet<usize>, String> {
     let mut set = std::collections::HashSet::new();
     let raw = match raw {

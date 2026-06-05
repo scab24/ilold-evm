@@ -43,9 +43,6 @@ pub async fn get_project(State(state): State<Arc<AppState>>) -> Json<ProjectSumm
     })
 }
 
-// ============================================================================
-// Project Map — full contract details with cross-contract relationships
-// ============================================================================
 
 #[derive(Serialize)]
 pub struct ProjectMap {
@@ -136,7 +133,6 @@ pub async fn get_project_map(State(state): State<Arc<AppState>>) -> Json<Project
             state_vars,
         });
 
-        // Extract cross-contract relationships from call graph
         if let Some(cg) = state.call_graphs.get(&contract.name) {
             for edge_idx in cg.edge_indices() {
                 let (src, dst) = cg.edge_endpoints(edge_idx).unwrap();

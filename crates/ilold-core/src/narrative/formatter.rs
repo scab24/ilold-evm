@@ -25,7 +25,6 @@ pub fn function_to_markdown(n: &FunctionNarrative) -> String {
         writeln!(md, "**Calls**: {}", n.external_calls.join(", ")).unwrap();
     }
 
-    // Happy paths first, then revert paths
     let mut happy: Vec<&PathNarrative> = n.paths.iter()
         .filter(|p| p.terminal == TerminalKind::Return)
         .collect();

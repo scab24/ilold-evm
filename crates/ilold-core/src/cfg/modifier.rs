@@ -3,18 +3,12 @@ use crate::model::statement::{Statement, StatementKind};
 
 use super::error::CfgError;
 
-/// A statement tagged with the name of the modifier it came from, or `None`
-/// when the statement is part of the function's own body.
 #[derive(Debug, Clone)]
 pub struct TaggedStatement {
     pub stmt: Statement,
     pub provenance: Option<String>,
 }
 
-/// Inline a chain of modifiers around a function body.
-///
-/// Modifiers wrap last-to-first: `[onlyOwner, nonReentrant]` means the result
-/// of inlining `nonReentrant` around the body is then inlined into `onlyOwner`.
 pub fn inline_modifiers(
     body: &[Statement],
     modifier_defs: &[&ModifierDef],
@@ -56,9 +50,6 @@ fn has_placeholder(stmts: &[Statement]) -> bool {
     })
 }
 
-/// Replace each `_` placeholder in `modifier_body` with `function_body`,
-/// tagging modifier statements with `modifier_name`. Inner tags in the
-/// function body (from prior nested inlining) are preserved.
 fn replace_placeholder_tagged(
     modifier_body: &[Statement],
     function_body: &[TaggedStatement],
@@ -176,8 +167,6 @@ fn replace_placeholder_tagged(
     result
 }
 
-/// Placeholder replacement inside compound statements. Drops the tag layer
-/// because compound statements store plain `Statement`, not `TaggedStatement`.
 fn replace_placeholder_tagged_block(
     modifier_body: &[Statement],
     function_body: &[TaggedStatement],
@@ -230,7 +219,6 @@ mod tests {
 
     #[test]
     fn test_single_modifier_inlining() {
-        // modifier onlyOwner { require(isOwner); _; }
         let modifier = ModifierDef {
             name: "onlyOwner".into(),
             params: vec![],
@@ -238,12 +226,10 @@ mod tests {
             span: span(),
         };
 
-        // function body: return;
         let body = vec![make_return()];
 
         let result = inline_modifiers(&body, &[&modifier]).unwrap();
 
-        // Expected: require(isOwner) tagged with "onlyOwner", return (no tag)
         assert_eq!(result.len(), 2);
         assert!(matches!(result[0].stmt.kind, StatementKind::ExpressionStmt { .. }));
         assert_eq!(result[0].provenance.as_deref(), Some("onlyOwner"));
@@ -253,7 +239,6 @@ mod tests {
 
     #[test]
     fn test_chained_modifiers() {
-        // modifier A { require(a); _; }
         let mod_a = ModifierDef {
             name: "A".into(),
             params: vec![],
@@ -261,7 +246,6 @@ mod tests {
             span: span(),
         };
 
-        // modifier B { require(b); _; }
         let mod_b = ModifierDef {
             name: "B".into(),
             params: vec![],
@@ -271,8 +255,6 @@ mod tests {
 
         let body = vec![make_return()];
 
-        // function foo() A B { return; }
-        // Expected: require(a) [tagged A], require(b) [tagged B], return [no tag]
         let result = inline_modifiers(&body, &[&mod_a, &mod_b]).unwrap();
 
         assert_eq!(result.len(), 3);
@@ -286,7 +268,7 @@ mod tests {
         let modifier = ModifierDef {
             name: "broken".into(),
             params: vec![],
-            body: vec![make_require("x")], // no placeholder!
+            body: vec![make_require("x")],
             span: span(),
         };
 

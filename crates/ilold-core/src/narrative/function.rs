@@ -118,7 +118,6 @@ pub fn build_function_narrative(
     let mut events: Vec<String> = events_set.into_iter().collect();
     events.sort();
 
-    // Look up this function's behavior to get internal_calls
     let root_behavior = all_behaviors.iter().find(|b| b.name == function.name);
 
     let (transitive_writes, transitive_reads, transitive_external, transitive_events) =
@@ -167,8 +166,6 @@ fn collect_transitive_effects(
     _direct_reads: &[String],
     _direct_external: &[String],
 ) -> (Vec<TransitiveEffect>, Vec<TransitiveEffect>, Vec<TransitiveEffect>, Vec<TransitiveEffect>) {
-    // Read pre-computed transitive sets from FunctionBehavior.
-    // Chain info is lost in this simpler form — will be restored in Phase 3.
     fn map_to_effects(items: &[String]) -> Vec<TransitiveEffect> {
         items
             .iter()

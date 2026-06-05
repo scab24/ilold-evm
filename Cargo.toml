@@ -4,6 +4,7 @@ members = [
     "crates/ilold-core",
     "crates/ilold-cli",
     "crates/ilold-web",
+    "crates/ilold-evm-mcp",
 ]
 
 # Shared dependency versions — referenced via { workspace = true } in member crates
@@ -20,6 +21,7 @@ clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
+rmcp = { version = "1.6", features = ["server", "transport-io"] }
 
 [profile.release]
 lto = "thin"

@@ -1,6 +1,5 @@
 import type { Node, Edge } from '@xyflow/svelte';
 
-// ── Node data types ─────────────────────────────────────────
 
 export interface FunctionNodeData {
   [key: string]: unknown;
@@ -9,12 +8,10 @@ export interface FunctionNodeData {
   is_external: boolean;
   contractName?: string;
   _dimmed?: boolean;
-  // Enrichment fields (from ContractDetail.functions)
   visibility?: string;
   mutability?: string;
   path_count?: number;
   modifiers?: string[];
-  // Scenarios: composed session-step metadata
   _sessionStep?: true;
   _scenario?: string;             // the scenario that owns this rendered node
   _scenariosPassingThrough?: string[]; // full set of scenarios whose path includes this node (inherited + own)
@@ -40,11 +37,7 @@ export interface SequenceNodeData {
   _seqParent: string;
   pathCount?: number;
   readOnly?: boolean;
-  /** Solidity visibility (Public/External/Internal/Private) — drives the
-   *  ext/int/pub/priv badge on the seq-next card. */
   visibility?: string;
-  /** Function modifier names — presence of any drives the 🔒 access-control
-   *  badge. Same semantics as FunctionNode. */
   modifiers?: string[];
   _transition?: any;
   _chainTransitions?: any[];
@@ -64,16 +57,10 @@ export interface ContractNodeData {
 
 export type GraphNodeData = FunctionNodeData | BlockNodeData | SequenceNodeData | ContractNodeData;
 
-// ── Reactive state ──────────────────────────────────────────
-// SvelteFlow uses $bindable nodes/edges — the wrapper component
-// binds directly to these arrays via getNodes()/getEdges() and
-// setNodes()/setEdges(). SvelteFlow mutates them internally for
-// drag, selection, etc.
 
 let nodes = $state<Node<GraphNodeData>[]>([]);
 let edges = $state<Edge[]>([]);
 
-// ── Getters ─────────────────────────────────────────────────
 
 export function getNodes(): Node<GraphNodeData>[] {
   return nodes;
@@ -83,7 +70,6 @@ export function getEdges(): Edge[] {
   return edges;
 }
 
-// ── Mutations ───────────────────────────────────────────────
 
 export function setNodes(newNodes: Node<GraphNodeData>[]) {
   nodes = newNodes;
@@ -137,7 +123,6 @@ export function clearGraph() {
   edges = [];
 }
 
-// ── Queries ─────────────────────────────────────────────────
 
 export function findNode(id: string): Node<GraphNodeData> | undefined {
   return nodes.find((n) => n.id === id);

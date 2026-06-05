@@ -5,19 +5,6 @@ use super::extract::extract_statement_uses_defs;
 use super::flatten::FlatStatement;
 use super::types::StatementPath;
 
-/// Intraprocedural forward dataflow slice for `variable`.
-///
-/// Iterates to a fixed point over the flattened body:
-/// 1. Any statement whose use set intersects the `tainted` set is added
-///    to the slice and its defs are merged into `tainted` — taint
-///    spreads along data dependencies.
-/// 2. Every included statement drags in its lexical ancestors so that
-///    enclosing control-flow headers appear in the rendered slice. The
-///    ancestor's own uses are merged into `tainted` too, which keeps
-///    parity with `backward_slice` and handles nested propagation.
-/// The loop re-runs until neither set grows.
-///
-/// Returns the selected paths in program order.
 pub fn forward_slice(flat: &[FlatStatement<'_>], variable: &str) -> Vec<StatementPath> {
     let mut tainted: HashSet<String> = HashSet::new();
     tainted.insert(variable.to_string());
@@ -44,10 +31,6 @@ pub fn forward_slice(flat: &[FlatStatement<'_>], variable: &str) -> Vec<Statemen
             }
         }
 
-        // Known: ancestor merge may over-taint — an enclosing `if (c)`
-        // adds `c` to the tainted set even if the sliced variable has no
-        // data relationship with `c`. Acceptable for v1; a precise
-        // control-dep analysis would require a separate CDG pass.
         if add_ancestors_with_uses(flat, &mut included, &mut tainted) {
             changed = true;
         }

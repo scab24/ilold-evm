@@ -53,8 +53,6 @@ pub fn run(
             pt_map.insert(key, pt);
         }
     }
-    // Build per-contract analyses for every contract in the project so that
-    // transitive effects can span the full inheritance chain.
     let mut all_sequence_analyses: HashMap<String, ilold_core::sequence::analysis::SequenceAnalysis> = HashMap::new();
     for c in &project.contracts {
         let combined = project.inherited_state_vars(c);
@@ -212,8 +210,7 @@ fn print_sequence(n: &SequenceNarrative) {
             c_bright(&format!("Step {}: {}", i + 1, step.function)),
             c_muted(&format!("({})", step.access)));
 
-        // Collect all lines for this step to know which is last
-        let mut lines: Vec<(String, String)> = Vec::new(); // (label, value)
+        let mut lines: Vec<(String, String)> = Vec::new();
 
         for req in &step.requires {
             lines.push(("require".into(), c_warn(req).to_string()));

@@ -1,27 +1,4 @@
-// Intraprocedural backward + forward dataflow slicing over the model AST.
-//
-// Operates on `FunctionDef.body: Vec<Statement>` directly, not on the CFG.
-// The CFG stringifies expressions and discards structure; we need the
-// structured AST to extract variable use/def sets.
-//
-// Known extraction limitations (v1, documented so callers can reason
-// about false negatives in the slice):
-//
-//   * Only `Assignment` expressions produce DEFs. Solidity mutations that
-//     are not modelled as Assignment — `x++`, `--x`, `delete x`,
-//     `arr.push(v)`, `arr.pop()` — are captured as USEs of `x`/`arr` but
-//     NOT as DEFs. A slice on a variable mutated only through `.push()`
-//     will miss the mutating call as a def.
-//   * Tuple destructuring assignments `(a, b) = foo()` may not hit the
-//     top-level `Assignment` arm depending on how the frontend lowers
-//     them; in that case sub-expressions are treated as USEs only.
-//   * Function-call side effects on state are not tracked — this is an
-//     intraprocedural slice, not a whole-program one.
-//
-// These are acceptable for the audit use case (the 80% that relies on
-// plain `x = …` assignments works correctly). Lifting them requires an
-// effects database, which is out of scope for Phase 2b.
-
+// slicer v1: DEFs come from Assignment statements
 pub mod backward;
 pub mod extract;
 pub mod flatten;
@@ -34,17 +11,6 @@ use crate::model::project::Project;
 
 pub use types::{SliceDirection, SliceEntry, SliceResult, StatementOrigin, StatementPath};
 
-/// Compute a dataflow slice for `variable` in `function`.
-///
-/// The slicer walks both the function body AND the bodies of every
-/// applied modifier (resolved through the inheritance chain), so writes
-/// hidden inside `nonReentrant` / `updateReward` / etc. show up in the
-/// slice. Each entry carries an `origin` tag distinguishing
-/// function-body statements from modifier statements.
-///
-/// `Backward`: statements whose values feed into reads of `variable`.
-/// `Forward`:  statements whose values derive from writes of `variable`.
-/// `Both`:     union of backward and forward, annotated per entry.
 pub fn build_slice_result(
     project: &Project,
     contract: &ContractDef,

@@ -1,8 +1,3 @@
-// Navigation channel used by the Cmd+K palette. When the palette runs a
-// path-search result, it writes to _searchNavigate; the contract page's
-// $effect picks it up and focuses the target function + path. The
-// "search open" / toggle state moved to `$lib/stores/palette.svelte` with
-// the rest of the command-palette plumbing.
 
 import type { SearchNavigatePayload } from '$lib/api/types';
 

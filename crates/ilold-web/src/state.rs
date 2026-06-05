@@ -24,12 +24,8 @@ use ilold_core::sequence::types::SequenceTree;
 
 use serde::{Deserialize, Serialize};
 
-/// The default scenario name, auto-created for every fresh session.
 pub const DEFAULT_SCENARIO: &str = "main";
 
-/// Holds all scenarios for a contract. One is "active" at any time; commands
-/// without explicit scenario targeting operate on it. Insertion order is
-/// preserved via `order` for deterministic `names()` output.
 pub struct ScenarioStore {
     pub version: u32,
     pub contract: String,
@@ -114,9 +110,6 @@ impl ScenarioStore {
         Ok(())
     }
 
-    /// Serialize the entire store as v2 JSON (`{ version: 2, contract, active,
-    /// scenarios, order }`). All scenarios + their `forked_from` chains travel
-    /// together so a load reconstructs the full state.
     pub fn save_to_json(&self) -> Result<String, String> {
         let file = ScenarioStoreFile {
             version: 2,
@@ -128,10 +121,6 @@ impl ScenarioStore {
         serde_json::to_string_pretty(&file).map_err(|e| format!("Serialize failed: {e}"))
     }
 
-    /// Parse a save file. Tries v2 (`ScenarioStoreFile`) first; on failure
-    /// falls back to v1 (bare `ExplorationSession`) and wraps it as a single
-    /// `main` scenario. Any structural anomaly (active not in scenarios,
-    /// empty order) is repaired so the returned store is always valid.
     pub fn load_from_json(json: &str) -> Result<Self, String> {
         match serde_json::from_str::<ScenarioStoreFile>(json) {
             Ok(file) => Self::from_file(file),
@@ -157,7 +146,6 @@ impl ScenarioStore {
         if file.scenarios.is_empty() {
             return Err("Save file has no scenarios".into());
         }
-        // Repair `order`: if missing names or empty, rebuild from scenarios.
         let mut order = file.order;
         order.retain(|n| file.scenarios.contains_key(n));
         for name in file.scenarios.keys() {
@@ -165,8 +153,6 @@ impl ScenarioStore {
                 order.push(name.clone());
             }
         }
-        // Repair `active`: fall back to first ordered name if the recorded
-        // active was deleted out-of-band before the save.
         let active = if file.scenarios.contains_key(&file.active) {
             file.active
         } else {
@@ -185,10 +171,6 @@ impl ScenarioStore {
     }
 }
 
-/// On-disk wire format for `ScenarioStore`. Decoupled from the in-memory
-/// type to keep private fields private and allow the wire format to evolve
-/// independently. v1 saves are bare `ExplorationSession` JSON — they're
-/// detected by the failed parse + retry in `ScenarioStore::load_from_json`.
 #[derive(Serialize, Deserialize)]
 struct ScenarioStoreFile {
     version: u32,
@@ -295,7 +277,6 @@ impl AppState {
             classifications.insert(contract.name.clone(), classify_all(contract));
         }
 
-        // Compute transitive effects across contracts (inheritance-aware).
         analyze_project(&project, &mut sequence_analyses);
 
         let dep_graph = ContractDeps::from_call_graphs(&project, &call_graphs);

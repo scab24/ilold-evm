@@ -1,4 +1,3 @@
-// Types matching the Rust API responses
 
 export interface ProjectSummary {
   files: number;
@@ -65,7 +64,6 @@ export interface CytoscapeEdgeData {
   call_count: number;
 }
 
-// API client
 
 export interface SearchSuggestions {
   functions: string[];

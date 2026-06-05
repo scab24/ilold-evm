@@ -87,7 +87,6 @@ pub fn build_sequence_narrative(
 }
 
 fn extract_variable_from_condition(cond: &str) -> String {
-    // conditions_affected format: "deposit writes 'balances' → withdraw needs require(...)"
     if let Some(start) = cond.find('\'') {
         if let Some(end) = cond[start + 1..].find('\'') {
             return cond[start + 1..start + 1 + end].to_string();
@@ -96,8 +95,6 @@ fn extract_variable_from_condition(cond: &str) -> String {
     String::new()
 }
 
-/// Walk a persisted FlowTree and aggregate counts + mutation refs into
-/// a compact `FlowSummary` for use in sequence narratives.
 pub fn compute_flow_summary(tree: &FlowTree, session_step_index: usize) -> FlowSummary {
     let mut summary = FlowSummary {
         total_steps: 0,

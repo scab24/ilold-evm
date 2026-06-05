@@ -53,12 +53,10 @@ pub enum ExpressionKind {
         true_expr: Box<Expression>,
         false_expr: Box<Expression>,
     },
-    /// uint256(x), address(y) — explicit type conversion
     TypeCast {
         type_name: String,
         expression: Box<Expression>,
     },
-    /// type(uint256) — builtin that returns type metadata (min, max)
     TypeMeta {
         type_name: String,
     },
@@ -100,7 +98,6 @@ pub enum BinaryOperator {
 }
 
 impl BinaryOperator {
-    /// Solidity source-form symbol for the operator (e.g. `Add` → `"+"`).
     pub fn as_str(self) -> &'static str {
         match self {
             BinaryOperator::Add => "+",
@@ -139,9 +136,6 @@ pub enum UnaryOperator {
 }
 
 impl UnaryOperator {
-    /// Returns `(symbol, is_postfix)`. Prefix ops use `is_postfix = false`
-    /// so the caller can format `op + operand`; postfix increments use
-    /// `true` for `operand + op`.
     pub fn format_parts(self) -> (&'static str, bool) {
         match self {
             UnaryOperator::Not => ("!", false),
@@ -183,8 +177,6 @@ pub enum AssignOperator {
 }
 
 impl AssignOperator {
-    /// Solidity source-form symbol for the assignment operator
-    /// (e.g. `AddAssign` → `"+="`, `Assign` → `"="`).
     pub fn as_str(self) -> &'static str {
         match self {
             AssignOperator::Assign => "=",

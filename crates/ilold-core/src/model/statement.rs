@@ -3,10 +3,8 @@ use serde::{Deserialize, Serialize};
 use super::common::{Param, SourceSpan};
 use super::expression::Expression;
 
-/// A single clause in a try/catch statement
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatchClause {
-    /// None for the success clause (returns), Some("Error"), Some("Panic"), or custom
     pub name: Option<String>,
     pub params: Vec<Param>,
     pub body: Vec<Statement>,
@@ -66,7 +64,6 @@ pub enum StatementKind {
         #[serde(default)]
         is_storage_ref: bool,
     },
-    /// try expr returns (...) { ok_body } catch Error(...) { err_body } catch (...) { ... }
     TryCatch {
         expression: Expression,
         clauses: Vec<CatchClause>,
@@ -76,6 +73,5 @@ pub enum StatementKind {
     },
     Break,
     Continue,
-    /// The _ placeholder in modifiers
     Placeholder,
 }

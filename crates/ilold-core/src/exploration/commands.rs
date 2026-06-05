@@ -177,14 +177,9 @@ pub enum ScenarioEvent {
     Switched { from: String, to: String },
     Deleted { name: String },
     Forked { from: String, to: String, at_step: usize },
-    /// Emitted after a successful `LoadSession`. Carries the new active
-    /// scenario name so the frontend can update its activeScenario eagerly,
-    /// and triggers a full resync to pull every scenario + forkOrigin.
     Reloaded { active: String },
 }
 
-/// Validates scenario name against `^[a-z][a-z0-9_-]{0,31}$`.
-/// Manual ASCII check — avoids pulling in the `regex` crate.
 pub fn validate_scenario_name(name: &str) -> Result<(), String> {
     const ERR: &str = "Invalid scenario name: must match ^[a-z][a-z0-9_-]{0,31}$";
     if name.is_empty() || name.len() > 32 {
@@ -224,7 +219,6 @@ pub fn canvas_patch_from(result: &CommandResult, active_scenario: &str) -> Optio
         }
         CommandResult::ScenarioSwitched { from, to } => {
             if from == to {
-                // idempotent no-op: suppress WS broadcast
                 None
             } else {
                 Some(CanvasPatch::ScenarioEvent(ScenarioEvent::Switched {
@@ -416,10 +410,6 @@ fn execute_call(
 
     let function_def = resolved.function;
 
-    // Session steps model real external transactions. Internal/private
-    // functions cannot be invoked from outside the contract, so accepting
-    // them as entry points would produce an execution sequence that is
-    // impossible in practice — biasing every downstream analysis.
     use crate::model::function::Visibility;
     if matches!(function_def.visibility, Visibility::Internal | Visibility::Private) {
         return CommandResult::Error {
@@ -555,9 +545,6 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
             .unwrap_or(AccessLevel::Internal)
     };
 
-    // Match a normalized path against the requested var.
-    // The path equals the var (`var`), or ends with `.var`, or equals `var[]`,
-    // or starts with `var[]` followed by `.` or end.
     let path_matches = |path: &str| -> bool {
         let p = path.to_lowercase();
         if p == var_lower {
@@ -569,7 +556,6 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
         if p.ends_with(&format!(".{}", var_lower)) {
             return true;
         }
-        // base[].suffix or base.suffix where base == var
         let base = p
             .split(|c| c == '[' || c == '.')
             .next()
@@ -721,9 +707,6 @@ pub fn get_sequence_narrative(
         data.behaviors, data.transitions, data.classifications,
     );
 
-    // Enrich each narrative step with the FlowSummary derived from the
-    // session's persisted flow_tree. Legacy steps without a tree get
-    // None, which the renderer treats as "no summary available".
     for (i, step) in narrative.steps.iter_mut().enumerate() {
         if let Some(session_step) = session.steps.get(i) {
             step.flow_summary = session_step.flow_tree.as_ref()

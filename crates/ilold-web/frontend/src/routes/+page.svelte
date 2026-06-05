@@ -46,9 +46,6 @@
     }
   });
 
-  // Color encodes the top-level subsystem (hub, spoke, ...), not every
-  // subfolder: a handful of evenly-spaced hues stay distinguishable, and the
-  // subfolder/kind is already carried by the border style and node label.
   function topLevel(folder: string): string {
     return folder === '' ? '' : folder.split('/')[0];
   }
@@ -105,10 +102,6 @@
     queueMicrotask(() => fitView?.({ padding: 0.15 }));
   }
 
-  // Single visual layer: node dimming and edge style/visibility are a pure
-  // function of the active kind filters plus the currently hovered contract.
-  // Keeping it in one place stops the filter and hover passes from fighting
-  // over the same _dimmed flag.
   function applyVisual() {
     const neighbors = new Set<string>();
     if (hoveredId) {
@@ -164,8 +157,6 @@
     goto(`/contract/${encodeURIComponent(node.id)}`);
   }
 
-  // Cmd+K palette: navigate into any contract. Deduped by name because the
-  // project map can list a name twice (own entry + inherited reference).
   $effect(() => {
     if (!projectMap) {
       setPaletteCommands([]);

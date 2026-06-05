@@ -11,38 +11,32 @@
   let ws: WebSocket | null = null;
   let resizeObserver: ResizeObserver | null = null;
 
-  // Floating panel state
   let maximized = $state(false);
   let connected = $state(false);
   let fadeIn = $state(false);
   let termCols = $state(0);
   let termRows = $state(0);
 
-  // Re-fit terminal when toggled visible from store
   $effect(() => {
     if (isTerminalVisible() && fitAddon) {
       requestAnimationFrame(() => fitAddon?.fit());
     }
   });
 
-  // Stored dimensions for maximize/restore toggle
   let prevPosX = 0;
   let prevPosY = 0;
   let prevWidth = 600;
   let prevHeight = 300;
 
-  // Position — set properly in onMount; defaults are SSR-safe placeholders
   let posX = $state(0);
   let posY = $state(0);
 
-  // Size
   let panelWidth = $state(600);
   let panelHeight = $state(300);
   const MIN_W = 400;
   const MIN_H = 200;
   const TITLE_BAR_H = 36;
 
-  // Drag state
   let dragging = $state(false);
 
   function onDragStart(e: MouseEvent) {
@@ -93,10 +87,6 @@
     window.addEventListener('mouseup', onUp);
   }
 
-  // Yellow button used to minimise the panel into a 36px strip — users
-  // found the residual strip confusing given the TopBar `>_` toggle
-  // already controls visibility. Both yellow and red now call
-  // hideTerminal(); the terminal reappears via the TopBar toggle.
   function closePanel() {
     hideTerminal();
   }
@@ -122,7 +112,6 @@
     requestAnimationFrame(() => fitAddon?.fit());
   }
 
-  // Font size control
   let fontSize = $state(13);
   const MIN_FONT = 9;
   const MAX_FONT = 22;
@@ -145,11 +134,9 @@
   }
 
   onMount(() => {
-    // Set initial position (bottom-right with 16px padding)
     posX = window.innerWidth - panelWidth - 16;
     posY = window.innerHeight - panelHeight - 16;
 
-    // Trigger fade-in
     requestAnimationFrame(() => { fadeIn = true; });
 
     window.addEventListener('resize', clampToViewport);
@@ -190,17 +177,14 @@
     fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(terminalEl);
-    // Delay fit to ensure container has layout dimensions
     requestAnimationFrame(() => fitAddon.fit());
 
-    // Connect to PTY WebSocket
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${location.host}/ws/pty`);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       connected = true;
-      // Send initial size so the PTY starts with correct dimensions
       const { cols, rows } = terminal;
       termCols = cols;
       termRows = rows;
@@ -220,14 +204,12 @@
       terminal.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
     };
 
-    // User input → PTY stdin
     terminal.onData((data) => {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
       }
     });
 
-    // Resize → notify PTY
     terminal.onResize(({ cols, rows }) => {
       termCols = cols;
       termRows = rows;
@@ -236,8 +218,6 @@
       }
     });
 
-    // Ctrl+=/- for font size (standard terminal shortcuts)
-    // Filter to keydown only — handler fires on both keydown and keyup
     terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       if (e.type !== 'keydown') return true;
       if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
@@ -253,7 +233,6 @@
       return true;
     });
 
-    // Auto-fit when container resizes
     resizeObserver = new ResizeObserver(() => fitAddon.fit());
     resizeObserver.observe(terminalEl);
   });

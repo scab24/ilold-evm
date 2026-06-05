@@ -22,11 +22,6 @@
     visLabel != null || mutIcon != null || (data.path_count != null && data.path_count > 0) || hasAccessControl
   );
 
-  // ── Scenario styling ───────────────────────────────────────────────────────
-  // `_scenario` is the owning scenario (shown as a small pill badge).
-  // `_scenariosPassingThrough` is the full membership set — when the active
-  // scenario is in it, the node lights up as part of the active path
-  // (including inherited prefix nodes, not just its own divergent tail).
   let scenarioName = $derived(data._scenario ?? null);
   let scenarioActive = $derived(
     data._sessionStep === true &&
@@ -88,9 +83,6 @@
   .function-node.dimmed {
     opacity: 0.55;
   }
-  /* Phase S5 — scenario highlight/mute. Uses --color-accent from the token set
-     with a soft fallback so the glow stays visible even if the variable is
-     missing in a future theme refactor. */
   .function-node.scenario-active {
     box-shadow: 0 0 8px var(--color-accent, rgba(88, 166, 255, 0.4));
   }

@@ -8,20 +8,17 @@
 
   let { contract }: Props = $props();
 
-  // ── Local state ────────────────────────────────────────────────────────────
   let stateVars = $state<any[]>([]);
   let loading = $state(false);
   let error = $state<string | null>(null);
 
   let expandedVar = $state<string | null>(null);
 
-  // ── Fetch state on mount and when steps change ─────────────────────────────
   async function fetchState() {
     loading = true;
     error = null;
     try {
       const result: any = await postCommand('State', contract);
-      // CommandResult::StateView → { StateView: { summary: [...] } }
       const view = result.StateView ?? result;
       stateVars = view.summary ?? [];
     } catch (e: any) {
@@ -32,9 +29,6 @@
     }
   }
 
-  // Track step count — refetch when it changes.
-  // Plain variable (not $state) to avoid creating a reactive dependency
-  // inside the effect that would cause an infinite re-run loop.
   let prevStepCount = -1;
 
   $effect(() => {
@@ -45,7 +39,6 @@
     }
   });
 
-  // ── Toggle inline expansion (uses changes[] from summary) ─────────────────
   function toggleTimeline(varName: string) {
     expandedVar = expandedVar === varName ? null : varName;
   }
@@ -133,7 +126,6 @@
 </div>
 
 <style>
-  /* Scrollbar — pseudo-elements require scoped CSS */
   .panel-body::-webkit-scrollbar { width: 4px; }
   .panel-body::-webkit-scrollbar-track { background: transparent; }
   .panel-body::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }

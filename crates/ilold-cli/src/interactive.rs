@@ -1,4 +1,3 @@
-// Interactive FlowTree viewer. Entered via `tr <func> -i` in the REPL.
 
 use std::collections::HashSet;
 use std::io;
@@ -18,7 +17,6 @@ use ratatui::{Frame, Terminal};
 
 use ilold_core::narrative::trace::{FlowKind, FlowNode, FlowTree};
 
-/// Restores the terminal on drop, including the panic path.
 struct TerminalGuard;
 
 impl TerminalGuard {
@@ -40,8 +38,6 @@ impl Drop for TerminalGuard {
 struct ViewerState {
     tree: FlowTree,
     collapsed: HashSet<usize>,
-    /// Tracked by id (not list index) so expand/collapse keeps selection
-    /// on the same logical node.
     selected_step_id: usize,
     show_help: bool,
 }
@@ -63,8 +59,6 @@ impl ViewerState {
         out
     }
 
-    /// Owned snapshot with no borrows into `self` — safe to hold across
-    /// `&mut self` mutations inside the event loop.
     fn snapshot(&self) -> Vec<RowSnapshot> {
         self.flatten()
             .iter()
@@ -103,8 +97,6 @@ struct FlatRow<'a> {
     is_collapsed: bool,
 }
 
-/// Pre-order flatten, skipping children of collapsed nodes. Tree-drawing
-/// chars are baked into each row's prefix.
 fn flatten_node<'a>(
     node: &'a FlowNode,
     parent_prefix: &str,
@@ -148,7 +140,6 @@ fn flatten_node<'a>(
     }
 }
 
-/// Block on the viewer until the user presses `q` or `Esc`.
 pub fn run_trace_viewer(tree: FlowTree) -> io::Result<()> {
     let _guard = TerminalGuard::new()?;
 
@@ -162,9 +153,6 @@ pub fn run_trace_viewer(tree: FlowTree) -> io::Result<()> {
     Ok(())
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Rendering
-// ─────────────────────────────────────────────────────────────────────────────
 
 fn draw_ui(frame: &mut Frame, state: &ViewerState, flat: &[FlatRow<'_>]) {
     let area = frame.area();
@@ -172,9 +160,9 @@ fn draw_ui(frame: &mut Frame, state: &ViewerState, flat: &[FlatRow<'_>]) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // header
-            Constraint::Min(1),     // list
-            Constraint::Length(1),  // footer
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(1),
         ])
         .split(area);
 
@@ -194,7 +182,6 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect) {
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     let popup = Rect { x, y, width, height };
 
-    // Clear the popup area so the underlying list doesn't show through.
     frame.render_widget(Clear, popup);
 
     let cyan = Style::default().fg(Color::Cyan);
@@ -412,17 +399,12 @@ fn kind_text_color(kind: &FlowKind) -> Color {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Event loop
-// ─────────────────────────────────────────────────────────────────────────────
 
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut ViewerState,
 ) -> io::Result<()> {
     loop {
-        // If a prior collapse hid the selected node, snap the cursor to
-        // the first visible row so it never lives off-screen.
         let snap = state.snapshot();
         if !snap.iter().any(|r| r.step_id == state.selected_step_id) {
             if let Some(first) = snap.first() {
@@ -440,7 +422,6 @@ fn run_loop(
         }
         let ev = event::read()?;
         let Event::Key(key) = ev else { continue };
-        // Ignore Release events so holding a key doesn't double-trigger.
         if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
             continue;
         }
@@ -451,9 +432,7 @@ fn run_loop(
     }
 }
 
-/// Returns `false` to exit the loop.
 fn handle_key(state: &mut ViewerState, snap: &[RowSnapshot], code: KeyCode) -> bool {
-    // Help overlay swallows most keys; only ?/Esc/F1 close it, q still quits.
     if state.show_help {
         match code {
             KeyCode::Char('q') => return false,
@@ -485,7 +464,6 @@ fn handle_key(state: &mut ViewerState, snap: &[RowSnapshot], code: KeyCode) -> b
         }
 
         KeyCode::Right | KeyCode::Enter | KeyCode::Char('l') => {
-            // Expand current node — remove from collapsed set.
             let idx = state.cursor_in_snapshot(snap);
             if let Some(row) = snap.get(idx) {
                 if row.has_children && row.is_collapsed {
@@ -494,9 +472,6 @@ fn handle_key(state: &mut ViewerState, snap: &[RowSnapshot], code: KeyCode) -> b
             }
         }
         KeyCode::Left | KeyCode::Char('h') => {
-            // Collapse current node — add to collapsed set. If it's already
-            // collapsed (or is a leaf), jump to parent so repeated ← walks
-            // up the tree.
             let idx = state.cursor_in_snapshot(snap);
             if let Some(row) = snap.get(idx) {
                 if row.has_children && !row.is_collapsed {
@@ -523,8 +498,6 @@ fn handle_key(state: &mut ViewerState, snap: &[RowSnapshot], code: KeyCode) -> b
     true
 }
 
-/// Find the step_id of the node that has `child_id` as a direct child.
-/// Returns `None` if `child_id` is the root or not found.
 fn find_parent_id(node: &FlowNode, child_id: usize) -> Option<usize> {
     for child in &node.children {
         if child.step_id == child_id {

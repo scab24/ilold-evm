@@ -1,14 +1,9 @@
-// ── AccessLevel ─────────────────────────────────────────────────────────────
-// Rust `AccessLevel` uses default serde (no #[serde(tag)]):
-//   Unit variants  → JSON strings: "Public", "Internal"
-//   Struct variants → externally-tagged: { "Restricted": { "role": "onlyOwner" } }
 export type AccessLevel =
   | "Public"
   | "Internal"
   | { Restricted: { role: string } }
   | { Special: { kind: string } };
 
-// ── ServerMessage variants (internally tagged: #[serde(tag = "type")]) ──────
 
 export interface SessionAddNode {
   type: "session_add_node";
@@ -34,7 +29,6 @@ export interface SessionHighlight {
   function: string;
 }
 
-// ── Scenario lifecycle events ───────────────────────────────────────────────
 
 export interface ScenarioCreated {
   type: "scenario_created";
@@ -59,14 +53,11 @@ export interface ScenarioForked {
   at_step: number;
 }
 
-/** Emitted after `LoadSession` replaces the entire ScenarioStore. The
- *  frontend store reacts by calling resync() to fetch the new snapshot. */
 export interface ScenarioStoreReloaded {
   type: "scenario_store_reloaded";
   active: string;
 }
 
-// ── Scenario REST types ─────────────────────────────────────────────────────
 
 export interface ScenarioInfo {
   name: string;
@@ -80,10 +71,6 @@ export interface SessionStepView {
   step_index: number;
 }
 
-/** Where a scenario was forked from. `at_step` is the boundary: the
- *  scenario's steps [0..at_step) are the inherited prefix (a clone of the
- *  origin's steps at fork time), steps [at_step..] are its own. Null for
- *  `main` and for scenarios loaded from a pre-fork-origin save file. */
 export interface ForkOrigin {
   scenario: string;
   at_step: number;
@@ -95,9 +82,6 @@ export interface ScenarioSnapshot {
   forked_from: ForkOrigin | null;
 }
 
-// Backend serializes `ScenarioSnapshot` objects in insertion order (main
-// first, then creation order) so the frontend canvas can anchor "main"
-// consistently and render forks as branches from their recorded origin.
 export interface AllScenariosResponse {
   active: string;
   scenarios: ScenarioSnapshot[];
@@ -124,7 +108,6 @@ export interface SearchError {
   disconnected?: boolean;
 }
 
-// ── Discriminated union ─────────────────────────────────────────────────────
 
 export type ServerMessage =
   | SessionAddNode
@@ -140,7 +123,6 @@ export type ServerMessage =
   | SearchComplete
   | SearchError;
 
-// ── Connection events (synthetic, frontend-only) ────────────────────────────
 
 export interface ConnectionEvent {
   state: "connected" | "disconnected";
@@ -148,7 +130,6 @@ export interface ConnectionEvent {
 
 export type ConnectionState = "connected" | "connecting" | "disconnected";
 
-// ── Topic map (topic name → message type for type-safe subscribe<T>()) ──────
 
 export interface TopicMap {
   search_result: SearchResult;
@@ -166,7 +147,6 @@ export interface TopicMap {
   connection: ConnectionEvent;
 }
 
-// ── Session step (used by session store) ────────────────────────────────────
 
 export interface SessionStep {
   function: string;
@@ -174,9 +154,6 @@ export interface SessionStep {
   step_index: number;
 }
 
-// ── REST re-sync types ──────────────────────────────────────────────────────
-// CommandResult::SessionView uses externally-tagged serde (no #[serde(tag)] on enum).
-// Wire format: { "SessionView": { "contract": "Vault", "steps": ["swap"], "findings_count": 0 } }
 
 export interface SessionViewPayload {
   contract: string;
@@ -188,7 +165,6 @@ export interface SessionViewResponse {
   SessionView: SessionViewPayload;
 }
 
-// ── Search navigate payload (frontend-only, camelCase) ──────────────────────
 
 export interface SearchNavigatePayload {
   contract: string;
@@ -196,7 +172,6 @@ export interface SearchNavigatePayload {
   pathId: number;
 }
 
-// ── Callback interfaces ─────────────────────────────────────────────────────
 
 export interface SearchCallbacks {
   onResult: (result: SearchResult) => void;

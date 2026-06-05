@@ -11,7 +11,6 @@
   let visibleVars = $derived(sharedVars.slice(0, 2));
   let overflowCount = $derived(Math.max(0, sharedVars.length - 2));
 
-  // Same visibility + access-control badges the function card uses.
   let visLabel = $derived(visibilityLabel(data.visibility));
   let visClass = $derived(visibilityClass(data.visibility));
   let hasAccessControl = $derived((data.modifiers?.length ?? 0) > 0);

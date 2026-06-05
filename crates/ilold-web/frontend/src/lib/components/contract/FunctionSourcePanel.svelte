@@ -6,16 +6,12 @@
   import DraggablePanel from '$lib/DraggablePanel.svelte';
   import { getFunctionSource, type FunctionSourceResponse } from '$lib/api/rest';
 
-  // Modern Solidity source viewer. Styled after VSCode's peek view + GitHub
-  // blob view. Uses the CodeMirror `oneDark` theme and the JS grammar as a
-  // Solidity fallback.
   let { contract, func, onclose }: {
     contract: string;
     func: string;
     onclose: () => void;
   } = $props();
 
-  // ── Fetched source state ────────────────────────────────────────────────
   let source = $state<string>('');
   let filePath = $state<string>('');
   let startLine = $state<number>(0);
@@ -23,7 +19,6 @@
   let error = $state<string | null>(null);
   let loading = $state<boolean>(true);
 
-  // ── Viewer UX (font size persists via localStorage) ─────────────────────
   const STORAGE_KEY = 'ilold.codeViewer.fontSize';
   const DEFAULT_FONT = 13;
   const MIN_FONT = 10;
@@ -42,13 +37,10 @@
 
   const lang = javascript();
 
-  // Responsive initial width — clamped so the panel doesn't overflow on
-  // small viewports. Users can still drag corners to resize.
   const initialWidth = typeof window !== 'undefined'
     ? Math.min(720, Math.max(420, Math.floor(window.innerWidth * 0.75)))
     : 720;
 
-  // ── Fetch source when the target changes ────────────────────────────────
   $effect(() => {
     const currentContract = contract;
     const currentFunc = func;
@@ -79,7 +71,6 @@
   const fileLabel = $derived(filePath ? filePath.split('/').pop() : '');
   const totalLines = $derived(source ? source.split('\n').length : 0);
 
-  // ── Toolbar actions ─────────────────────────────────────────────────────
   function zoomIn() { fontSize = Math.min(MAX_FONT, fontSize + 1); }
   function zoomOut() { fontSize = Math.max(MIN_FONT, fontSize - 1); }
   function zoomReset() { fontSize = DEFAULT_FONT; }
@@ -97,11 +88,6 @@
     }, 1500);
   }
 
-  // ── Keyboard shortcuts (VSCode-style) ───────────────────────────────────
-  // Cmd+= / Cmd+-  → zoom in / out. Cmd+0 → reset. Esc → close.
-  // Intercept the browser's native page-zoom on these combos only while
-  // this panel is mounted; on unmount the listener is detached and the
-  // browser's shortcut goes back to normal.
   function onWindowKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       onclose();
@@ -109,8 +95,6 @@
     }
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
-    // Cmd+= also reports as key "=" with shiftKey=true on some layouts
-    // (Cmd+Shift+=). Handle both '+' and '=' to be layout-tolerant.
     if (e.key === '=' || e.key === '+') {
       e.preventDefault();
       zoomIn();
@@ -123,7 +107,6 @@
     }
   }
 
-  // Reactive CodeMirror styles. Toggling `wrap` toggles extensions too.
   const cmStyles = $derived({
     '&': {
       fontSize: `${fontSize}px`,
@@ -131,8 +114,6 @@
       fontFeatureSettings: '"liga" 1, "calt" 1',
       lineHeight: '1.6',
       height: '100%',
-      // Crisper text on dark backgrounds.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       WebkitFontSmoothing: 'antialiased' as any,
       MozOsxFontSmoothing: 'grayscale' as any,
     },
@@ -155,10 +136,6 @@
     '.cm-scroller': { fontFamily: 'inherit' },
   });
 
-  // Line wrapping is a first-class CodeMirror extension — the CSS-only
-  // trick doesn't actually wrap because CM measures line widths
-  // internally. Toggle via extensions array; reactive changes cause
-  // svelte-codemirror-editor to reconfigure.
   const cmExtensions = $derived(wrap ? [EditorView.lineWrapping] : []);
 </script>
 
@@ -230,7 +207,6 @@
     min-height: 260px;
   }
 
-  /* ── Toolbar ─────────────────────────────────────────────────────────── */
   .toolbar {
     display: flex;
     align-items: center;
@@ -300,7 +276,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ── Editor body ─────────────────────────────────────────────────────── */
   .source-container {
     flex: 1;
     min-height: 0;
@@ -318,7 +293,6 @@
   .source-container :global(.cm-scroller) {
     overflow: auto;
   }
-  /* Thinner, subtler scrollbars to match the minimal toolbar. */
   .source-container :global(.cm-scroller::-webkit-scrollbar) {
     width: 10px;
     height: 10px;
@@ -342,7 +316,6 @@
   }
   .state-msg.error { color: var(--color-danger); }
 
-  /* ── Status bar ──────────────────────────────────────────────────────── */
   .status-bar {
     display: flex;
     align-items: center;

@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph};
 
-/// All paths through a single function, plus statistics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathTree {
     pub contract: String,
@@ -20,7 +19,6 @@ pub struct PathTreeStats {
     pub happy_paths: usize,
 }
 
-/// One complete route from Entry to a terminal block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionPath {
     pub id: usize,
@@ -30,12 +28,10 @@ pub struct ExecutionPath {
     pub depth: usize,
 }
 
-/// A single step in a path — which block we visited and how we got there.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathNode {
     pub block_id: usize,
     pub block_kind: BlockKind,
-    /// The edge taken to reach this block. None for the Entry node.
     pub branch_taken: Option<BranchEdge>,
 }
 
@@ -47,14 +43,10 @@ pub enum TerminalKind {
     LoopCutoff,
 }
 
-/// What happens along a path — accumulated during DFS traversal.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PathAnnotations {
     pub state_writes: Vec<String>,
     pub state_reads: Vec<String>,
-    /// Fully qualified write paths with normalized indices, e.g.
-    /// `proposals[].executed`, `balances[]`. Preserved for accurate
-    /// who-style queries that distinguish nested fields.
     #[serde(default)]
     pub state_write_paths: Vec<String>,
     #[serde(default)]
@@ -73,7 +65,6 @@ pub struct ExternalCallInfo {
     pub function: String,
 }
 
-/// Groups a function's CFG with its path tree for easy access.
 #[derive(Debug, Clone)]
 pub struct FunctionAnalysis {
     pub contract: String,

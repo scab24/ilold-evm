@@ -10,10 +10,6 @@ export interface LayoutOptions {
   nodeHeight?: number;
 }
 
-/**
- * Run dagre layout on nodes/edges, returning a new array with
- * updated positions. Pure function — does not mutate inputs.
- */
 export function runDagreLayout(
   nodes: Node<GraphNodeData>[],
   edges: Edge[],
