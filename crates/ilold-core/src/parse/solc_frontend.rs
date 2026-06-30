@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use foundry_compilers::solc::{SolcCompiler, SolcSettings};
+use foundry_compilers::solc::{Solc, SolcCompiler, SolcLanguage, SolcSettings};
 use foundry_compilers::{ProjectBuilder, ProjectPathsConfig};
 use foundry_compilers_artifacts_solc::ast::{Node, NodeType};
-use foundry_compilers_artifacts_solc::{Remapping, Settings};
+use foundry_compilers_artifacts_solc::{EvmVersion, Remapping, Settings};
+use toml_edit::{DocumentMut, Item};
 
 use crate::model::common::*;
 use crate::model::contract::*;
@@ -29,23 +30,19 @@ impl ProjectParser for SolcFrontend {
 
 impl SolcFrontend {
     pub fn parse_project(&self, root: &Path) -> Result<Project, ParseError> {
-        let mut paths = ProjectPathsConfig::dapptools(root).map_err(|e| ParseError::Internal {
-            message: format!("solc paths config: {e}"),
-        })?;
-        let mut remappings = read_remappings(root);
-        remappings.append(&mut paths.remappings);
-        paths.remappings = remappings;
+        let foundry_config = read_foundry_config(root)?;
+        let paths = project_paths(root, &foundry_config)?;
         let src_dir = paths.sources.clone();
 
         let settings = SolcSettings {
-            settings: Settings::default().with_ast(),
+            settings: solc_settings(&foundry_config)?,
             ..Default::default()
         };
         let project = ProjectBuilder::<SolcCompiler>::default()
             .paths(paths)
             .settings(settings)
             .set_cached(false)
-            .build(SolcCompiler::AutoDetect)
+            .build(solc_compiler(&foundry_config)?)
             .map_err(|e| ParseError::Internal {
                 message: format!("solc project build: {e}"),
             })?;
@@ -132,23 +129,221 @@ fn project_root(paths: &[PathBuf]) -> Result<PathBuf, ParseError> {
     Ok(start)
 }
 
-fn read_remappings(root: &Path) -> Vec<Remapping> {
+#[derive(Debug, Default)]
+struct FoundryConfig {
+    src: Option<String>,
+    out: Option<String>,
+    test: Option<String>,
+    script: Option<String>,
+    libs: Option<Vec<String>>,
+    solc: Option<String>,
+    evm_version: Option<String>,
+    optimizer: Option<bool>,
+    optimizer_runs: Option<usize>,
+    via_ir: Option<bool>,
+    auto_detect_remappings: Option<bool>,
+    remappings: Vec<Remapping>,
+}
+
+impl FoundryConfig {
+    fn auto_detect_remappings(&self) -> bool {
+        self.auto_detect_remappings.unwrap_or(true)
+    }
+
+    fn apply_profile(&mut self, root: &Path, profile: &Item) {
+        if let Some(value) = string_value(profile, "src") {
+            self.src = Some(value);
+        }
+        if let Some(value) = string_value(profile, "out") {
+            self.out = Some(value);
+        }
+        if let Some(value) = string_value(profile, "test") {
+            self.test = Some(value);
+        }
+        if let Some(value) = string_value(profile, "script") {
+            self.script = Some(value);
+        }
+        if let Some(value) = string_array_value(profile, "libs") {
+            self.libs = Some(value);
+        }
+        if let Some(value) = string_value(profile, "solc").or_else(|| string_value(profile, "solc_version")) {
+            self.solc = Some(value);
+        }
+        if let Some(value) = string_value(profile, "evm_version") {
+            self.evm_version = Some(value);
+        }
+        if let Some(value) = bool_value(profile, "optimizer") {
+            self.optimizer = Some(value);
+        }
+        if let Some(value) = usize_value(profile, "optimizer_runs") {
+            self.optimizer_runs = Some(value);
+        }
+        if let Some(value) = bool_value(profile, "via_ir") {
+            self.via_ir = Some(value);
+        }
+        if let Some(value) = bool_value(profile, "auto_detect_remappings") {
+            self.auto_detect_remappings = Some(value);
+        }
+        if let Some(raw_remappings) = string_array_value(profile, "remappings") {
+            self.remappings = raw_remappings
+                .iter()
+                .filter_map(|raw| parse_remapping(root, raw))
+                .collect();
+        }
+    }
+}
+
+fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<SolcLanguage>, ParseError> {
+    let mut builder = ProjectPathsConfig::builder().root(root);
+
+    if let Some(src) = &cfg.src {
+        builder = builder.sources(rooted_path(root, src));
+    }
+    if let Some(out) = &cfg.out {
+        builder = builder.artifacts(rooted_path(root, out));
+    }
+    if let Some(test) = &cfg.test {
+        builder = builder.tests(rooted_path(root, test));
+    }
+    if let Some(script) = &cfg.script {
+        builder = builder.scripts(rooted_path(root, script));
+    }
+    if let Some(libs) = &cfg.libs {
+        if libs.is_empty() {
+            builder = builder.no_libs();
+        } else {
+            builder = builder.libs(libs.iter().map(|lib| rooted_path(root, lib)));
+        }
+    }
+
+    let mut remappings = cfg.remappings.clone();
+    remappings.extend(read_remappings_file(root));
+    if cfg.auto_detect_remappings() {
+        let lib_paths = cfg
+            .libs
+            .as_ref()
+            .map(|libs| libs.iter().map(|lib| rooted_path(root, lib)).collect::<Vec<_>>())
+            .unwrap_or_else(|| ProjectPathsConfig::find_libs(root));
+        remappings.extend(lib_paths.iter().flat_map(|path| Remapping::find_many(path.as_path())));
+    }
+    builder = builder.remappings(remappings);
+
+    builder.build().map_err(|e| ParseError::Internal {
+        message: format!("solc paths config: {e}"),
+    })
+}
+
+fn solc_settings(cfg: &FoundryConfig) -> Result<Settings, ParseError> {
+    let mut settings = Settings::default().with_ast();
+    if let Some(via_ir) = cfg.via_ir {
+        settings = settings.set_via_ir(via_ir);
+    }
+    if let Some(optimizer) = cfg.optimizer {
+        settings.optimizer.enabled = Some(optimizer);
+    }
+    if let Some(runs) = cfg.optimizer_runs {
+        settings.optimizer.runs(runs);
+    }
+    if let Some(evm_version) = &cfg.evm_version {
+        settings.evm_version = Some(evm_version.parse::<EvmVersion>().map_err(|e| ParseError::Internal {
+            message: format!("invalid evm_version `{evm_version}` in foundry.toml: {e}"),
+        })?);
+    }
+    Ok(settings)
+}
+
+fn solc_compiler(cfg: &FoundryConfig) -> Result<SolcCompiler, ParseError> {
+    let Some(solc_version) = &cfg.solc else {
+        return Ok(SolcCompiler::AutoDetect);
+    };
+    let version_text = solc_version.trim_start_matches('v');
+    let version = version_text.parse().map_err(|e| ParseError::Internal {
+        message: format!("invalid solc version `{solc_version}` in foundry.toml: {e}"),
+    })?;
+    let solc = Solc::find_or_install(&version).map_err(|e| ParseError::Internal {
+        message: format!("install/find solc {solc_version}: {e}"),
+    })?;
+    Ok(SolcCompiler::Specific(solc))
+}
+
+fn read_foundry_config(root: &Path) -> Result<FoundryConfig, ParseError> {
+    let profile_name = std::env::var("FOUNDRY_PROFILE")
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "default".to_string());
+    read_foundry_config_with_profile(root, &profile_name)
+}
+
+fn read_foundry_config_with_profile(root: &Path, profile_name: &str) -> Result<FoundryConfig, ParseError> {
+    let text = match std::fs::read_to_string(root.join("foundry.toml")) {
+        Ok(t) => t,
+        Err(_) => return Ok(FoundryConfig::default()),
+    };
+    let doc = text.parse::<DocumentMut>().map_err(|e| ParseError::Internal {
+        message: format!("parse foundry.toml: {e}"),
+    })?;
+
+    let mut cfg = FoundryConfig::default();
+    if let Some(default_profile) = profile_item(&doc, "default") {
+        cfg.apply_profile(root, &default_profile);
+    }
+    if profile_name != "default" {
+        if let Some(selected_profile) = profile_item(&doc, profile_name) {
+            cfg.apply_profile(root, &selected_profile);
+        }
+    }
+
+    Ok(cfg)
+}
+
+fn profile_item(doc: &DocumentMut, profile: &str) -> Option<Item> {
+    doc.get("profile")?.get(profile).cloned()
+}
+
+fn string_value(item: &Item, key: &str) -> Option<String> {
+    item.get(key)?.as_str().map(ToOwned::to_owned)
+}
+
+fn bool_value(item: &Item, key: &str) -> Option<bool> {
+    item.get(key)?.as_bool()
+}
+
+fn usize_value(item: &Item, key: &str) -> Option<usize> {
+    item.get(key)?.as_integer().and_then(|value| value.try_into().ok())
+}
+
+fn string_array_value(item: &Item, key: &str) -> Option<Vec<String>> {
+    let array = item.get(key)?.as_array()?;
+    Some(array.iter().filter_map(|value| value.as_str().map(ToOwned::to_owned)).collect())
+}
+
+fn read_remappings_file(root: &Path) -> Vec<Remapping> {
     let text = match std::fs::read_to_string(root.join("remappings.txt")) {
         Ok(t) => t,
         Err(_) => return Vec::new(),
     };
-    let abs_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .filter_map(|line| line.parse::<Remapping>().ok())
-        .map(|mut r| {
-            if Path::new(&r.path).is_relative() {
-                r.path = abs_root.join(&r.path).to_string_lossy().into_owned();
-            }
-            r
-        })
+        .filter_map(|line| parse_remapping(root, line))
         .collect()
+}
+
+fn parse_remapping(root: &Path, text: &str) -> Option<Remapping> {
+    let mut remapping = text.parse::<Remapping>().ok()?;
+    if Path::new(&remapping.path).is_relative() {
+        remapping.path = rooted_path(root, &remapping.path).to_string_lossy().into_owned();
+    }
+    Some(remapping)
+}
+
+fn rooted_path(root: &Path, value: &str) -> PathBuf {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    }
 }
 
 fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> Option<ContractDef> {
@@ -1041,6 +1236,71 @@ mod tests {
                 _ => None,
             })
             .expect("return statement")
+    }
+
+    #[test]
+    fn foundry_config_reads_profile_settings() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/foundry_config");
+        let cfg = read_foundry_config(&root).expect("foundry config");
+
+        assert_eq!(cfg.src.as_deref(), Some("src"));
+        assert_eq!(cfg.out.as_deref(), Some("out"));
+        assert_eq!(cfg.libs.as_deref(), Some(&["lib".to_string()][..]));
+        assert_eq!(cfg.solc.as_deref(), Some("0.8.28"));
+        assert_eq!(cfg.evm_version.as_deref(), Some("cancun"));
+        assert_eq!(cfg.optimizer, Some(true));
+        assert_eq!(cfg.optimizer_runs, Some(1));
+        assert_eq!(cfg.via_ir, Some(true));
+        assert_eq!(cfg.auto_detect_remappings, Some(false));
+        assert_eq!(cfg.remappings.len(), 1);
+        assert_eq!(cfg.remappings[0].name, "manual/");
+    }
+
+    #[test]
+    fn foundry_config_selected_profile_inherits_default_settings() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/foundry_config");
+        let cfg = read_foundry_config_with_profile(&root, "deep").expect("foundry config");
+
+        assert_eq!(cfg.src.as_deref(), Some("src"));
+        assert_eq!(cfg.out.as_deref(), Some("out"));
+        assert_eq!(cfg.libs.as_deref(), Some(&["lib".to_string()][..]));
+        assert_eq!(cfg.solc.as_deref(), Some("0.8.28"));
+        assert_eq!(cfg.evm_version.as_deref(), Some("cancun"));
+        assert_eq!(cfg.optimizer, Some(true));
+        assert_eq!(cfg.optimizer_runs, Some(777));
+        assert_eq!(cfg.via_ir, Some(true));
+        assert_eq!(cfg.auto_detect_remappings, Some(false));
+        assert_eq!(cfg.remappings.len(), 1);
+        assert_eq!(cfg.remappings[0].name, "manual/");
+    }
+
+    #[test]
+    fn foundry_config_respects_explicit_remappings_only() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/foundry_config");
+        let cfg = read_foundry_config(&root).expect("foundry config");
+        let paths = project_paths(&root, &cfg).expect("project paths");
+
+        assert!(paths.remappings.iter().any(|r| r.name == "manual/"));
+        assert!(
+            paths.remappings.iter().all(|r| !r.name.contains("auto")),
+            "auto-detected remapping should not be present when auto_detect_remappings=false: {:?}",
+            paths.remappings
+        );
+
+        let settings = solc_settings(&cfg).expect("solc settings");
+        assert_eq!(settings.via_ir, Some(true));
+        assert_eq!(settings.optimizer.enabled, Some(true));
+        assert_eq!(settings.optimizer.runs, Some(1));
+    }
+
+    #[test]
+    fn parses_foundry_project_with_inline_remappings() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/foundry_config");
+        let project = SolcFrontend.parse_project(&root).expect("parse foundry config fixture");
+        assert!(project.contracts.iter().any(|c| c.name == "UsesManual"));
+        assert!(project.contracts.iter().all(|c| c.name != "AutoLib"));
+        assert!(project.source_files.iter().any(|f| f.path.ends_with("lib/manual/src/ManualLib.sol")));
+        assert!(project.source_files.iter().all(|f| !f.path.ends_with("lib/auto/src/AutoLib.sol")));
     }
 
     #[test]
