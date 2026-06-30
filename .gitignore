@@ -20,3 +20,6 @@ Thumbs.db
 
 # Local tooling
 /.atl/
+# Foundry fixture build outputs
+/tests/fixtures/foundry_config/cache/
+/tests/fixtures/foundry_config/out/
