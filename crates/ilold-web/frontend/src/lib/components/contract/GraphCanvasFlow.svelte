@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { SvelteFlow, SvelteFlowProvider, Background, Controls, Panel, useSvelteFlow, type NodeTypes } from '@xyflow/svelte';
+  import { SvelteFlow, SvelteFlowProvider, Background, Controls, Panel, SelectionMode, useSvelteFlow, type NodeTypes } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
 
@@ -105,7 +105,7 @@
       - `select` → left-drag draws a rectangular lasso (Excalidraw-style);
                    middle/right-drag still pans.
       Shared in both modes:
-      - shift+click on a node    → add/remove from selection (multiSelectionKeyCode)
+      - shift+click on a node    → add/remove from selection (multiSelectionKey)
       - drag any selected node   → move the whole group together (native)
       - partial overlap counts   → lasso only needs to touch a node (selectionMode)
       - right-click on a node    → branch/context menu (onnodecontextmenu)
@@ -133,8 +133,8 @@
       colorMode="dark"
       panOnDrag={panOnDragProp}
       selectionOnDrag={selectionOnDragProp}
-      selectionMode="partial"
-      multiSelectionKeyCode="Shift"
+      selectionMode={SelectionMode.Partial}
+      multiSelectionKey="Shift"
       deleteKey={deleteKeysProp}
     >
       <Background />

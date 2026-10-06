@@ -15,10 +15,12 @@ Because it reads the solc AST, ilold knows the real target of a cross-contract c
 ```
 git clone https://github.com/scab24/ilold.git
 cd ilold
+npm --prefix crates/ilold-web/frontend ci
+npm --prefix crates/ilold-web/frontend run build
 cargo build --release
 ```
 
-The binary is at `target/release/ilold` with four subcommands: `analyze`, `context`, `serve`, and `explore`.
+The binary is at `target/release/ilold` with four subcommands: `analyze`, `context`, `serve`, and `explore`. The frontend build is required **before** Rust builds and is embedded in the binary; `build.rs` does not download or generate frontend dependencies. A missing `frontend/build/index.html` fails the Rust build with the commands to fix it. Rebuild the frontend before rebuilding Rust after UI changes. The built binary serves the UI without the source checkout. A previously installed `ilold` on PATH is not replaced by `cargo build`: run `./target/release/ilold` to test this checkout.
 
 ## The dependency graph
 
@@ -52,7 +54,7 @@ ilold[Staking → deposit]> sl deposit totalStaked
 ilold[Staking → deposit]> tr deposit
 ```
 
-The canvas opens with the REPL and shows the same model: the call graph, the control flow of a function, and the session being built.
+Explore prints a local URL; enter `browser` to open it, or visit it manually. CLI, API, and canvas share one origin and the configured `--port` (default: dynamic). Closing the REPL stops its embedded backend; `explore --attach <url>` connects to an existing backend and does not start a second one. The canvas shows the same model: the call graph, the control flow of a function, and the session being built.
 
 ![ilold canvas](images/diagram_solidity.png)
 

@@ -65,12 +65,14 @@ pub async fn run(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize, attach: O
         let repl_thread = std::thread::spawn(move || {
             repl_loop(handle, contract_name, function_names, contract_names, None, base_url, Some(functions_by_contract));
         });
-        repl_thread.join().map_err(|_| anyhow::anyhow!("REPL thread panicked"))?;
+        tokio::task::spawn_blocking(move || repl_thread.join())
+            .await?
+            .map_err(|_| anyhow::anyhow!("REPL thread panicked"))?;
         return Ok(());
     }
 
     println!("Analyzing {} file(s)...", paths.len());
-    let (state, actual_port) = ilold_web::start_server(paths, port, max_seq_depth).await?;
+    let (state, actual_port, server) = ilold_web::start_server_with_handle(paths, port, max_seq_depth).await?;
 
     let contract_name = state.project.find_contract(None)
         .map(|c| c.name.clone())
@@ -120,7 +122,30 @@ pub async fn run(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize, attach: O
         repl_loop(handle, contract_name, function_names, contract_names, Some(state_for_thread), base_url, None);
     });
 
-    repl_thread.join().map_err(|_| anyhow::anyhow!("REPL thread panicked"))?;
+    // Never block the Tokio worker while Reedline waits for input: a
+    // current-thread runtime must still service browser/API requests.
+    let repl = tokio::task::spawn_blocking(move || {
+        repl_thread.join().map_err(|_| anyhow::anyhow!("REPL thread panicked"))
+    });
+    tokio::select! {
+        result = repl => result??,
+        result = server => {
+            result??;
+            anyhow::bail!("Explore server stopped while the REPL was running");
+        }
+    }
+    Ok(())
+}
+
+fn open_browser(url: &str) -> Result<()> {
+    let status = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(url).status()?
+    } else if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd").args(["/C", "start", "", url]).status()?
+    } else {
+        std::process::Command::new("xdg-open").arg(url).status()?
+    };
+    if !status.success() { anyhow::bail!("browser launcher exited with {status}"); }
     Ok(())
 }
 
@@ -282,8 +307,20 @@ fn handle_input(
         "?" | "h" | "help" => { print_help(); InputResult::Continue }
         "q" | "quit" | "exit" => InputResult::Quit,
         "browser" => {
-            println!("  {}", c_muted("Web UI not yet available in explore mode."));
-            println!("  API running at {base_url}/api/");
+            let available = handle.block_on(async {
+                client.get(base_url).send().await
+            });
+            match available {
+                Ok(response) if response.status().is_success()
+                    && response.headers().get(reqwest::header::CONTENT_TYPE)
+                        .is_some_and(|v| v.to_str().unwrap_or("").starts_with("text/html")) => {
+                    if let Err(error) = open_browser(base_url) {
+                        eprintln!("  Cannot open browser: {error}. Open {base_url} manually.");
+                    }
+                }
+                Ok(response) => eprintln!("  Web UI unavailable at {base_url}: {}", response.status()),
+                Err(error) => eprintln!("  Web UI unavailable at {base_url}: {error}"),
+            }
             InputResult::Continue
         }
         "sc" | "scen" | "scenario" => {

@@ -181,7 +181,6 @@
           {lang}
           theme={oneDark}
           readonly
-          basic={true}
           extensions={cmExtensions}
           styles={cmStyles}
         />
