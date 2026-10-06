@@ -23,3 +23,5 @@ Thumbs.db
 # Foundry fixture build outputs
 /tests/fixtures/foundry_config/cache/
 /tests/fixtures/foundry_config/out/
+# Local Pi runtime state
+.atl/
