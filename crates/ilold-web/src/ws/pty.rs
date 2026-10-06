@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -17,6 +17,15 @@ pub async fn ws_pty_handler(
     let port = state.port;
     let contract_path = state.contract_path.clone();
     ws.on_upgrade(move |socket| handle_pty_session(socket, port, contract_path))
+}
+
+/// PATH positional for `ilold explore --attach`; clap rejects an empty value.
+pub fn attach_path(contract_path: &Path) -> PathBuf {
+    if contract_path.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        contract_path.to_path_buf()
+    }
 }
 
 async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: PathBuf) {
@@ -52,9 +61,11 @@ async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: Pat
     cmd.arg("explore");
     cmd.arg("--attach");
     cmd.arg(format!("http://localhost:{port}"));
-    cmd.arg(contract_path.to_string_lossy().as_ref());
-    if let Some(parent) = contract_path.parent() {
-        cmd.cwd(parent);
+    let attach_path = attach_path(&contract_path);
+    cmd.arg(attach_path.as_os_str());
+    let cwd = if attach_path.is_dir() { Some(attach_path.as_path()) } else { attach_path.parent() };
+    if let Some(cwd) = cwd.filter(|dir| !dir.as_os_str().is_empty()) {
+        cmd.cwd(cwd);
     }
 
     let mut child = match pair.slave.spawn_command(cmd) {

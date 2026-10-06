@@ -33,7 +33,6 @@
   let legendFolders: { folder: string; color: string }[] = $state([]);
   let nodeFilter = $state<Record<string, boolean>>({ contract: true, abstract: true, interface: true, library: true });
   let edgeFilter = $state<Record<string, boolean>>({ inherits: true, calls: true, holds: true });
-  let fitView: ((opts?: any) => Promise<boolean>) | null = null;
   let hoveredId: string | null = null;
 
   onMount(async () => {
@@ -99,7 +98,6 @@
     setNodes(laid);
     setEdges(edges);
     applyVisual();
-    queueMicrotask(() => fitView?.({ padding: 0.15 }));
   }
 
   function applyVisual() {
@@ -211,7 +209,7 @@
         onnodemouseenter={onHover}
         onnodemouseleave={offHover}
         canDeleteNodes={false}
-        onready={(api) => { fitView = api.fitView; queueMicrotask(() => api.fitView({ padding: 0.15 })); }}
+        initialFit={{ padding: 0.15 }}
       />
 
       <div

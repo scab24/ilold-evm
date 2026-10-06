@@ -97,11 +97,15 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Canonical absolute Foundry root, so `.` and other relative inputs never yield an empty path.
 pub fn foundry_root(path: &Path) -> Result<PathBuf> {
-    let mut dir = if path.is_dir() {
-        path.to_path_buf()
-    } else if path.is_file() {
-        path.parent().map(Path::to_path_buf).unwrap_or_default()
+    let Ok(start) = path.canonicalize() else {
+        anyhow::bail!("Path does not exist: {}", path.display());
+    };
+    let mut dir = if start.is_dir() {
+        start
+    } else if start.is_file() {
+        start.parent().map(Path::to_path_buf).unwrap_or_default()
     } else {
         anyhow::bail!("Path does not exist: {}", path.display());
     };
@@ -120,4 +124,21 @@ pub fn foundry_root(path: &Path) -> Result<PathBuf> {
         "Not a Foundry project: no foundry.toml found from {}. The Solidity backend requires a compilable Foundry project.",
         path.display()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn foundry_root_is_canonical_for_relative_inputs() {
+        let expected = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/staking").canonicalize().unwrap();
+        for input in ["../../tests/fixtures/staking", "../../tests/fixtures/staking/src/staking.sol"] {
+            let root = foundry_root(Path::new(input)).unwrap();
+            assert!(root.is_absolute(), "{input}: {}", root.display());
+            assert_eq!(root, expected, "{input}");
+        }
+        assert!(foundry_root(Path::new("../../tests/fixtures/no-such-dir")).is_err());
+    }
 }

@@ -3,7 +3,7 @@ pub mod state;
 pub mod ui;
 pub mod ws;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::routing::{delete, get, post, put};
@@ -49,9 +49,24 @@ fn build_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+/// Absolute project directory the embedded terminal attaches to: the path itself
+/// when it is a directory, otherwise its parent. Never empty, even for `.`.
+pub fn contract_path_for(path: &Path) -> PathBuf {
+    let absolute = std::fs::canonicalize(path)
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf());
+    if absolute.is_dir() {
+        return absolute;
+    }
+    match absolute.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
+}
+
 pub async fn serve(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize) -> anyhow::Result<()> {
     println!("Analyzing {} file(s)...", paths.len());
-    let contract_path = paths.first().map(|p| p.parent().unwrap_or(p).to_path_buf()).unwrap_or_default();
+    let contract_path = paths.first().map(|p| contract_path_for(p)).unwrap_or_else(|| contract_path_for(Path::new(".")));
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     let actual_port = listener.local_addr()?.port();
     let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, actual_port, contract_path)?);
@@ -77,7 +92,7 @@ pub async fn start_server(
 pub async fn start_server_with_handle(
     paths: Vec<PathBuf>, port: u16, max_seq_depth: usize,
 ) -> anyhow::Result<(Arc<AppState>, u16, tokio::task::JoinHandle<anyhow::Result<()>>)> {
-    let contract_path = paths.first().map(|p| p.parent().unwrap_or(p).to_path_buf()).unwrap_or_default();
+    let contract_path = paths.first().map(|p| contract_path_for(p)).unwrap_or_else(|| contract_path_for(Path::new(".")));
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     let actual_port = listener.local_addr()?.port();
     let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, actual_port, contract_path)?);

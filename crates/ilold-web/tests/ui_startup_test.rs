@@ -32,10 +32,15 @@ async fn embedded_ui_and_api_share_dynamic_port_on_single_worker() {
     assert_eq!(response.status(), 200);
     assert!(response.headers()["content-type"].to_str().unwrap().contains("text/css"));
     assert!(!response.bytes().await.unwrap().is_empty());
-    let page = client.get(format!("{base}/contract/Staking")).send().await.unwrap();
-    assert_eq!(page.status(), 200);
-    assert!(page.text().await.unwrap().contains("/_app/immutable/"));
-    for path in ["/api/no-such-route", "/ws/no-such-route", "/_app/immutable/missing.js"] {
+    for route in ["/contract/Staking", "/contract/Staking/"] {
+        let page = client.get(format!("{base}{route}")).send().await.unwrap();
+        assert_eq!(page.status(), 200, "{route}");
+        assert!(page.text().await.unwrap().contains("/_app/immutable/"), "{route}");
+    }
+    for path in [
+        "/api/no-such-route", "/api/no-such-route/", "/ws/no-such-route", "/_app/immutable/missing.js",
+        "/contract/", "/contract/Staking/extra", "/contract/missing.js",
+    ] {
         let response = client.get(format!("{base}{path}")).send().await.unwrap();
         assert_eq!(response.status(), 404, "{path}");
         assert!(!response.text().await.unwrap().contains("/_app/immutable/"));

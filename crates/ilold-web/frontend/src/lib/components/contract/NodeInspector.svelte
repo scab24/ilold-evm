@@ -29,6 +29,11 @@
     onexpandcfg,
   }: Props = $props();
 
+  // Keys are Solidity names; own-property lookup so names like `constructor` never hit Object.prototype
+  function pathsFor(funcName: string): any {
+    return funcPaths && Object.hasOwn(funcPaths, funcName) ? funcPaths[funcName] : undefined;
+  }
+
   function termColor(t: string): string {
     return t === 'Return' ? 'var(--color-success)' : t === 'Revert' ? 'var(--color-danger)' : 'var(--color-text-muted)';
   }
@@ -67,12 +72,13 @@
           </div>
         {/if}
 
-        {#if funcPaths[selectedNode.label]}
-          {@const fp = funcPaths[selectedNode.label]}
-          <div class="d-row"><span class="d-label">Paths</span><span>{fp.stats.total_paths} ({fp.stats.happy_paths} return, {fp.stats.revert_paths} revert)</span></div>
+        {#if pathsFor(selectedNode.label)}
+          {@const fp = pathsFor(selectedNode.label)}
+          {@const fpPaths = Array.isArray(fp.paths) ? fp.paths : []}
+          <div class="d-row"><span class="d-label">Paths</span><span>{fp.stats?.total_paths ?? fpPaths.length} ({fp.stats?.happy_paths ?? 0} return, {fp.stats?.revert_paths ?? 0} revert)</span></div>
 
-          <Collapsible title="Paths" count={fp.stats.total_paths} open={true}>
-            {#each fp.paths as path}
+          <Collapsible title="Paths" count={fp.stats?.total_paths ?? fpPaths.length} open={true}>
+            {#each fpPaths as path}
               <button
                 class="d-path"
                 class:d-path-selected={selectedPath?.id === path.id}
@@ -222,7 +228,7 @@
         {/if}
       {:else if selectedNode._type === 'block'}
         {@const parentFunc = selectedNode._parentFunc || ''}
-        {@const paths = funcPaths[parentFunc]?.paths || []}
+        {@const paths = pathsFor(parentFunc)?.paths || []}
         {@const passingPaths = paths.filter((p: any) => p.nodes.some((n: any) => `cfg:${parentFunc}:b${n.block_id}` === selectedNode.id))}
         <div class="d-row"><span class="d-label">Function</span><span>{parentFunc}</span></div>
         <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length} paths</span></div>

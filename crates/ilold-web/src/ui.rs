@@ -10,11 +10,19 @@ pub async fn ui_path(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     // Only navigation routes may use the SPA shell. Never return HTML for a
     // missing API/WS endpoint or asset (including missing JS/CSS).
-    if path.starts_with("contract/") && path.split('/').count() == 2
-        && !path.rsplit('/').next().unwrap_or("").contains('.') {
+    if is_contract_route(path) {
         return asset("index.html");
     }
     asset(path)
+}
+
+/// `contract/<name>` or `contract/<name>/`, where the name is not a file.
+fn is_contract_route(path: &str) -> bool {
+    let route = path.strip_suffix('/').unwrap_or(path);
+    match route.split_once('/') {
+        Some(("contract", name)) => !name.is_empty() && !name.contains('/') && !name.contains('.'),
+        _ => false,
+    }
 }
 
 fn asset(path: &str) -> Response {

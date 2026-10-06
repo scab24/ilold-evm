@@ -39,7 +39,8 @@
   let error: string | null = $state(null);
   let selectedNode: any = $state(null);
   let selectedPath: any = $state(null);
-  let funcPaths: Record<string, any> = $state({});
+  // Raw, replaced on every update: a $state proxy hides inherited keys such as `constructor`
+  let funcPaths: Record<string, any> = $state.raw({});
   let expandedFuncs: Set<string> = $state(new Set());
   let selectionCount: number = $state(0);
   let mode: 'cfg' | 'sequences' | 'session' = $state('sequences');
@@ -69,7 +70,12 @@
   let callgraphRaw: CytoscapeGraph | null = $state(null);
   let flowApi: { fitView: (opts?: any) => Promise<boolean> } | null = $state(null);
   let graphCanvas: GraphCanvasFlow;
-  let cfgCache: Record<string, CytoscapeGraph> = {};
+  const cfgCache = new Map<string, CytoscapeGraph>();
+
+  // Caches keyed by Solidity names; own-property checks keep `constructor` & co. off Object.prototype
+  function hasPaths(funcName: string): boolean {
+    return Object.hasOwn(funcPaths, funcName) && !!funcPaths[funcName];
+  }
 
   function liveNodePosition(nodeId: string): { x: number; y: number } | null {
     const live = graphCanvas?.getLiveNode?.(nodeId);
@@ -505,9 +511,9 @@
           }
           if (stale || !contract) return;
 
-          if (!funcPaths[nav.func]) {
-            funcPaths[nav.func] = await getPaths(contract.name, nav.func);
-            funcPaths = { ...funcPaths };
+          if (!hasPaths(nav.func)) {
+            const paths = await getPaths(contract.name, nav.func);
+            funcPaths = { ...funcPaths, [nav.func]: paths };
           }
           if (stale || !contract) return;
 
@@ -521,7 +527,7 @@
           );
           if (funcNode) {
             selectedNode = { ...funcNode.data, id: funcNode.id };
-            const path = funcPaths[nav.func]?.paths?.find((p: any) => p.id === nav.pathId);
+            const path = (hasPaths(nav.func) ? funcPaths[nav.func] : undefined)?.paths?.find((p: any) => p.id === nav.pathId);
             if (path) highlightPath(nav.func, path);
             if (flowApi) {
               await tick();
@@ -713,10 +719,10 @@
       : data._type === 'seq-next' ? ((data as any)._funcName || data.label)
       : null;
 
-    if (funcName && contract && !funcPaths[funcName]) {
+    if (funcName && contract && !hasPaths(funcName)) {
       try {
-        funcPaths[funcName] = await getPaths(contract.name, funcName);
-        funcPaths = { ...funcPaths };
+        const paths = await getPaths(contract.name, funcName);
+        funcPaths = { ...funcPaths, [funcName]: paths };
       } catch {}
     }
   }
@@ -869,10 +875,11 @@
       return;
     }
 
-    if (!cfgCache[funcName]) {
-      cfgCache[funcName] = await getCfg(contract.name, funcName);
+    let cfg = cfgCache.get(funcName);
+    if (!cfg) {
+      cfg = await getCfg(contract.name, funcName);
+      cfgCache.set(funcName, cfg);
     }
-    const cfg = cfgCache[funcName];
     const parentPos = liveNodePosition(parentId) ?? { x: 300, y: 200 };
 
     const cfgNodes: Node<GraphNodeData>[] = cfg.nodes.map(n => ({
