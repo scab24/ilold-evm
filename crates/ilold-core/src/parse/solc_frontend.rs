@@ -15,6 +15,7 @@ use crate::model::modifier::*;
 use crate::model::project::*;
 use crate::model::statement::*;
 
+use super::cache;
 use super::error::ParseError;
 use super::span::LineIndex;
 use super::ProjectParser;
@@ -30,19 +31,22 @@ impl ProjectParser for SolcFrontend {
 
 impl SolcFrontend {
     pub fn parse_project(&self, root: &Path) -> Result<Project, ParseError> {
-        let foundry_config = read_foundry_config(root)?;
-        let paths = project_paths(root, &foundry_config)?;
-        let src_dir = paths.sources.clone();
+        let prepared = prepare(root)?;
+        let store = cache::Store::from_env();
+        let key = prepared.key();
+        let canonical = prepared.canonical.clone();
+        cache::reuse_or_compile(store.as_ref().ok(), canonical.as_deref(), key.as_deref(),
+            || prepare(root).ok().and_then(|p| p.key()) == key,
+            || self.compile_prepared(root, prepared))
+    }
 
-        let settings = SolcSettings {
-            settings: solc_settings(&foundry_config)?,
-            ..Default::default()
-        };
+    fn compile_prepared(&self, root: &Path, prepared: Prepared) -> Result<Project, ParseError> {
+        let src_dir = prepared.paths.sources.clone();
         let project = ProjectBuilder::<SolcCompiler>::default()
-            .paths(paths)
-            .settings(settings)
+            .paths(prepared.paths)
+            .settings(prepared.settings)
             .set_cached(false)
-            .build(solc_compiler(&foundry_config)?)
+            .build(solc_compiler(&prepared.config)?)
             .map_err(|e| ParseError::Internal {
                 message: format!("solc project build: {e}"),
             })?;
@@ -106,10 +110,41 @@ impl SolcFrontend {
     }
 }
 
+struct Prepared {
+    config: FoundryConfig,
+    paths: ProjectPathsConfig<SolcLanguage>,
+    settings: SolcSettings,
+    canonical: Option<PathBuf>,
+    profile: String,
+    installed: Option<Solc>,
+}
+impl Prepared {
+    fn key(&self) -> Option<String> {
+        cache::fingerprint(self.canonical.as_ref()?, &self.paths, &self.settings,
+            &self.profile, self.installed.as_ref()?).map_err(|reason| {
+                eprintln!("ilold project cache bypass: {reason}");
+            }).ok()
+    }
+}
+fn prepare(root: &Path) -> Result<Prepared, ParseError> {
+    let profile = selected_profile();
+    let config = read_foundry_config_with_profile(root, &profile)?;
+    let paths = project_paths(root, &config)?;
+    let settings = SolcSettings { settings: solc_settings(&config)?, ..Default::default() };
+    let canonical = root.canonicalize().ok();
+    let installed = installed_compiler(&config);
+    Ok(Prepared { config, paths, settings, canonical, profile, installed })
+}
+
 fn project_root(paths: &[PathBuf]) -> Result<PathBuf, ParseError> {
     let first = paths.first().ok_or_else(|| ParseError::Internal {
         message: "no input paths".into(),
     })?;
+    if !first.exists() {
+        return Err(ParseError::FileNotFound {
+            path: first.display().to_string(),
+        });
+    }
     let start = if first.is_dir() {
         first.clone()
     } else {
@@ -275,12 +310,19 @@ fn solc_compiler(cfg: &FoundryConfig) -> Result<SolcCompiler, ParseError> {
     Ok(SolcCompiler::Specific(solc))
 }
 
+fn selected_profile() -> String {
+    std::env::var("FOUNDRY_PROFILE").ok().filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "default".to_string())
+}
+
+#[cfg(test)]
 fn read_foundry_config(root: &Path) -> Result<FoundryConfig, ParseError> {
-    let profile_name = std::env::var("FOUNDRY_PROFILE")
-        .ok()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "default".to_string());
-    read_foundry_config_with_profile(root, &profile_name)
+    read_foundry_config_with_profile(root, &selected_profile())
+}
+
+fn installed_compiler(cfg: &FoundryConfig) -> Option<Solc> {
+    let version = cfg.solc.as_ref()?.trim_start_matches('v').parse().ok()?;
+    Solc::find_svm_installed_version(&version).ok().flatten()
 }
 
 fn read_foundry_config_with_profile(root: &Path, profile_name: &str) -> Result<FoundryConfig, ParseError> {

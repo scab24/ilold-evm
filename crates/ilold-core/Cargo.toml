@@ -10,5 +10,6 @@ foundry-compilers-artifacts-solc = { workspace = true }
 petgraph = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 toml_edit = { workspace = true }
 thiserror = { workspace = true }
