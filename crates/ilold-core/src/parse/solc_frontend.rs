@@ -224,7 +224,16 @@ fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<
             .as_ref()
             .map(|libs| libs.iter().map(|lib| rooted_path(root, lib)).collect::<Vec<_>>())
             .unwrap_or_else(|| ProjectPathsConfig::find_libs(root));
-        remappings.extend(lib_paths.iter().flat_map(|path| Remapping::find_many(path.as_path())));
+        for detected in lib_paths
+            .iter()
+            .flat_map(|path| Remapping::find_many(path.as_path()))
+        {
+            if !remappings.iter().any(|existing| {
+                existing.name == detected.name && existing.context == detected.context
+            }) {
+                remappings.push(detected);
+            }
+        }
     }
     builder = builder.remappings(remappings);
 
@@ -1291,6 +1300,43 @@ mod tests {
         assert_eq!(settings.via_ir, Some(true));
         assert_eq!(settings.optimizer.enabled, Some(true));
         assert_eq!(settings.optimizer.runs, Some(1));
+    }
+
+    #[test]
+    fn explicit_remappings_take_precedence_over_autodetected_remappings() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/foundry_config");
+        let mut cfg = read_foundry_config(&root).expect("foundry config");
+        cfg.auto_detect_remappings = Some(true);
+        cfg.remappings = vec![
+            parse_remapping(&root, "manual/=lib/auto/src/").expect("explicit remapping"),
+            parse_remapping(&root, "src/:auto/=lib/manual/src/").expect("context remapping"),
+        ];
+
+        let paths = project_paths(&root, &cfg).expect("project paths");
+        let manual = paths
+            .remappings
+            .iter()
+            .filter(|r| r.name == "manual/" && r.context.is_none())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            manual.len(),
+            1,
+            "autodetection must not duplicate an explicit remapping"
+        );
+        assert_eq!(
+            manual[0].path,
+            root.join("lib/auto/src/").to_string_lossy().as_ref()
+        );
+
+        assert!(paths
+            .remappings
+            .iter()
+            .any(|r| r.name == "auto/" && r.context.as_deref() == Some("src/")));
+        assert!(paths
+            .remappings
+            .iter()
+            .any(|r| r.name == "auto/" && r.context.is_none()));
     }
 
     #[test]
