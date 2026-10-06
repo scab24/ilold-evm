@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
+use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::cfg::builder::CfgBuilder;
 use ilold_core::cfg::types::CfgGraph;
 use ilold_core::classify::entry_points::{classify_all, AccessLevel};
@@ -12,13 +13,14 @@ use ilold_core::narrative::function::build_function_narrative;
 use ilold_core::narrative::sequence::build_sequence_narrative;
 use ilold_core::narrative::types::*;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::parse::ProjectParser;
 use ilold_core::pathtree::config::PruningConfig;
 use ilold_core::pathtree::types::{PathTree, TerminalKind};
 use ilold_core::pathtree::walker::build_path_tree;
-use ilold_core::sequence::analysis::{analyze_project, analyze_sequences};
+use ilold_core::sequence::analysis::analyze_sequences;
 
 use crate::colors::*;
+
+const SHARED_SEQ_DEPTH: usize = 3;
 
 pub fn run(
     path: &PathBuf,
@@ -30,7 +32,7 @@ pub fn run(
     let paths = vec![crate::foundry_root(path)?];
 
     let parser = SolcFrontend;
-    let mut project = parser.parse(&paths).context("Failed to parse")?;
+    let (mut project, key) = parser.parse_keyed(&paths).context("Failed to parse")?;
     project.rebuild_index();
 
     let contract = find_contract(&project, contract_filter)?;
@@ -53,20 +55,10 @@ pub fn run(
             pt_map.insert(key, pt);
         }
     }
-    let mut all_sequence_analyses: HashMap<String, ilold_core::sequence::analysis::SequenceAnalysis> = HashMap::new();
-    for c in &project.contracts {
-        let combined = project.inherited_state_vars(c);
-        let mut c_pt_map: HashMap<(String, String), PathTree> = HashMap::new();
-        for func in &c.functions {
-            if let Ok(cfg) = CfgBuilder::build_with_project(func, c, Some(&project)) {
-                let pt = build_path_tree(&cfg, &c.name, &func.name, &combined, &config);
-                c_pt_map.insert((c.name.clone(), func.name.clone()), pt);
-            }
-        }
-        let a = analyze_sequences(&c_pt_map, &c.name);
-        all_sequence_analyses.insert(c.name.clone(), a);
-    }
-    analyze_project(&project, &mut all_sequence_analyses);
+    // Sequence depth does not affect what context prints; the CLI default shares the cached analysis.
+    let params = AnalysisParams::new(SHARED_SEQ_DEPTH);
+    let all_sequence_analyses =
+        ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;
     let analysis = all_sequence_analyses
         .get(&contract.name)
         .cloned()

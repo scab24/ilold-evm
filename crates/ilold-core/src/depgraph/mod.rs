@@ -85,6 +85,17 @@ impl ContractDeps {
         build::from_call_graphs(project, call_graphs)
     }
 
+    /// Restores a persisted graph. Built graphs hold one node per name; anything else is rejected.
+    pub fn from_graph(graph: DepGraph) -> Option<Self> {
+        let mut index = HashMap::new();
+        for idx in graph.node_indices() {
+            if index.insert(graph[idx].name.clone(), idx).is_some() {
+                return None;
+            }
+        }
+        Some(ContractDeps { graph, index })
+    }
+
     pub fn node(&self, name: &str) -> Option<NodeIndex> {
         self.index.get(name).copied()
     }

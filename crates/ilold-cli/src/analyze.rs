@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use colored::Colorize;
 
+use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::callgraph::builder::build_call_graph;
 use ilold_core::callgraph::types::CallKind;
 use ilold_core::cfg::builder::CfgBuilder;
@@ -17,7 +18,7 @@ use ilold_core::parse::ProjectParser;
 use ilold_core::pathtree::config::PruningConfig;
 use ilold_core::pathtree::types::PathTree;
 use ilold_core::pathtree::walker::build_path_tree;
-use ilold_core::sequence::analysis::{analyze_project, analyze_sequences, SequenceAnalysis};
+use ilold_core::sequence::analysis::{analyze_sequences, SequenceAnalysis};
 use ilold_core::sequence::builder::build_sequence_tree;
 
 use crate::colors::*;
@@ -31,29 +32,16 @@ pub fn run(
     let paths = vec![crate::foundry_root(path)?];
 
     let parser = SolcFrontend;
-    let mut project = parser
-        .parse(&paths)
+    let (mut project, key) = parser
+        .parse_keyed(&paths)
         .context(format!("Failed to parse {}", path.display()))?;
     project.rebuild_index();
 
     println!("Parsed {} file(s), {} contract(s)\n",
         project.source_files.len(), project.contracts.len());
 
-    let config = PruningConfig::default();
-    let mut all_analyses: HashMap<String, SequenceAnalysis> = HashMap::new();
-    for contract in &project.contracts {
-        let combined_state_vars = project.inherited_state_vars(contract);
-        let mut pt_map: HashMap<(String, String), PathTree> = HashMap::new();
-        for func in &contract.functions {
-            if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(&project)) {
-                let pt = build_path_tree(&cfg, &contract.name, &func.name, &combined_state_vars, &config);
-                pt_map.insert((contract.name.clone(), func.name.clone()), pt);
-            }
-        }
-        let analysis = analyze_sequences(&pt_map, &contract.name);
-        all_analyses.insert(contract.name.clone(), analysis);
-    }
-    analyze_project(&project, &mut all_analyses);
+    let params = AnalysisParams::new(max_seq_depth);
+    let all_analyses = ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;
 
     let mut ordered: Vec<&ContractDef> = project
         .contracts

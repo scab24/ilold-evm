@@ -18,7 +18,7 @@ use crate::model::statement::*;
 use super::cache;
 use super::error::ParseError;
 use super::span::LineIndex;
-use super::ProjectParser;
+use super::{ProjectKey, ProjectParser};
 
 pub struct SolcFrontend;
 
@@ -31,13 +31,28 @@ impl ProjectParser for SolcFrontend {
 
 impl SolcFrontend {
     pub fn parse_project(&self, root: &Path) -> Result<Project, ParseError> {
+        self.parse_project_keyed(root).map(|(project, _)| project)
+    }
+
+    /// Like `parse`, also returning the validated project cache key when one exists.
+    pub fn parse_keyed(&self, paths: &[PathBuf]) -> Result<(Project, Option<ProjectKey>), ParseError> {
+        let root = project_root(paths)?;
+        self.parse_project_keyed(&root)
+    }
+
+    pub fn parse_project_keyed(&self, root: &Path) -> Result<(Project, Option<ProjectKey>), ParseError> {
         let prepared = prepare(root)?;
         let store = cache::Store::from_env();
         let key = prepared.key();
         let canonical = prepared.canonical.clone();
-        cache::reuse_or_compile(store.as_ref().ok(), canonical.as_deref(), key.as_deref(),
-            || prepare(root).ok().and_then(|p| p.key()) == key,
-            || self.compile_prepared(root, prepared))
+        let (project, validated) = cache::reuse_or_compile(store.as_ref().ok(), canonical.as_deref(),
+            key.as_deref(), || prepare(root).ok().and_then(|p| p.key()) == key,
+            || self.compile_prepared(root, prepared))?;
+        let key = match (validated, canonical, key) {
+            (true, Some(root), Some(key)) => Some(ProjectKey { root, key }),
+            _ => None,
+        };
+        Ok((project, key))
     }
 
     fn compile_prepared(&self, root: &Path, prepared: Prepared) -> Result<Project, ParseError> {

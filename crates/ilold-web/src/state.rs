@@ -4,22 +4,17 @@ use std::sync::RwLock;
 
 use tokio::sync::broadcast;
 
-use ilold_core::callgraph::builder::build_call_graph;
+use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::depgraph::ContractDeps;
 use ilold_core::exploration::commands::CanvasPatch;
 use ilold_core::callgraph::types::CallGraph;
-use ilold_core::cfg::builder::CfgBuilder;
 use ilold_core::cfg::types::CfgGraph;
-use ilold_core::classify::entry_points::{classify_all, AccessLevel};
+use ilold_core::classify::entry_points::AccessLevel;
 use ilold_core::exploration::session::ExplorationSession;
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::parse::ProjectParser;
-use ilold_core::pathtree::config::PruningConfig;
 use ilold_core::pathtree::types::PathTree;
-use ilold_core::pathtree::walker::build_path_tree;
-use ilold_core::sequence::analysis::{analyze_project, analyze_sequences, SequenceAnalysis};
-use ilold_core::sequence::builder::build_sequence_tree;
+use ilold_core::sequence::analysis::SequenceAnalysis;
 use ilold_core::sequence::types::SequenceTree;
 
 use serde::{Deserialize, Serialize};
@@ -229,57 +224,19 @@ pub enum AnnotationStatus {
 impl AppState {
     pub fn from_paths(paths: &[PathBuf], max_seq_depth: usize, port: u16, contract_path: PathBuf) -> anyhow::Result<Self> {
         let parser = SolcFrontend;
-        let mut project = parser.parse(paths)?;
+        let (mut project, key) = parser.parse_keyed(paths)?;
         project.rebuild_index();
 
-        let config = PruningConfig::default();
-        let mut cfgs = HashMap::new();
-        let mut path_trees = HashMap::new();
-        let mut call_graphs = HashMap::new();
-        let mut sequence_trees = HashMap::new();
-        let mut sequence_analyses = HashMap::new();
-        let mut classifications = HashMap::new();
-
-        for contract in &project.contracts {
-            let cg = build_call_graph(&project, contract);
-            call_graphs.insert(contract.name.clone(), cg);
-
-            let mut contract_path_trees = Vec::new();
-            let combined_state_vars = project.inherited_state_vars(contract);
-
-            for func in &contract.functions {
-                let key = (contract.name.clone(), func.name.clone());
-
-                if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(&project)) {
-                    let pt = build_path_tree(
-                        &cfg,
-                        &contract.name,
-                        &func.name,
-                        &combined_state_vars,
-                        &config,
-                    );
-                    contract_path_trees.push(pt.clone());
-                    path_trees.insert(key.clone(), pt);
-                    cfgs.insert(key, cfg);
-                }
-            }
-
-            let st = build_sequence_tree(contract, &contract_path_trees, max_seq_depth);
-            sequence_trees.insert(contract.name.clone(), st);
-
-            let pt_map: HashMap<(String, String), PathTree> = contract_path_trees
-                .iter()
-                .map(|pt| ((pt.contract.clone(), pt.function.clone()), pt.clone()))
-                .collect();
-            let analysis = analyze_sequences(&pt_map, &contract.name);
-            sequence_analyses.insert(contract.name.clone(), analysis);
-
-            classifications.insert(contract.name.clone(), classify_all(contract));
-        }
-
-        analyze_project(&project, &mut sequence_analyses);
-
-        let dep_graph = ContractDeps::from_call_graphs(&project, &call_graphs);
+        let params = AnalysisParams::new(max_seq_depth);
+        let ProjectAnalysis {
+            cfgs,
+            path_trees,
+            call_graphs,
+            dep_graph,
+            sequence_trees,
+            sequence_analyses,
+            classifications,
+        } = ProjectAnalysis::load_or_build(&project, key.as_ref(), &params);
 
         let (session_tx, _) = broadcast::channel(64);
 

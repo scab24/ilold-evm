@@ -162,9 +162,9 @@ impl Snapshot {
         Some(project)
     }
 }
-pub(super) struct Store { base: PathBuf }
+pub(crate) struct Store { base: PathBuf }
 impl Store {
-    pub(super) fn from_env() -> Result<Self, String> {
+    pub(crate) fn from_env() -> Result<Self, String> {
         if std::env::var_os("ILOLD_DISABLE_PROJECT_CACHE").is_some() { return Err("disabled".into()); }
         let base = match std::env::var_os("ILOLD_PROJECT_CACHE_DIR") {
             Some(path) => PathBuf::from(path),
@@ -174,7 +174,11 @@ impl Store {
         Ok(Self { base })
     }
 
-    fn cache_dir(&self, root: &Path) -> Result<PathBuf, String> {
+    /// Explicit store location, used for injection in tests.
+    pub(crate) fn at(base: &Path) -> Self { Self { base: base.to_path_buf() } }
+
+    /// Private per-project directory; derived snapshots live beside `project.json`.
+    pub(crate) fn cache_dir(&self, root: &Path) -> Result<PathBuf, String> {
         let base = &self.base;
     // Reject symlinked cache ancestors (including override) instead of following them.
     for ancestor in base.ancestors().take_while(|p| p != &Path::new("")) {
@@ -204,15 +208,29 @@ impl Store {
     }
 
     pub(super) fn load(&self, root: &Path, key: &str) -> Result<Project, String> {
-    let path = self.snapshot_path(root)?;
-    let meta = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
-    if !meta.is_file() || meta.len() > MAX_SNAPSHOT { return Err("invalid snapshot size/type".into()); }
+        let bytes = read_envelope(&self.snapshot_path(root)?, VERSION, key, MAX_SNAPSHOT)?;
+        serde_json::from_slice::<Snapshot>(&bytes).map_err(|e| e.to_string())?
+            .into_project().ok_or_else(|| "invalid declaration or source index".into())
+    }
+
+    pub(super) fn publish(&self, root: &Path, key: &str, project: &Project) -> Result<(), String> {
+        if project.decl_table.len() > MAX_FILES * 8 { return Err("declaration count limit".into()); }
+        let snapshot = SnapshotRef { sources: &project.source_files, contracts: &project.contracts,
+            declarations: project.decl_table.snapshot() };
+        write_envelope(&self.snapshot_path(root)?, VERSION, key, MAX_SNAPSHOT, &snapshot)
+    }
+}
+
+/// Reads a whole envelope payload after checking magic, format version, key, length and checksum.
+pub(crate) fn read_envelope(path: &Path, version: &str, key: &str, max: u64) -> Result<Vec<u8>, String> {
+    let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_file() || meta.len() > max { return Err("invalid snapshot size/type".into()); }
     if meta.len() < HEADER as u64 || key.len() != 64 { return Err("invalid snapshot header".into()); }
-    let mut file = File::open(&path).map_err(|e| e.to_string())?;
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut header = [0u8; HEADER];
     file.read_exact(&mut header).map_err(|e| e.to_string())?;
     let len = u64::from_be_bytes(header[136..144].try_into().map_err(|_| "invalid header")?);
-    if &header[..8] != MAGIC || header[8..40] != Sha256::digest(VERSION.as_bytes())[..]
+    if &header[..8] != MAGIC || header[8..40] != Sha256::digest(version.as_bytes())[..]
         || &header[40..104] != key.as_bytes() || len != meta.len() - HEADER as u64 {
         return Err("stale or corrupt snapshot".into());
     }
@@ -221,18 +239,17 @@ impl Store {
     if bytes.len() as u64 != len || header[104..136] != Sha256::digest(&bytes)[..] {
         return Err("truncated or corrupt snapshot".into());
     }
-    serde_json::from_slice::<Snapshot>(&bytes).map_err(|e| e.to_string())?
-        .into_project().ok_or_else(|| "invalid declaration or source index".into())
+    Ok(bytes)
 }
 
-    pub(super) fn publish(&self, root: &Path, key: &str, project: &Project) -> Result<(), String> {
-    if project.decl_table.len() > MAX_FILES * 8 { return Err("declaration count limit".into()); }
-    let path = self.snapshot_path(root)?;
+/// Serializes into a private temp file within `max` bytes, then atomically renames it over `path`.
+pub(crate) fn write_envelope(path: &Path, version: &str, key: &str, max: u64,
+    payload: &impl Serialize) -> Result<(), String> {
     if key.len() != 64 || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("invalid snapshot key".into());
     }
     let dir = path.parent().ok_or("missing cache dir")?;
-    let temp = dir.join(format!(".project-{}-{}.tmp", std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed)));
+    let temp = dir.join(format!(".snapshot-{}-{}.tmp", std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed)));
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)] {
@@ -243,59 +260,59 @@ impl Store {
     let result = (|| -> Result<(), String> {
         file.write_all(&[0u8; HEADER]).map_err(|e| e.to_string())?;
         let (len, checksum) = {
-            let mut writer = BoundedWriter { file: &mut file, count: 0, hash: Sha256::new() };
-            let snapshot = SnapshotRef { sources: &project.source_files, contracts: &project.contracts,
-                declarations: project.decl_table.snapshot() };
-            serde_json::to_writer(&mut writer, &snapshot).map_err(|e| e.to_string())?;
+            let mut writer = BoundedWriter { file: &mut file, count: 0, max, hash: Sha256::new() };
+            serde_json::to_writer(&mut writer, payload).map_err(|e| e.to_string())?;
             (writer.count, writer.hash.finalize())
         };
         let mut header = [0u8; HEADER];
         header[..8].copy_from_slice(MAGIC);
-        header[8..40].copy_from_slice(&Sha256::digest(VERSION.as_bytes()));
+        header[8..40].copy_from_slice(&Sha256::digest(version.as_bytes()));
         header[40..104].copy_from_slice(key.as_bytes());
         header[104..136].copy_from_slice(&checksum);
         header[136..144].copy_from_slice(&len.to_be_bytes());
         file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
         file.write_all(&header).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
-        fs::rename(&temp, &path).map_err(|e| e.to_string())?;
+        fs::rename(&temp, path).map_err(|e| e.to_string())?;
         Ok(())
     })();
     if result.is_err() { let _ = fs::remove_file(&temp); }
     result
-    }
 }
 
 /// The compile closure is never called on a validated hit. Errors are returned unchanged.
+/// The flag reports whether the returned project is known to match `key`.
 pub(super) fn reuse_or_compile<E>(
     store: Option<&Store>, root: Option<&Path>, key: Option<&str>,
     mut unchanged: impl FnMut() -> bool, compile: impl FnOnce() -> Result<Project, E>,
-) -> Result<Project, E> {
+) -> Result<(Project, bool), E> {
     if let (Some(store), Some(root), Some(key)) = (store, root, key) {
         match store.load(root, key) {
             Ok(project) if unchanged() => {
                 eprintln!("ilold project cache hit");
-                return Ok(project);
+                return Ok((project, true));
             }
             Ok(_) => eprintln!("ilold project cache miss: inputs changed during lookup"),
             Err(reason) => eprintln!("ilold project cache miss: {reason}"),
         }
     } else { eprintln!("ilold project cache bypass: compiler, input or store unavailable"); }
     let project = compile()?;
+    let mut validated = false;
     if let (Some(store), Some(root), Some(key)) = (store, root, key) {
         if unchanged() {
+            validated = true;
             if let Err(reason) = store.publish(root, key, &project) {
                 eprintln!("ilold project cache publish skipped: {reason}");
             }
         } else { eprintln!("ilold project cache publish skipped: inputs changed"); }
     }
-    Ok(project)
+    Ok((project, validated))
 }
 
-struct BoundedWriter<'a> { file: &'a mut File, count: u64, hash: Sha256 }
+struct BoundedWriter<'a> { file: &'a mut File, count: u64, max: u64, hash: Sha256 }
 impl Write for BoundedWriter<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if (bytes.len() as u64) > MAX_SNAPSHOT - HEADER as u64 - self.count {
+        if (bytes.len() as u64) > self.max - HEADER as u64 - self.count {
             return Err(std::io::Error::other("snapshot size limit"));
         }
         self.file.write_all(bytes)?;
@@ -359,12 +376,16 @@ mod tests {
         let key = digest(b"compile");
         let calls = std::cell::Cell::new(0);
         let compile = || { calls.set(calls.get() + 1); Ok::<_, &'static str>(project.clone()) };
-        reuse_or_compile(Some(&store), Some(&dir), Some(&key), || true, compile).unwrap();
-        let warm = reuse_or_compile(Some(&store), Some(&dir), Some(&key), || true, || {
+        assert!(reuse_or_compile(Some(&store), Some(&dir), Some(&key), || true, compile).unwrap().1);
+        let (warm, validated) = reuse_or_compile(Some(&store), Some(&dir), Some(&key), || true, || {
             calls.set(calls.get() + 1);
             Err::<Project, _>("must not compile")
         }).unwrap();
+        assert!(validated);
         assert_eq!(calls.get(), 1);
+        assert!(!reuse_or_compile(None, Some(&dir), Some(&key), || true, || Ok::<_, ()>(project.clone())).unwrap().1);
+        assert!(!reuse_or_compile(Some(&store), Some(&dir), Some(&digest(b"moving")), || false,
+            || Ok::<_, ()>(project.clone())).unwrap().1);
         assert_eq!(warm.decl_table.lookup(crate::model::decl_id::DeclId(7)).unwrap().function,
             project.decl_table.lookup(crate::model::decl_id::DeclId(7)).unwrap().function);
         let cold_child = project.find_contract(Some("Child")).unwrap();
