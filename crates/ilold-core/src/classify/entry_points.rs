@@ -206,6 +206,7 @@ mod tests {
                 .into_iter()
                 .map(|m| ModifierRef { name: m.into(), arguments: vec![] })
                 .collect(),
+            base_constructor_calls: vec![],
             params: vec![],
             returns: vec![],
             body,

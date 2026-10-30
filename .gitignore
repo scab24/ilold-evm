@@ -27,3 +27,5 @@ Thumbs.db
 .atl/
 # Generated Svelte bundle (embedded into Rust binary during build)
 /crates/ilold-web/frontend/build/
+/tests/fixtures/**/out/
+/tests/fixtures/**/cache/

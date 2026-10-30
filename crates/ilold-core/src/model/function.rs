@@ -11,6 +11,9 @@ pub struct FunctionDef {
     pub visibility: Visibility,
     pub mutability: Mutability,
     pub modifiers: Vec<ModifierRef>,
+    // constructor `Base(args)` specifiers; not inlined like modifiers
+    #[serde(default)]
+    pub base_constructor_calls: Vec<ModifierRef>,
     pub params: Vec<Param>,
     pub returns: Vec<Param>,
     pub body: Option<Vec<Statement>>,

@@ -15,7 +15,7 @@ use crate::model::contract::ContractDef;
 use crate::model::decl_id::DeclTable;
 use crate::model::project::{Project, SourceFile};
 
-const VERSION: &str = "ilold-project-v2-foundry-0.21-sha256";
+const VERSION: &str = "ilold-project-v3-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
 const MAX_SOURCES: usize = 20_000;
@@ -372,6 +372,7 @@ mod tests {
         let parent = ContractDef { name: "Parent".into(), kind: ContractKind::Contract,
             functions: vec![FunctionDef { name: "f".into(), kind: FunctionKind::Function,
                 visibility: Visibility::Public, mutability: Mutability::Pure, modifiers: vec![],
+                base_constructor_calls: vec![],
                 params: vec![], returns: vec![], body: None, is_virtual: false,
                 is_override: false, span }], modifiers: vec![], state_vars: vec![],
             structs: vec![], enums: vec![], events: vec![], errors: vec![], inherits: vec![], span };

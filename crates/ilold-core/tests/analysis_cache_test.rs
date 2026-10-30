@@ -51,6 +51,7 @@ fn small_project() -> Project {
     let span = SourceSpan { file_index: 0, start_line: 1, start_col: 1, end_line: 1, end_col: 1 };
     let function = |name: &str| FunctionDef { name: name.into(), kind: FunctionKind::Function,
         visibility: Visibility::Public, mutability: Mutability::NonPayable, modifiers: vec![],
+        base_constructor_calls: vec![],
         params: vec![], returns: vec![], body: Some(vec![]), is_virtual: false, is_override: false, span };
     let base = ContractDef { name: "Base".into(), kind: ContractKind::Contract,
         functions: vec![function("ping"), function("pong")], modifiers: vec![], state_vars: vec![],

@@ -593,7 +593,8 @@ fn map_function(node: &Node, index: &LineIndex) -> FunctionDef {
         kind,
         visibility: visibility(node),
         mutability: mutability(node),
-        modifiers: modifier_refs(node),
+        modifiers: modifier_refs(node, false),
+        base_constructor_calls: modifier_refs(node, true),
         params: param_list(node, "parameters"),
         returns: param_list(node, "returnParameters"),
         body: node.body.as_deref().map(|b| map_body(b, index)),
@@ -1081,10 +1082,15 @@ fn literal_type(node: &Node) -> LiteralType {
     }
 }
 
-fn modifier_refs(node: &Node) -> Vec<ModifierRef> {
+// solc lists constructor base calls (`constructor() Base(x)`) among the modifiers
+fn modifier_refs(node: &Node, base_constructors: bool) -> Vec<ModifierRef> {
     node.attribute::<Vec<serde_json::Value>>("modifiers")
         .unwrap_or_default()
         .iter()
+        .filter(|m| {
+            let kind = m.get("kind").and_then(|k| k.as_str());
+            (kind == Some("baseConstructorSpecifier")) == base_constructors
+        })
         .filter_map(|m| {
             m.get("modifierName")
                 .and_then(|n| n.get("name"))

@@ -1,7 +1,9 @@
 use petgraph::stable_graph::NodeIndex;
 
+use std::collections::HashSet;
+
 use crate::model::contract::ContractDef;
-use crate::model::expression::{Expression, ExpressionKind};
+use crate::model::expression::{AssignOperator, Expression, ExpressionKind, UnaryOperator};
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::model::statement::{Statement, StatementKind};
@@ -18,6 +20,18 @@ pub struct CfgBuilder {
     current_modifier: Option<String>,
     state_vars: Vec<String>,
     storage_aliases: std::collections::HashMap<String, String>,
+    // blocks left through break/continue; control never falls out of them
+    closed: HashSet<NodeIndex>,
+    loops: Vec<LoopFrame>,
+}
+
+// Jump targets of the innermost enclosing loop. Blocks that may stay unused
+// (for increment, do-while condition and exit) are created on first use.
+struct LoopFrame {
+    continue_block: Option<NodeIndex>,
+    continue_kind: BlockKind,
+    continue_edge: BranchEdge,
+    exit_block: Option<NodeIndex>,
 }
 
 impl CfgBuilder {
@@ -40,6 +54,8 @@ impl CfgBuilder {
                 None => contract.state_vars.iter().map(|sv| sv.name.clone()).collect(),
             },
             storage_aliases: std::collections::HashMap::new(),
+            closed: HashSet::new(),
+            loops: Vec::new(),
         };
 
         let entry = builder.add_block(BlockKind::Entry);
@@ -142,7 +158,18 @@ impl CfgBuilder {
         }
     }
 
+    fn is_state_target(&self, var: &str) -> bool {
+        let base = crate::util::target_base_name(var);
+        self.state_vars.iter().any(|n| n == base)
+    }
+
     fn process_statement(&mut self, stmt: &Statement) {
+        // code after revert/break/continue never runs
+        if self.closed.contains(&self.current_block)
+            || self.graph[self.current_block].kind == BlockKind::Revert
+        {
+            return;
+        }
         match &stmt.kind {
             StatementKind::If { condition, then_body, else_body } => {
                 self.process_if(condition, then_body, else_body.as_deref());
@@ -159,11 +186,13 @@ impl CfgBuilder {
             StatementKind::Return { value } => {
                 self.process_return(value.as_ref());
             }
-            StatementKind::Revert { .. } => {
-                let revert = self.add_block(BlockKind::Revert);
-                self.add_edge(self.current_block, revert, BranchEdge::Unconditional);
+            StatementKind::Revert { arguments, .. } => {
+                self.process_revert(arguments);
             }
             StatementKind::Emit { event_name, arguments } => {
+                for arg in arguments {
+                    self.add_effects(arg);
+                }
                 let from_modifier = self.current_modifier.clone();
                 let args = arguments.iter().map(|a| expr_to_string(a)).collect::<Vec<_>>().join(", ");
                 self.add_stmt_to_current(CfgStatement::EmitEvent {
@@ -195,12 +224,7 @@ impl CfgBuilder {
                         }
                     }
                     let from_modifier = self.current_modifier.clone();
-                    let mut call_stmts = Vec::new();
-                    collect_calls(val, &mut call_stmts, &from_modifier);
-                    collect_mutations(val, &mut call_stmts, &from_modifier);
-                    for s in call_stmts {
-                        self.add_stmt_to_current(s);
-                    }
+                    self.add_effects(val);
                     self.add_stmt_to_current(CfgStatement::Assignment {
                         target: name.clone(),
                         value: expr_to_string(val),
@@ -217,9 +241,81 @@ impl CfgBuilder {
                 let from_modifier = self.current_modifier.clone();
                 self.add_stmt_to_current(CfgStatement::AssemblyBlock { span: None, from_modifier });
             }
-            StatementKind::Break | StatementKind::Continue | StatementKind::Placeholder => {
+            StatementKind::Break => {
+                if let Some(exit) = self.loop_exit() {
+                    self.jump(exit, BranchEdge::LoopExit);
+                }
+            }
+            StatementKind::Continue => {
+                if let Some((target, edge)) = self.loop_continue() {
+                    self.jump(target, edge);
+                }
+            }
+            StatementKind::Placeholder => {}
+        }
+    }
+
+    fn jump(&mut self, target: NodeIndex, edge: BranchEdge) {
+        self.add_edge(self.current_block, target, edge);
+        self.closed.insert(self.current_block);
+    }
+
+    fn loop_continue(&mut self) -> Option<(NodeIndex, BranchEdge)> {
+        let (existing, kind, edge) = {
+            let frame = self.loops.last()?;
+            (frame.continue_block, frame.continue_kind, frame.continue_edge.clone())
+        };
+        let block = match existing {
+            Some(block) => block,
+            None => {
+                let block = self.add_block(kind);
+                self.loops.last_mut()?.continue_block = Some(block);
+                block
+            }
+        };
+        Some((block, edge))
+    }
+
+    fn loop_exit(&mut self) -> Option<NodeIndex> {
+        let existing = self.loops.last()?.exit_block;
+        Some(match existing {
+            Some(block) => block,
+            None => {
+                let block = self.add_block(BlockKind::Normal);
+                self.loops.last_mut()?.exit_block = Some(block);
+                block
+            }
+        })
+    }
+
+    // falls through to the continue target unless the body already left the block
+    fn close_loop_body(&mut self) -> LoopFrame {
+        if !self.block_is_terminal(self.current_block) {
+            if let Some((target, edge)) = self.loop_continue() {
+                self.add_edge(self.current_block, target, edge);
             }
         }
+        self.loops.pop().expect("loop frame")
+    }
+
+    // calls and mutations of an expression whose value is consumed elsewhere
+    fn add_effects(&mut self, expr: &Expression) {
+        let from_modifier = self.current_modifier.clone();
+        let mut stmts = Vec::new();
+        collect_calls(expr, &mut stmts, &from_modifier);
+        self.collect_mutations(expr, &mut stmts, &from_modifier);
+        for s in stmts {
+            self.add_stmt_to_current(s);
+        }
+    }
+
+    fn process_revert(&mut self, arguments: &[Expression]) {
+        for arg in arguments {
+            self.add_effects(arg);
+        }
+        let revert = self.add_block(BlockKind::Revert);
+        self.add_edge(self.current_block, revert, BranchEdge::Unconditional);
+        self.current_block = revert;
     }
 
     fn process_if(
@@ -228,6 +324,7 @@ impl CfgBuilder {
         then_body: &[Statement],
         else_body: Option<&[Statement]>,
     ) {
+        self.add_effects(condition);
         let cond_str = expr_to_string(condition);
         let before = self.current_block;
 
@@ -303,6 +400,8 @@ impl CfgBuilder {
         let body_block = self.add_block(BlockKind::Normal);
 
         if let Some(cond) = condition {
+            self.current_block = cond_block;
+            self.add_effects(cond);
             let cond_str = expr_to_string(cond);
             self.add_edge(
                 cond_block,
@@ -318,15 +417,30 @@ impl CfgBuilder {
             self.add_edge(cond_block, body_block, BranchEdge::Unconditional);
         }
 
+        // continue runs the increment before re-checking the condition
+        let (continue_block, continue_kind, continue_edge) = match increment {
+            Some(_) => (None, BlockKind::Normal, BranchEdge::Unconditional),
+            None => (Some(cond_block), BlockKind::LoopCondition, BranchEdge::LoopBack),
+        };
+        self.loops.push(LoopFrame {
+            continue_block,
+            continue_kind,
+            continue_edge,
+            exit_block: Some(exit_block),
+        });
+
         self.current_block = body_block;
         for s in body {
             self.process_statement(s);
         }
+        let frame = self.close_loop_body();
 
-        if let Some(_incr) = increment {
-        }
-        if !self.block_is_terminal(self.current_block) {
-            self.add_edge(self.current_block, cond_block, BranchEdge::LoopBack);
+        if let (Some(incr), Some(incr_block)) = (increment, frame.continue_block) {
+            self.current_block = incr_block;
+            for s in self.classify_expression(incr) {
+                self.add_stmt_to_current(s);
+            }
+            self.add_edge(incr_block, cond_block, BranchEdge::LoopBack);
         }
 
         self.current_block = exit_block;
@@ -341,6 +455,8 @@ impl CfgBuilder {
         let body_block = self.add_block(BlockKind::Normal);
         let exit_block = self.add_block(BlockKind::Normal);
 
+        self.current_block = cond_block;
+        self.add_effects(condition);
         self.add_edge(
             cond_block,
             body_block,
@@ -352,13 +468,17 @@ impl CfgBuilder {
             BranchEdge::ConditionalFalse { condition: cond_str },
         );
 
+        self.loops.push(LoopFrame {
+            continue_block: Some(cond_block),
+            continue_kind: BlockKind::LoopCondition,
+            continue_edge: BranchEdge::LoopBack,
+            exit_block: Some(exit_block),
+        });
         self.current_block = body_block;
         for s in body {
             self.process_statement(s);
         }
-        if !self.block_is_terminal(self.current_block) {
-            self.add_edge(self.current_block, cond_block, BranchEdge::LoopBack);
-        }
+        self.close_loop_body();
 
         self.current_block = exit_block;
     }
@@ -369,17 +489,30 @@ impl CfgBuilder {
         let body_block = self.add_block(BlockKind::Normal);
         self.add_edge(self.current_block, body_block, BranchEdge::Unconditional);
 
+        self.loops.push(LoopFrame {
+            continue_block: None,
+            continue_kind: BlockKind::LoopCondition,
+            continue_edge: BranchEdge::Unconditional,
+            exit_block: None,
+        });
         self.current_block = body_block;
         for s in body {
             self.process_statement(s);
         }
+        let end = self.current_block;
+        let frame = self.close_loop_body();
 
-        let cond_block = self.add_block(BlockKind::LoopCondition);
-        if !self.block_is_terminal(self.current_block) {
-            self.add_edge(self.current_block, cond_block, BranchEdge::Unconditional);
-        }
+        // the condition is unreachable when the body never falls through or continues
+        let Some(cond_block) = frame.continue_block else {
+            self.current_block = frame.exit_block.unwrap_or(end);
+            return;
+        };
+        self.current_block = cond_block;
+        self.add_effects(condition);
 
-        let exit_block = self.add_block(BlockKind::Normal);
+        let exit_block = frame
+            .exit_block
+            .unwrap_or_else(|| self.add_block(BlockKind::Normal));
         self.add_edge(
             cond_block,
             body_block,
@@ -396,7 +529,7 @@ impl CfgBuilder {
 
     fn process_return(&mut self, value: Option<&Expression>) {
         if let Some(expr) = value {
-            for s in classify_expression(expr, &self.current_modifier) {
+            for s in self.classify_expression(expr) {
                 self.add_stmt_to_current(s);
             }
         }
@@ -416,7 +549,7 @@ impl CfgBuilder {
         clauses: &[crate::model::statement::CatchClause],
     ) {
         let before = self.current_block;
-        for s in classify_expression(expression, &self.current_modifier) {
+        for s in self.classify_expression(expression) {
             self.add_stmt_to_current(s);
         }
 
@@ -457,17 +590,34 @@ impl CfgBuilder {
                         self.process_assert(arguments);
                         return;
                     }
+                    "revert" => {
+                        self.process_revert(arguments);
+                        return;
+                    }
                     _ => {}
                 }
             }
         }
 
-        for s in classify_expression(expr, &self.current_modifier) {
+        for s in self.classify_expression(expr) {
             self.add_stmt_to_current(s);
         }
     }
 
     fn process_require(&mut self, arguments: &[Expression]) {
+        if let Some(cond) = arguments.first() {
+            self.add_effects(cond);
+        }
+        match arguments.get(1).map(|e| &e.kind) {
+            // custom error constructor: only its arguments are evaluated calls
+            Some(ExpressionKind::FunctionCall { arguments: error_args, .. }) => {
+                for arg in error_args {
+                    self.add_effects(arg);
+                }
+            }
+            Some(_) => self.add_effects(&arguments[1]),
+            None => {}
+        }
         let condition = arguments.first().map(expr_to_string).unwrap_or_default();
         let message = arguments.get(1).map(expr_to_string);
 
@@ -500,6 +650,9 @@ impl CfgBuilder {
     }
 
     fn process_assert(&mut self, arguments: &[Expression]) {
+        if let Some(cond) = arguments.first() {
+            self.add_effects(cond);
+        }
         let condition = arguments.first().map(expr_to_string).unwrap_or_default();
         let cond_str = condition.clone();
         let from_modifier = self.current_modifier.clone();
@@ -531,51 +684,81 @@ impl CfgBuilder {
 
     fn block_is_terminal(&self, idx: NodeIndex) -> bool {
         let kind = self.graph[idx].kind;
-        kind == BlockKind::Return || kind == BlockKind::Revert
-    }
-}
-
-
-fn classify_expression(expr: &Expression, from_modifier: &Option<String>) -> Vec<CfgStatement> {
-    let mut stmts = Vec::new();
-    collect_calls(expr, &mut stmts, from_modifier);
-
-    if let ExpressionKind::Assignment { target, operator, value } = &expr.kind {
-        stmts.push(CfgStatement::Assignment {
-            target: expr_to_string(target),
-            value: expr_to_string(value),
-            operator: *operator,
-            span: None,
-            from_modifier: from_modifier.clone(),
-        });
+        kind == BlockKind::Return || kind == BlockKind::Revert || self.closed.contains(&idx)
     }
 
-    collect_mutations(expr, &mut stmts, from_modifier);
+    fn classify_expression(&self, expr: &Expression) -> Vec<CfgStatement> {
+        let from_modifier = &self.current_modifier;
+        let mut stmts = Vec::new();
+        collect_calls(expr, &mut stmts, from_modifier);
 
-    stmts
-}
-
-fn collect_mutations(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier: &Option<String>) {
-    match &expr.kind {
-        ExpressionKind::UnaryOp { operator, operand } if operator.mutates_operand() => {
-            stmts.push(CfgStatement::StateWrite {
-                variable: expr_to_string(operand),
+        if let ExpressionKind::Assignment { target, operator, value } = &expr.kind {
+            stmts.push(CfgStatement::Assignment {
+                target: expr_to_string(target),
+                value: expr_to_string(value),
+                operator: *operator,
                 span: None,
                 from_modifier: from_modifier.clone(),
             });
         }
-        ExpressionKind::Assignment { value, .. } => collect_mutations(value, stmts, from_modifier),
-        ExpressionKind::BinaryOp { left, right, .. } => {
-            collect_mutations(left, stmts, from_modifier);
-            collect_mutations(right, stmts, from_modifier);
+
+        self.collect_mutations(expr, &mut stmts, from_modifier);
+
+        stmts
+    }
+
+    // ++/--/delete: a state write on storage, a local assignment otherwise
+    fn collect_mutations(&self, expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier: &Option<String>) {
+        match &expr.kind {
+            ExpressionKind::UnaryOp { operator, operand } if operator.mutates_operand() => {
+                let variable = expr_to_string(operand);
+                if self.is_state_target(&self.resolve_alias(&variable)) {
+                    stmts.push(CfgStatement::StateWrite {
+                        variable,
+                        span: None,
+                        from_modifier: from_modifier.clone(),
+                    });
+                } else {
+                    let (operator, value) = match operator {
+                        UnaryOperator::PreIncrement | UnaryOperator::PostIncrement => {
+                            (AssignOperator::AddAssign, "1".to_string())
+                        }
+                        UnaryOperator::PreDecrement | UnaryOperator::PostDecrement => {
+                            (AssignOperator::SubAssign, "1".to_string())
+                        }
+                        _ => (AssignOperator::Assign, expr_to_string(expr)),
+                    };
+                    stmts.push(CfgStatement::Assignment {
+                        target: variable,
+                        value,
+                        operator,
+                        span: None,
+                        from_modifier: from_modifier.clone(),
+                    });
+                }
+            }
+            ExpressionKind::Assignment { value, .. } => self.collect_mutations(value, stmts, from_modifier),
+            ExpressionKind::BinaryOp { left, right, .. } => {
+                self.collect_mutations(left, stmts, from_modifier);
+                self.collect_mutations(right, stmts, from_modifier);
+            }
+            _ => {}
         }
-        _ => {}
     }
 }
 
 fn collect_calls(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier: &Option<String>) {
     match &expr.kind {
         ExpressionKind::FunctionCall { callee, arguments } => {
+            // evaluation order: callee object, arguments, then the call itself
+            match &callee.kind {
+                ExpressionKind::Identifier { .. } | ExpressionKind::TypeMeta { .. } => {}
+                ExpressionKind::MemberAccess { object, .. } => collect_calls(object, stmts, from_modifier),
+                _ => collect_calls(callee, stmts, from_modifier),
+            }
+            for arg in arguments {
+                collect_calls(arg, stmts, from_modifier);
+            }
             let args = arguments.iter().map(|a| expr_to_string(a)).collect::<Vec<_>>().join(", ");
             match &callee.kind {
                 ExpressionKind::TypeMeta { .. } => {}
@@ -637,9 +820,6 @@ fn collect_calls(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier
                     });
                 }
             }
-            for arg in arguments {
-                collect_calls(arg, stmts, from_modifier);
-            }
         }
         ExpressionKind::Assignment { target, value, .. } => {
             collect_calls(target, stmts, from_modifier);
@@ -669,6 +849,14 @@ fn collect_calls(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier
         ExpressionKind::Tuple { elements } => {
             for e in elements.iter().flatten() {
                 collect_calls(e, stmts, from_modifier);
+            }
+        }
+        ExpressionKind::TypeCast { expression, .. } => {
+            collect_calls(expression, stmts, from_modifier);
+        }
+        ExpressionKind::New { arguments, .. } => {
+            for arg in arguments {
+                collect_calls(arg, stmts, from_modifier);
             }
         }
         ExpressionKind::IndexRange { base, start, end } => {
