@@ -227,6 +227,7 @@ mod tests {
             functions: vec![], modifiers: vec![], state_vars: vec![],
             structs: vec![], enums: vec![], events: vec![], errors: vec![],
             inherits: vec![], id: None, linearized_bases: vec![], span: span(),
+            qualified_id: String::new(), key: String::new(), is_dependency: false, base_ids: vec![],
         }
     }
 

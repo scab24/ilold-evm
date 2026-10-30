@@ -49,8 +49,8 @@ pub fn run(
     let combined_state_vars = project.inherited_state_vars(contract);
     for func in &contract.functions {
         if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(&project)) {
-            let pt = build_path_tree(&cfg, &contract.name, &func.key, &combined_state_vars, &config);
-            let key = (contract.name.clone(), func.key.clone());
+            let pt = build_path_tree(&cfg, contract.key(), &func.key, &combined_state_vars, &config);
+            let key = (contract.key().to_string(), func.key.clone());
             cfgs.insert(key.clone(), cfg);
             pt_map.insert(key, pt);
         }
@@ -60,9 +60,9 @@ pub fn run(
     let all_sequence_analyses =
         ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;
     let analysis = all_sequence_analyses
-        .get(&contract.name)
+        .get(contract.key())
         .cloned()
-        .unwrap_or_else(|| analyze_sequences(&pt_map, &contract.name));
+        .unwrap_or_else(|| analyze_sequences(&pt_map, contract.key()));
 
     if let Some(seq_str) = sequence_filter {
         let names: Vec<&str> = seq_str.split(',').map(|s| s.trim()).collect();
@@ -77,7 +77,7 @@ pub fn run(
         let func = contract.functions.iter()
             .find(|f| f.name == func_name || f.key == func_name || f.match_signature() == func_name)
             .ok_or_else(|| anyhow::anyhow!("Function '{}' not found. Use --list to see available functions.", func_name))?;
-        let key = (contract.name.clone(), func.key.clone());
+        let key = (contract.key().to_string(), func.key.clone());
         let cfg = cfgs.get(&key).ok_or_else(|| anyhow::anyhow!("No CFG for {}", func_name))?;
         let pt = pt_map.get(&key).ok_or_else(|| anyhow::anyhow!("No paths for {}", func_name))?;
         let narrative = build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses);
@@ -86,7 +86,7 @@ pub fn run(
     }
 
     let narratives: Vec<_> = contract.functions.iter().filter_map(|func| {
-        let key = (contract.name.clone(), func.key.clone());
+        let key = (contract.key().to_string(), func.key.clone());
         let cfg = cfgs.get(&key)?;
         let pt = pt_map.get(&key)?;
         Some(build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses))

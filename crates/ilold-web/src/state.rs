@@ -302,7 +302,7 @@ impl AppState {
         let (session_tx, _) = broadcast::channel(64);
 
         let default_contract = project.default_contract()
-            .map(|c| c.name.clone())
+            .map(|c| c.key().to_string())
             .ok_or_else(|| anyhow::anyhow!("No contracts found"))?;
 
         Ok(Self {

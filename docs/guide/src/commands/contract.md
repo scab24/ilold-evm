@@ -85,9 +85,9 @@ ilold[Staking]> va
 
 ## contracts
 
-`ct` or `contracts`
+`ct` or `contracts`, `ct all`
 
-Lists all contracts in the loaded project with their type, function count, state variable count, and inheritance.
+Lists the project contracts with their type, function count, state variable count, and inheritance. Contracts that share a name are shown by qualified id (`src/core/Token.sol:Token`); `use` accepts either form and reports an ambiguous bare name. Dependency contracts (libraries and vendored code imported by the sources) are loaded for resolution but hidden; `ct all` lists them too, marked `(dependency)`.
 
 ```
 ilold[Staking]> ct

@@ -11,7 +11,7 @@ use ilold_core::classify::entry_points::classify_function;
 use ilold_core::depgraph::ContractDeps;
 use ilold_core::model::contract::{ContractDef, ContractKind};
 use ilold_core::model::function::Visibility;
-use ilold_core::model::project::Project;
+use ilold_core::model::project::{ContractLookupError, Project};
 use ilold_core::parse::solc_frontend::SolcFrontend;
 use ilold_core::parse::ProjectParser;
 use ilold_core::pathtree::config::PruningConfig;
@@ -22,11 +22,47 @@ use ilold_core::sequence::builder::build_sequence_tree;
 
 use crate::colors::*;
 
+/// Contracts `analyze` prints: the one named by `filter` (key, qualified id or unambiguous
+/// name), otherwise the project contracts, plus dependencies when asked for.
+pub(crate) fn select_contracts<'a>(
+    project: &'a Project,
+    filter: Option<&str>,
+    include_dependencies: bool,
+) -> Result<Vec<&'a ContractDef>> {
+    if let Some(name) = filter {
+        return Ok(vec![resolve_contract(project, name)?]);
+    }
+    let mut selected: Vec<&ContractDef> =
+        project.contracts.iter().filter(|c| include_dependencies || !c.is_dependency).collect();
+    selected.sort_by(|a, b| {
+        project
+            .contract_folder(a)
+            .cmp(&project.contract_folder(b))
+            .then(a.key().cmp(b.key()))
+    });
+    Ok(selected)
+}
+
+/// `--contract` lookup by key, qualified id or unambiguous name. Unknown names suggest close
+/// contract keys; an ambiguous name lists the qualified ids to choose from.
+fn resolve_contract<'a>(project: &'a Project, name: &str) -> Result<&'a ContractDef> {
+    match project.lookup_contract(name) {
+        Ok(contract) => Ok(contract),
+        Err(ContractLookupError::NotFound) => {
+            Err(contract_not_found(name, project.contracts.iter().map(|c| c.key())))
+        }
+        Err(ContractLookupError::Ambiguous(_)) => {
+            Err(anyhow::anyhow!(project.find_contract(Some(name)).unwrap_err()))
+        }
+    }
+}
+
 pub fn run(
     path: &PathBuf,
     contract_filter: Option<&str>,
     max_seq_depth: usize,
     verbose: bool,
+    include_dependencies: bool,
 ) -> Result<()> {
     let paths = vec![crate::foundry_root(path)?];
 
@@ -36,29 +72,18 @@ pub fn run(
         .context(format!("Failed to parse {}", path.display()))?;
     project.rebuild_index();
 
-    println!("Parsed {} file(s), {} contract(s)\n",
-        project.source_files.len(), project.contracts.len());
-
-    if let Some(name) = contract_filter {
-        if !project.contracts.iter().any(|c| c.name == name) {
-            return Err(contract_not_found(name, project.contracts.iter().map(|c| c.name.as_str())));
-        }
+    for warning in &project.warnings {
+        eprintln!("{} {warning}", c_warn("warning:"));
     }
+    let dependencies = project.contracts.iter().filter(|c| c.is_dependency).count();
+    println!("Parsed {} file(s), {} contract(s) ({} dependency contract(s){})\n",
+        project.source_files.len(), project.contracts.len() - dependencies, dependencies,
+        if include_dependencies { "" } else { " hidden; --include-dependencies lists them" });
+
+    let ordered = select_contracts(&project, contract_filter, include_dependencies)?;
 
     let params = AnalysisParams::new(max_seq_depth);
     let all_analyses = ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;
-
-    let mut ordered: Vec<&ContractDef> = project
-        .contracts
-        .iter()
-        .filter(|c| contract_filter.map_or(true, |f| c.name == f))
-        .collect();
-    ordered.sort_by(|a, b| {
-        project
-            .contract_folder(a)
-            .cmp(&project.contract_folder(b))
-            .then(a.name.cmp(&b.name))
-    });
 
     let mut current_folder: Option<String> = None;
     for contract in ordered {
@@ -74,7 +99,7 @@ pub fn run(
     Ok(())
 }
 
-pub fn run_deps(path: &PathBuf, contract: Option<&str>) -> Result<()> {
+pub fn run_deps(path: &PathBuf, contract: Option<&str>, include_dependencies: bool) -> Result<()> {
     let paths = vec![crate::foundry_root(path)?];
     let parser = SolcFrontend;
     let mut project = parser
@@ -82,19 +107,19 @@ pub fn run_deps(path: &PathBuf, contract: Option<&str>) -> Result<()> {
         .context(format!("Failed to parse {}", path.display()))?;
     project.rebuild_index();
 
-    let deps = ContractDeps::build(&project);
+    let all = ContractDeps::build(&project);
 
     if let Some(name) = contract {
-        if deps.node(name).is_none() {
-            return Err(contract_not_found(name, project.contracts.iter().map(|c| c.name.as_str())));
-        }
+        let name = resolve_contract(&project, name)?.key();
+        let deps = &all;
         crate::deps_view::print_direction(name, false, crate::deps_view::dep_rows(&deps, name, false));
         crate::deps_view::print_direction(name, true, crate::deps_view::dep_rows(&deps, name, true));
         return Ok(());
     }
 
+    let deps = if include_dependencies { all } else { all.without_dependencies() };
     let layers = deps.layers();
-    let name_w = project.contracts.iter().map(|c| c.name.len()).max().unwrap_or(0);
+    let name_w = deps.graph.node_weights().map(|n| n.name.len()).max().unwrap_or(0);
 
     println!(
         "Dependency map · reading order ({} = read first)\n",
@@ -253,8 +278,10 @@ fn print_contract(
         ContractKind::Abstract => "abstract",
     };
 
-    println!("{} {} ({} functions, {} state vars)",
-        kind_str.dimmed(), contract.name.bold(), contract.functions.len(), contract.state_vars.len());
+    let dependency = if contract.is_dependency { " (dependency)" } else { "" };
+    println!("{} {} ({} functions, {} state vars){}",
+        kind_str.dimmed(), contract.key().bold(), contract.functions.len(), contract.state_vars.len(),
+        dependency.dimmed());
 
     if !contract.inherits.is_empty() {
         println!("  {} {}", "inherits:".dimmed(), contract.inherits.join(", "));
@@ -282,7 +309,7 @@ fn print_contract(
         match CfgBuilder::build_with_project(func, contract, Some(project)) {
             Ok(cfg) => {
                 let pt = build_path_tree(
-                    &cfg, &contract.name, &func.key, &combined_state_vars, &config,
+                    &cfg, contract.key(), &func.key, &combined_state_vars, &config,
                 );
 
                 println!("  {} {} {} — {} blocks, {} edges, {} paths ({} happy, {} revert)",
@@ -357,10 +384,10 @@ fn print_contract(
         }
 
         let default_analysis;
-        let analysis = match all_analyses.get(&contract.name) {
+        let analysis = match all_analyses.get(contract.key()) {
             Some(a) => a,
             None => {
-                default_analysis = analyze_sequences(&HashMap::new(), &contract.name);
+                default_analysis = analyze_sequences(&HashMap::new(), contract.key());
                 &default_analysis
             }
         };
@@ -422,6 +449,38 @@ fn print_contract(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn model_fixture() -> Project {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/model/project");
+        SolcFrontend.parse_project(&root).expect("parse model fixture")
+    }
+
+    #[test]
+    fn listing_hides_dependencies_unless_asked_and_ambiguous_names_fail() {
+        let project = model_fixture();
+        let keys = |include: bool| -> Vec<String> {
+            select_contracts(&project, None, include).unwrap().iter().map(|c| c.key().to_string()).collect()
+        };
+        let default = keys(false);
+        assert!(default.contains(&"Vault".to_string()) && !default.contains(&"Multicall".to_string()), "{default:?}");
+        let all = keys(true);
+        assert_eq!(all.len(), default.len() + 4, "{all:?}");
+
+        let err = select_contracts(&project, Some("IToken"), false).unwrap_err().to_string();
+        assert!(err.contains("ambiguous") && err.contains("src/ext/IToken.sol:IToken"), "{err}");
+        let one = select_contracts(&project, Some("src/ext/IToken.sol:IToken"), false).unwrap();
+        assert_eq!(one[0].functions.len(), 1);
+        assert!(select_contracts(&project, Some("Nope"), false).is_err());
+    }
+
+    #[test]
+    fn unknown_names_suggest_contract_keys() {
+        let project = model_fixture();
+        let err = select_contracts(&project, Some("vault"), false).unwrap_err().to_string();
+        assert!(err.contains("Contract 'vault' not found") && err.contains("Did you mean:") && err.contains(" Vault,"), "{err}");
+        let err = select_contracts(&project, Some("Nope"), false).unwrap_err().to_string();
+        assert!(err.contains("Available:") && err.contains("Vault"), "{err}");
+    }
 
     #[test]
     fn close_matches_cover_case_typos_and_substrings() {

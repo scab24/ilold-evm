@@ -91,50 +91,50 @@ pub async fn dispatch(
         "ilold_dependency_graph" => client.get("/api/project/depgraph").await,
         "ilold_contract_dependencies" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/depgraph")).await
+            client.get(&format!("/api/contract/{}/depgraph", segment(&c))).await
         }
         "ilold_contract_detail" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}")).await
+            client.get(&format!("/api/contract/{}", segment(&c))).await
         }
         "ilold_callgraph" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/callgraph")).await
+            client.get(&format!("/api/contract/{}/callgraph", segment(&c))).await
         }
         "ilold_search" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/suggestions")).await
+            client.get(&format!("/api/contract/{}/suggestions", segment(&c))).await
         }
         "ilold_sequence_analysis" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/analysis")).await
+            client.get(&format!("/api/contract/{}/analysis", segment(&c))).await
         }
         "ilold_sequences" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let q = arg_u64(arguments, "depth")
                 .map(|d| format!("?depth={d}"))
                 .unwrap_or_default();
-            client.get(&format!("/api/contract/{c}/sequences{q}")).await
+            client.get(&format!("/api/contract/{}/sequences{q}", segment(&c))).await
         }
         "ilold_function_analysis" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/session/function/{c}/{f}")).await
+            client.get(&format!("/api/session/function/{}/{f}", segment(&c))).await
         }
         "ilold_cfg" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{c}/{f}/cfg")).await
+            client.get(&format!("/api/contract/{}/{f}/cfg", segment(&c))).await
         }
         "ilold_function_paths" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{c}/{f}/paths")).await
+            client.get(&format!("/api/contract/{}/{f}/paths", segment(&c))).await
         }
         "ilold_source" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{c}/{f}/source")).await
+            client.get(&format!("/api/contract/{}/{f}/source", segment(&c))).await
         }
         "ilold_trace" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
@@ -154,7 +154,7 @@ pub async fn dispatch(
             } else {
                 format!("?{}", q.join("&"))
             };
-            client.get(&format!("/api/session/trace/{c}/{f}{qs}")).await
+            client.get(&format!("/api/session/trace/{}/{f}{qs}", segment(&c))).await
         }
         "ilold_entry_points" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
@@ -174,7 +174,7 @@ pub async fn dispatch(
         }
         "ilold_use" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            if let Err(e) = client.get(&format!("/api/contract/{c}")).await {
+            if let Err(e) = client.get(&format!("/api/contract/{}", segment(&c))).await {
                 return error_result(format!("contract '{c}' not found: {e}"));
             }
             if let Err(e) = client
@@ -266,6 +266,11 @@ fn command_error(value: &Value) -> Option<String> {
     value.get("Error")?.get("message")?.as_str().map(str::to_string)
 }
 
+/// A contract key or qualified id (`src/core/IToken.sol:IToken`) as one URL path segment.
+fn segment(value: &str) -> String {
+    value.replace('%', "%25").replace('/', "%2F").replace('?', "%3F").replace('#', "%23")
+}
+
 fn arg_str(arguments: Option<&Value>, key: &str) -> Option<String> {
     arguments
         .and_then(|v| v.as_object())
@@ -299,4 +304,13 @@ fn ok_result(value: Value) -> CallToolResult {
 
 fn error_result(message: String) -> CallToolResult {
     CallToolResult::error(vec![Content::text(message)])
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn qualified_contract_ids_stay_one_path_segment() {
+        assert_eq!(super::segment("Pool"), "Pool");
+        assert_eq!(super::segment("src/core/IToken.sol:IToken"), "src%2Fcore%2FIToken.sol:IToken");
+    }
 }

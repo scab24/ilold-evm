@@ -66,7 +66,7 @@ pub fn build_sequence_tree(
     }
 
     SequenceTree {
-        contract: contract.name.clone(),
+        contract: contract.key().to_string(),
         functions,
         sequences,
         max_depth,

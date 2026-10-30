@@ -2,18 +2,32 @@
 export interface ProjectSummary {
   files: number;
   contracts: ContractSummary[];
+  /** Dependency contracts in the model; listed only with `?include_dependencies=true`. */
+  dependency_contracts: number;
+  /** Non-fatal compilation problems, e.g. test files left out of the model. */
+  warnings: string[];
 }
 
-export interface ContractSummary {
+/** Identity shared by contract listings and details. */
+export interface ContractIdentity {
+  /** Route segment: the bare name when unique, otherwise the qualified id. */
   name: string;
+  /** Solidity name as declared. */
+  display_name: string;
+  /** Stable `<source path>:<Name>` id. */
+  qualified_id: string;
+  /** Declared outside the project sources (libraries, vendored code). */
+  is_dependency: boolean;
+}
+
+export interface ContractSummary extends ContractIdentity {
   kind: string;
   functions: number;
   state_vars: number;
   inherits: string[];
 }
 
-export interface ContractDetail {
-  name: string;
+export interface ContractDetail extends ContractIdentity {
   kind: string;
   inherits: string[];
   functions: FunctionSummary[];
@@ -127,6 +141,8 @@ export interface DepGraphNode {
     folder: string;
     layer: number;
     focus: boolean;
+    qualified_id: string;
+    is_dependency: boolean;
   };
 }
 
@@ -157,23 +173,23 @@ export async function getProject(): Promise<ProjectSummary> {
 }
 
 export async function getContract(name: string): Promise<ContractDetail> {
-  const res = await fetch(`${BASE}/api/contract/${name}`);
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(name)}`);
   if (!res.ok) throw new Error(`Contract ${name} not found`);
   return res.json();
 }
 
 export async function getCallGraph(contractName: string): Promise<CytoscapeGraph> {
-  const res = await fetch(`${BASE}/api/contract/${contractName}/callgraph`);
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/callgraph`);
   return res.json();
 }
 
 export async function getCfg(contractName: string, funcName: string): Promise<CytoscapeGraph> {
-  const res = await fetch(`${BASE}/api/contract/${contractName}/${funcName}/cfg`);
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/cfg`);
   return res.json();
 }
 
 export async function getPaths(contractName: string, funcName: string) {
-  const res = await fetch(`${BASE}/api/contract/${contractName}/${funcName}/paths`);
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/paths`);
   return res.json();
 }
 
@@ -193,7 +209,7 @@ export async function getFunctionSource(
   contractName: string,
   funcName: string,
 ): Promise<FunctionSourceResponse> {
-  const res = await fetch(`${BASE}/api/contract/${contractName}/${funcName}/source`);
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/source`);
   if (!res.ok) throw new Error(`Source for ${funcName} not found`);
   return res.json();
 }
@@ -221,19 +237,19 @@ export interface SequenceAnalysis {
 }
 
 export async function getSequenceAnalysis(contractName: string): Promise<SequenceAnalysis> {
-  const res = await fetch(`${BASE}/api/contract/${contractName}/analysis`);
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/analysis`);
   return res.json();
 }
 
 export async function getSearchSuggestions(contractName: string): Promise<SearchSuggestions> {
-  const res = await fetch(`${BASE}/api/contract/${contractName}/suggestions`);
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/suggestions`);
   return res.json();
 }
 
 export async function getSequences(contractName: string, depth?: number) {
   const url = depth
-    ? `${BASE}/api/contract/${contractName}/sequences?depth=${depth}`
-    : `${BASE}/api/contract/${contractName}/sequences`;
+    ? `${BASE}/api/contract/${encodeURIComponent(contractName)}/sequences?depth=${depth}`
+    : `${BASE}/api/contract/${encodeURIComponent(contractName)}/sequences`;
   const res = await fetch(url);
   return res.json();
 }

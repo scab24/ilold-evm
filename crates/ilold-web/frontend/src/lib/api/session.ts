@@ -126,7 +126,7 @@ export async function getFlowTrace(params: TraceParams) {
 }
 
 export async function getFunctionNarrative(contract: string, func: string) {
-  const res = await fetch(`${BASE}/api/session/function/${contract}/${func}`);
+  const res = await fetch(`${BASE}/api/session/function/${encodeURIComponent(contract)}/${func}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

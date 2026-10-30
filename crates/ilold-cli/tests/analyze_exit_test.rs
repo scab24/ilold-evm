@@ -46,3 +46,17 @@ fn known_contract_exits_zero() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stdout).contains("Vault"));
 }
+
+#[test]
+fn ambiguous_contract_name_exits_with_error_listing_qualified_ids() {
+    let model = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/model/project");
+    let out = Command::new(env!("CARGO_BIN_EXE_ilold"))
+        .arg("analyze")
+        .arg(model)
+        .args(["--contract", "IToken"])
+        .output()
+        .expect("run ilold analyze");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("ambiguous") && stderr.contains("src/ext/IToken.sol:IToken"), "{stderr}");
+}

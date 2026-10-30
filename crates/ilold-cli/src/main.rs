@@ -35,6 +35,9 @@ enum Commands {
         verbose: bool,
         #[arg(long)]
         deps: bool,
+        /// Also list dependency contracts (libraries, vendored code) loaded for resolution
+        #[arg(long)]
+        include_dependencies: bool,
     },
     Context {
         path: PathBuf,
@@ -79,11 +82,11 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Analyze { path, contract, max_seq_depth, verbose, deps } => {
+        Commands::Analyze { path, contract, max_seq_depth, verbose, deps, include_dependencies } => {
             if deps {
-                analyze::run_deps(&path, contract.as_deref())
+                analyze::run_deps(&path, contract.as_deref(), include_dependencies)
             } else {
-                analyze::run(&path, contract.as_deref(), max_seq_depth, verbose)
+                analyze::run(&path, contract.as_deref(), max_seq_depth, verbose, include_dependencies)
             }
         }
         Commands::Context { path, contract, function, sequence, list } => {

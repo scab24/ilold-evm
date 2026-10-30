@@ -10,14 +10,42 @@ use super::function::{FunctionDef, FunctionKind, Visibility};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub source_files: Vec<SourceFile>,
+    /// Project contracts and the dependency contracts they reach (`is_dependency`).
     pub contracts: Vec<ContractDef>,
+    /// Contract position by `key` and by `qualified_id`.
     #[serde(skip)]
     pub contract_index: HashMap<String, usize>,
     #[serde(skip)]
+    pub id_index: HashMap<DeclId, usize>,
+    #[serde(skip)]
     pub decl_table: DeclTable,
+    /// Non-fatal compilation problems, such as test or script files left out of the model.
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// Why a contract name does not select exactly one contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContractLookupError {
+    NotFound,
+    /// A bare name shared by several contracts; carries their qualified ids.
+    Ambiguous(Vec<String>),
 }
 
 impl Project {
+    pub fn new(source_files: Vec<SourceFile>, contracts: Vec<ContractDef>, decl_table: DeclTable) -> Self {
+        let mut project = Self {
+            source_files,
+            contracts,
+            contract_index: HashMap::new(),
+            id_index: HashMap::new(),
+            decl_table,
+            warnings: Vec::new(),
+        };
+        project.rebuild_index();
+        project
+    }
+
     pub fn contract_folder(&self, c: &ContractDef) -> String {
         let path = self
             .source_files
@@ -28,36 +56,71 @@ impl Project {
         rel.rsplit_once('/').map(|(dir, _)| dir.to_string()).unwrap_or_default()
     }
 
-    // call after deserialization; serde(skip) leaves the index empty
+    // call after deserialization; serde(skip) leaves the indexes empty
     pub fn rebuild_index(&mut self) {
-        self.contract_index = self
-            .contracts
-            .iter()
-            .enumerate()
-            .map(|(i, c)| (c.name.clone(), i))
-            .collect();
+        self.contract_index.clear();
+        self.id_index.clear();
+        for (i, c) in self.contracts.iter().enumerate() {
+            self.contract_index.insert(c.key().to_string(), i);
+            if !c.qualified_id.is_empty() {
+                self.contract_index.insert(c.qualified_id.clone(), i);
+            }
+            if let Some(id) = c.id {
+                self.id_index.insert(id, i);
+            }
+        }
+    }
+
+    /// Contracts declared in the project sources, without dependencies.
+    pub fn project_contracts(&self) -> impl Iterator<Item = &ContractDef> {
+        self.contracts.iter().filter(|c| !c.is_dependency)
+    }
+
+    /// Contract by key, qualified id or bare name. A bare name selects the project contract
+    /// with that name, or else the dependency with that name, when exactly one exists.
+    pub fn lookup_contract(&self, query: &str) -> Result<&ContractDef, ContractLookupError> {
+        if let Some(&i) = self.contract_index.get(query) {
+            return Ok(&self.contracts[i]);
+        }
+        let named = |dependency: bool| -> Vec<&ContractDef> {
+            self.contracts.iter().filter(|c| c.name == query && c.is_dependency == dependency).collect()
+        };
+        for candidates in [named(false), named(true)] {
+            match candidates.as_slice() {
+                [] => continue,
+                [only] => return Ok(only),
+                many => {
+                    return Err(ContractLookupError::Ambiguous(
+                        many.iter().map(|c| c.qualified_id.clone()).collect(),
+                    ))
+                }
+            }
+        }
+        Err(ContractLookupError::NotFound)
     }
 
     /// Contract a session starts on when none is named; see [`pick_default_contract`].
     pub fn default_contract(&self) -> Option<&ContractDef> {
-        let name = pick_default_contract(
-            self.contracts.iter().map(|c| (c.name.as_str(), c.kind, c.inherits.as_slice())),
+        let key = pick_default_contract(
+            self.project_contracts().map(|c| (c.key(), c.kind, c.inherits.as_slice())),
         )?;
-        self.contracts.iter().find(|c| c.name == name)
+        self.contracts.iter().find(|c| c.key() == key)
     }
 
     pub fn find_contract(&self, filter: Option<&str>) -> Result<&ContractDef, String> {
         if let Some(name) = filter {
-            return self
-                .contracts
-                .iter()
-                .find(|c| c.name == name)
-                .ok_or_else(|| format!("Contract '{}' not found", name));
+            return self.lookup_contract(name).map_err(|e| match e {
+                ContractLookupError::NotFound => format!("Contract '{}' not found", name),
+                ContractLookupError::Ambiguous(ids) => format!(
+                    "Contract name '{}' is ambiguous; use one of: {}",
+                    name,
+                    ids.join(", ")
+                ),
+            });
         }
 
         let non_interface: Vec<&ContractDef> = self
-            .contracts
-            .iter()
+            .project_contracts()
             .filter(|c| c.kind != ContractKind::Interface)
             .collect();
 
@@ -78,7 +141,7 @@ impl Project {
                 match top_level.len() {
                     1 => Ok(*top_level[0]),
                     _ => {
-                        let names: Vec<&str> = non_interface.iter().map(|c| c.name.as_str()).collect();
+                        let names: Vec<&str> = non_interface.iter().map(|c| c.key()).collect();
                         Err(format!(
                             "Multiple contracts, specify one: {}",
                             names.join(", ")
@@ -113,7 +176,11 @@ pub enum FunctionLookupError {
 
 impl Project {
     pub fn contract_by_id(&self, id: DeclId) -> Option<&ContractDef> {
-        self.contracts.iter().find(|c| c.id == Some(id))
+        match self.id_index.get(&id) {
+            Some(&i) => self.contracts.get(i),
+            // hand-built models may skip `rebuild_index`
+            None => self.contracts.iter().find(|c| c.id == Some(id)),
+        }
     }
 
     /// The contracts of `contract`'s C3 linearization that are in the model, most derived
@@ -143,8 +210,8 @@ impl Project {
         out
     }
 
-    /// First implementation of `signature` in `linearization`, starting after `after` when
-    /// given (`super`). Declarations without a body are used only when nothing implements it.
+    /// First implementation of `signature` in `linearization`, starting after the contract
+    /// keyed `after` when given (`super`). Declarations without a body are used only when nothing implements it.
     pub fn implementation<'a>(
         &self,
         linearization: &[&'a ContractDef],
@@ -152,7 +219,7 @@ impl Project {
         after: Option<&str>,
     ) -> Option<(&'a ContractDef, &'a FunctionDef)> {
         let start = match after {
-            Some(name) => linearization.iter().position(|c| c.name == name)? + 1,
+            Some(key) => linearization.iter().position(|c| c.key() == key)? + 1,
             None => 0,
         };
         let candidates = || {
@@ -166,19 +233,32 @@ impl Project {
         candidates().find(|(_, f)| f.body.is_some()).or_else(|| candidates().next())
     }
 
-    /// Functions callable on `contract`: its own, then inherited public/external ones in
-    /// linearization order. An override hides the base function with the same signature.
+    /// Functions of `contract` as the most derived contract: its own, then the inherited
+    /// public, external and internal ones in linearization order. Private functions and
+    /// constructors are not inherited; an override hides the base function with the same
+    /// signature, and an interface declaration implemented by a public state variable getter
+    /// is not a function of its own.
     pub fn accessible_functions<'a>(&'a self, contract: &'a ContractDef) -> Vec<AccessibleFunction<'a>> {
         let mut seen: HashSet<&str> = HashSet::new();
         let mut result: Vec<AccessibleFunction<'a>> = Vec::new();
+        let linearization = self.linearization(contract);
+        let getters: HashSet<&str> = linearization
+            .iter()
+            .flat_map(|c| c.state_vars.iter().filter_map(|v| v.selector.as_deref()))
+            .collect();
 
-        for (depth, owner) in self.linearization(contract).into_iter().enumerate() {
+        for (depth, owner) in linearization.into_iter().enumerate() {
             let is_inherited = depth > 0;
             for f in &owner.functions {
                 if f.name.is_empty() { continue; }
                 if is_inherited
-                    && (!matches!(f.visibility, Visibility::Public | Visibility::External)
-                        || f.kind == FunctionKind::Constructor)
+                    && (f.visibility == Visibility::Private || f.kind == FunctionKind::Constructor)
+                {
+                    continue;
+                }
+                if is_inherited
+                    && f.body.is_none()
+                    && f.selector.as_deref().is_some_and(|s| getters.contains(s))
                 {
                     continue;
                 }
@@ -186,7 +266,7 @@ impl Project {
                     result.push(AccessibleFunction {
                         function: f,
                         owner,
-                        origin: owner.name.clone(),
+                        origin: owner.key().to_string(),
                         is_inherited,
                     });
                 }
@@ -251,42 +331,18 @@ impl Project {
         }
     }
 
+    /// State variables of `contract` in storage declaration order (most base contract first,
+    /// see [`Project::inherited_state_vars`]) with the key of the declaring contract and
+    /// whether it is inherited.
     pub fn accessible_state_vars(&self, contract: &ContractDef) -> Vec<(StateVar, String, bool)> {
-        let mut result: Vec<(StateVar, String, bool)> = contract
-            .state_vars
-            .iter()
-            .cloned()
-            .map(|sv| (sv, contract.name.clone(), false))
-            .collect();
-
-        let mut seen_names: HashSet<String> = contract.state_vars.iter()
-            .map(|sv| sv.name.clone())
-            .collect();
-
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: Vec<&str> = contract.inherits.iter().map(|s| s.as_str()).collect();
-
-        while let Some(parent_name) = queue.pop() {
-            if !visited.insert(parent_name.to_string()) { continue; }
-
-            let parent_idx = match self.contract_index.get(parent_name) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let parent = &self.contracts[parent_idx];
-
-            for sv in &parent.state_vars {
-                if seen_names.insert(sv.name.clone()) {
-                    result.push((sv.clone(), parent.name.clone(), true));
-                }
-            }
-
-            for grand in &parent.inherits {
-                queue.push(grand.as_str());
-            }
-        }
-
-        result
+        self.linearization(contract)
+            .into_iter()
+            .rev()
+            .flat_map(|c| {
+                let inherited = !std::ptr::eq(c, contract);
+                c.state_vars.iter().map(move |sv| (sv.clone(), c.key().to_string(), inherited))
+            })
+            .collect()
     }
 
     pub fn resolve_modifier<'a>(
@@ -299,29 +355,16 @@ impl Project {
             .find_map(|c| c.modifiers.iter().find(|m| m.name == mod_name))
     }
 
+    /// Every state variable of `contract`, own ones included, in the order solc lays out
+    /// storage: the reversed C3 linearization (most base contract first), declaration order
+    /// within each contract. Constants and immutables are kept in place although they take no
+    /// slot; slot and offset numbers are not computed here.
     pub fn inherited_state_vars(&self, contract: &ContractDef) -> Vec<StateVar> {
-        let mut result: Vec<StateVar> = contract.state_vars.clone();
-
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: Vec<&str> = contract.inherits.iter().map(|s| s.as_str()).collect();
-
-        while let Some(parent_name) = queue.pop() {
-            if !visited.insert(parent_name.to_string()) { continue; }
-
-            let parent_idx = match self.contract_index.get(parent_name) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let parent = &self.contracts[parent_idx];
-
-            result.extend(parent.state_vars.iter().cloned());
-
-            for grand in &parent.inherits {
-                queue.push(grand.as_str());
-            }
-        }
-
-        result
+        self.linearization(contract)
+            .into_iter()
+            .rev()
+            .flat_map(|c| c.state_vars.iter().cloned())
+            .collect()
     }
 }
 

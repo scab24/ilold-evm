@@ -270,7 +270,7 @@ pub fn analyze_project(
     let snapshot: HashMap<String, SequenceAnalysis> = analyses.clone();
 
     for (contract_name, func_name) in all_funcs {
-        let root_contract = match project.contracts.iter().find(|c| c.name == contract_name) {
+        let root_contract = match project.contract_index.get(&contract_name).map(|&i| &project.contracts[i]) {
             Some(c) => c,
             None => continue,
         };
@@ -331,7 +331,7 @@ fn collect_transitive_for_function(
     let mut visited: HashSet<(String, String)> = HashSet::new();
     let mut stack: Vec<(String, InternalCallTarget)> = call_targets(root)
         .into_iter()
-        .map(|t| (root_contract.name.clone(), t))
+        .map(|t| (root_contract.key().to_string(), t))
         .collect();
 
     while let Some((owner_name, target)) = stack.pop() {
@@ -438,15 +438,15 @@ fn resolve_call_target<'a>(
             .map(|b| (b, contract.to_string()))
     };
     let linearization = project.linearization(root);
-    let in_root = linearization.iter().any(|c| c.name == owner.name);
+    let in_root = linearization.iter().any(|c| c.key() == owner.key());
     let is_super = target.call.starts_with("super.");
 
     let Some((contract, key)) = &target.declaration else {
         if is_super {
             let name = &target.call["super.".len()..];
             let order = if in_root { linearization } else { project.linearization(owner) };
-            let start = order.iter().position(|c| c.name == owner.name)? + 1;
-            return order[start..].iter().find_map(|c| behavior(&c.name, name));
+            let start = order.iter().position(|c| c.key() == owner.key())? + 1;
+            return order[start..].iter().find_map(|c| behavior(c.key(), name));
         }
         return resolve_internal_callee(&target.call, owner, project, all);
     };
@@ -462,17 +462,17 @@ fn resolve_call_target<'a>(
 
     let implementation = if is_super {
         let order = if in_root { linearization } else { project.linearization(owner) };
-        project.implementation(&order, signature, Some(&owner.name))
+        project.implementation(&order, signature, Some(owner.key()))
     } else if !target.call.contains('.')
         && def.is_virtual
-        && linearization.iter().any(|c| c.name == declared_in.name)
+        && linearization.iter().any(|c| c.key() == declared_in.key())
     {
         project.implementation(&linearization, signature, None)
     } else {
         None
     };
     match implementation {
-        Some((c, f)) => behavior(&c.name, &f.key),
+        Some((c, f)) => behavior(c.key(), &f.key),
         None => behavior(contract, key),
     }
 }
@@ -495,43 +495,12 @@ pub fn resolve_internal_callee<'a>(
             .linearization(starting_contract)
             .iter()
             .skip(1)
-            .find_map(|c| find(&c.name));
+            .find_map(|c| find(c.key()));
     }
 
-    if let Some(sa) = all.get(&starting_contract.name) {
-        if let Some(b) = sa.functions.iter().find(|b| b.name == callee) {
-            return Some((b, starting_contract.name.clone()));
-        }
-    }
-
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut queue: Vec<&str> = starting_contract
-        .inherits
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-
-    while let Some(parent_name) = queue.pop() {
-        if !visited.insert(parent_name.to_string()) {
-            continue;
-        }
-
-        let parent_idx = match project.contract_index.get(parent_name) {
-            Some(&i) => i,
-            None => continue,
-        };
-        let parent = &project.contracts[parent_idx];
-
-        if let Some(sa) = all.get(&parent.name) {
-            if let Some(b) = sa.functions.iter().find(|b| b.name == callee) {
-                return Some((b, parent.name.clone()));
-            }
-        }
-
-        for grand in &parent.inherits {
-            queue.push(grand.as_str());
-        }
-    }
-
-    None
+    // the first contract of the linearization that defines it
+    project.linearization(starting_contract).into_iter().find_map(|c| {
+        let sa = all.get(c.key())?;
+        sa.functions.iter().find(|b| b.name == callee).map(|b| (b, c.key().to_string()))
+    })
 }

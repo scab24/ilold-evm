@@ -1,14 +1,16 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, State};
+use axum::response::Response;
 use axum::Json;
 use serde::Serialize;
 
 use ilold_core::depgraph::{ContractDeps, DepEdge};
 use ilold_core::model::contract::ContractKind;
 
+use crate::api::contract::route_contract;
+use crate::api::project::ListingQuery;
 use crate::state::AppState;
 
 #[derive(Serialize)]
@@ -30,6 +32,8 @@ pub struct DepNodeData {
     pub folder: String,
     pub layer: usize,
     pub focus: bool,
+    pub qualified_id: String,
+    pub is_dependency: bool,
 }
 
 #[derive(Serialize)]
@@ -47,8 +51,22 @@ pub struct DepEdgeData {
     pub call_count: usize,
 }
 
-pub async fn get_project_depgraph(State(state): State<Arc<AppState>>) -> Json<DepGraphResponse> {
-    let deps = &state.dep_graph;
+/// The dependency graph a listing shows: project contracts only unless dependencies are asked
+/// for. Layers are computed on that graph.
+fn listed_graph(state: &AppState, include_dependencies: bool) -> std::borrow::Cow<'_, ContractDeps> {
+    if include_dependencies {
+        std::borrow::Cow::Borrowed(&state.dep_graph)
+    } else {
+        std::borrow::Cow::Owned(state.dep_graph.without_dependencies())
+    }
+}
+
+pub async fn get_project_depgraph(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListingQuery>,
+) -> Json<DepGraphResponse> {
+    let deps = listed_graph(&state, query.include_dependencies);
+    let deps = deps.as_ref();
     let layer_of = layer_map(deps);
     let g = &deps.graph;
 
@@ -64,6 +82,8 @@ pub async fn get_project_depgraph(State(state): State<Arc<AppState>>) -> Json<De
                     folder: n.folder.clone(),
                     layer: *layer_of.get(&n.name).unwrap_or(&0),
                     focus: false,
+                    qualified_id: n.qualified_id.clone(),
+                    is_dependency: n.is_dependency,
                 },
             }
         })
@@ -84,11 +104,13 @@ pub async fn get_project_depgraph(State(state): State<Arc<AppState>>) -> Json<De
 pub async fn get_contract_depgraph(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<DepGraphResponse>, StatusCode> {
-    let deps = &state.dep_graph;
-    if deps.node(&name).is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    Query(query): Query<ListingQuery>,
+) -> Result<Json<DepGraphResponse>, Response> {
+    let contract = route_contract(&state, &name)?;
+    let name = contract.key().to_string();
+    // a dependency's own neighbourhood always includes dependencies
+    let deps = listed_graph(&state, query.include_dependencies || contract.is_dependency);
+    let deps = deps.as_ref();
     let layer_of = layer_map(deps);
 
     let dependencies = deps.dependencies(&name);
@@ -115,6 +137,8 @@ pub async fn get_contract_depgraph(
                 folder: node.folder.clone(),
                 layer: *layer_of.get(n).unwrap_or(&0),
                 focus: *n == name,
+                qualified_id: node.qualified_id.clone(),
+                is_dependency: node.is_dependency,
             },
         })
         .collect();

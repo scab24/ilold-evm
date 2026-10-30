@@ -7,7 +7,19 @@ use super::modifier::ModifierDef;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractDef {
+    /// Solidity name; not unique across a project (see `key` and `qualified_id`).
     pub name: String,
+    /// Stable id `<source path relative to the project root>:<Name>`.
+    #[serde(default)]
+    pub qualified_id: String,
+    /// Unique within the model: the bare name when no other contract can claim it, otherwise
+    /// `qualified_id`. Analysis maps, call-graph and dependency-graph ids use it.
+    #[serde(default)]
+    pub key: String,
+    /// Declared outside the project sources (libraries, vendored code). Loaded so that
+    /// inheritance and calls resolve; hidden from default listings.
+    #[serde(default)]
+    pub is_dependency: bool,
     pub kind: ContractKind,
     pub functions: Vec<FunctionDef>,
     pub modifiers: Vec<ModifierDef>,
@@ -16,7 +28,11 @@ pub struct ContractDef {
     pub enums: Vec<EnumDef>,
     pub events: Vec<EventDef>,
     pub errors: Vec<ErrorDef>,
+    /// Base names as written; `base_ids` holds the declarations they resolve to.
     pub inherits: Vec<String>,
+    /// solc `baseContracts[].baseName.referencedDeclaration`, in declaration order.
+    #[serde(default)]
+    pub base_ids: Vec<DeclId>,
     #[serde(default)]
     pub id: Option<DeclId>,
     /// solc `linearizedBaseContracts`: C3 order, the contract itself first.
@@ -31,4 +47,11 @@ pub enum ContractKind {
     Interface,
     Library,
     Abstract,
+}
+
+impl ContractDef {
+    /// `key`, or the name for hand-built models without one.
+    pub fn key(&self) -> &str {
+        if self.key.is_empty() { &self.name } else { &self.key }
+    }
 }

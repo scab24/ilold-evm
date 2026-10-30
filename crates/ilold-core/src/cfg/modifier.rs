@@ -225,6 +225,7 @@ mod tests {
             name: "onlyOwner".into(),
             params: vec![],
             body: vec![make_require("isOwner"), make_placeholder()],
+            id: None,
             span: span(),
         };
 
@@ -245,6 +246,7 @@ mod tests {
             name: "A".into(),
             params: vec![],
             body: vec![make_require("a"), make_placeholder()],
+            id: None,
             span: span(),
         };
 
@@ -252,6 +254,7 @@ mod tests {
             name: "B".into(),
             params: vec![],
             body: vec![make_require("b"), make_placeholder()],
+            id: None,
             span: span(),
         };
 
@@ -271,6 +274,7 @@ mod tests {
             name: "broken".into(),
             params: vec![],
             body: vec![make_require("x")],
+            id: None,
             span: span(),
         };
 

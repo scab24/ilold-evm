@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use ilold_core::model::common::SourceSpan;
 use ilold_core::model::contract::ContractDef;
 use ilold_core::model::function::FunctionDef;
-use ilold_core::model::project::FunctionLookupError;
+use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTree;
 use ilold_core::sequence::types::SequenceTree;
 
@@ -18,7 +18,13 @@ use crate::state::AppState;
 
 #[derive(Serialize)]
 pub struct ContractDetail {
+    /// Route segment for `/api/contract/{name}`: the contract key (bare name when unique).
     pub name: String,
+    /// Solidity name as declared.
+    pub display_name: String,
+    /// Stable `<source path>:<Name>` id.
+    pub qualified_id: String,
+    pub is_dependency: bool,
     pub kind: String,
     pub inherits: Vec<String>,
     pub functions: Vec<FunctionSummary>,
@@ -59,16 +65,27 @@ pub struct StateVarSummary {
     pub is_immutable: bool,
 }
 
+/// Selects the contract behind `{name}`: a key, a qualified id (`src/A.sol:A`) or a bare
+/// name that is unambiguous. An ambiguous bare name is a 409 listing the qualified ids.
+pub(crate) fn route_contract<'a>(state: &'a AppState, name: &str) -> Result<&'a ContractDef, Response> {
+    state.project.lookup_contract(name).map_err(|e| match e {
+        ContractLookupError::NotFound => StatusCode::NOT_FOUND.into_response(),
+        ContractLookupError::Ambiguous(candidates) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": format!("contract name '{name}' is ambiguous; use a qualified id"),
+                "candidates": candidates,
+            })),
+        )
+            .into_response(),
+    })
+}
+
 pub async fn get_contract(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<ContractDetail>, StatusCode> {
-    let contract = state
-        .project
-        .contracts
-        .iter()
-        .find(|c| c.name == name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<ContractDetail>, Response> {
+    let contract = route_contract(&state, &name)?;
 
     let accessible = state.project.accessible_functions(contract);
     let route_key = |f: &FunctionDef| -> String {
@@ -80,7 +97,7 @@ pub async fn get_contract(
         .functions
         .iter()
         .map(|f| {
-            let key = (contract.name.clone(), f.key.clone());
+            let key = (contract.key().to_string(), f.key.clone());
             let pt = state.path_trees.get(&key);
             FunctionSummary {
                 name: f.name.clone(),
@@ -140,14 +157,12 @@ pub async fn get_contract(
         })
         .collect();
 
-    let own_var_names: std::collections::HashSet<String> = contract.state_vars.iter()
-        .map(|sv| sv.name.clone())
-        .collect();
+    // storage order, most base contract first
     let inherited_state_vars: Vec<StateVarSummary> = state.project
-        .inherited_state_vars(contract)
+        .accessible_state_vars(contract)
         .into_iter()
-        .filter(|sv| !own_var_names.contains(&sv.name))
-        .map(|sv| StateVarSummary {
+        .filter(|(_, _, inherited)| *inherited)
+        .map(|(sv, _, _)| StateVarSummary {
             name: sv.name.clone(),
             type_name: sv.type_name.clone(),
             visibility: format!("{:?}", sv.visibility),
@@ -157,7 +172,10 @@ pub async fn get_contract(
         .collect();
 
     Ok(Json(ContractDetail {
-        name: contract.name.clone(),
+        name: contract.key().to_string(),
+        display_name: contract.name.clone(),
+        qualified_id: contract.qualified_id.clone(),
+        is_dependency: contract.is_dependency,
         kind: format!("{:?}", contract.kind),
         inherits: contract.inherits.clone(),
         functions,
@@ -213,11 +231,12 @@ pub struct CytoscapeEdgeData {
 pub async fn get_callgraph(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<CytoscapeGraph>, StatusCode> {
+) -> Result<Json<CytoscapeGraph>, Response> {
+    let contract = route_contract(&state, &name)?;
     let cg = state
         .call_graphs
-        .get(&name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .get(contract.key())
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
 
     let nodes: Vec<CytoscapeNode> = cg
         .node_indices()
@@ -268,9 +287,7 @@ fn route_function<'a>(
     contract_name: &str,
     func: &str,
 ) -> Result<(&'a ContractDef, &'a FunctionDef), Response> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+    let contract = route_contract(state, contract_name)?;
     state.project.lookup_function(contract, func).map_err(|e| match e {
         FunctionLookupError::NotFound => StatusCode::NOT_FOUND.into_response(),
         FunctionLookupError::Ambiguous(candidates) => (
@@ -290,7 +307,7 @@ pub async fn get_cfg(
 ) -> Result<Json<CytoscapeGraph>, Response> {
     let (owning, func) = route_function(&state, &contract_name, &func_name)?;
 
-    let key = (owning.name.clone(), func.key.clone());
+    let key = (owning.key().to_string(), func.key.clone());
     let cfg = state.cfgs.get(&key).ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
 
     let nodes: Vec<CytoscapeNode> = cfg
@@ -383,7 +400,7 @@ pub async fn get_paths(
 ) -> Result<Json<PathTree>, Response> {
     let (owning, func) = route_function(&state, &contract_name, &func_name)?;
 
-    let key = (owning.name.clone(), func.key.clone());
+    let key = (owning.key().to_string(), func.key.clone());
     state
         .path_trees
         .get(&key)
@@ -402,13 +419,14 @@ pub async fn get_sequences(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     Query(_query): Query<SequenceQuery>,
-) -> Result<Json<SequenceTree>, StatusCode> {
+) -> Result<Json<SequenceTree>, Response> {
+    let contract = route_contract(&state, &name)?;
     state
         .sequence_trees
-        .get(&name)
+        .get(contract.key())
         .cloned()
         .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())
 }
 
 
@@ -417,8 +435,9 @@ use ilold_core::sequence::analysis::{analyze_sequences, SequenceAnalysis};
 pub async fn get_sequence_analysis(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<SequenceAnalysis>, StatusCode> {
-    let analysis = analyze_sequences(&state.path_trees, &name);
+) -> Result<Json<SequenceAnalysis>, Response> {
+    let contract = route_contract(&state, &name)?;
+    let analysis = analyze_sequences(&state.path_trees, contract.key());
     Ok(Json(analysis))
 }
 
@@ -441,13 +460,8 @@ pub struct SuggestionCategory {
 pub async fn get_search_suggestions(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<SearchSuggestions>, StatusCode> {
-    let contract = state
-        .project
-        .contracts
-        .iter()
-        .find(|c| c.name == name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<SearchSuggestions>, Response> {
+    let contract = route_contract(&state, &name)?;
 
     let accessible = state.project.accessible_functions(contract);
     let functions: Vec<String> = accessible
@@ -469,7 +483,7 @@ pub async fn get_search_suggestions(
         .collect();
 
     let mut origins: std::collections::HashSet<String> = std::collections::HashSet::new();
-    origins.insert(name.clone());
+    origins.insert(contract.key().to_string());
     for af in &accessible {
         if af.is_inherited {
             origins.insert(af.origin.clone());

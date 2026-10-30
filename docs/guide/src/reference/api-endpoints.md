@@ -136,21 +136,27 @@ Returns a function narrative without requiring a session step. Useful for inspec
 
 These endpoints read from the static analysis data and do not require an active session.
 
+### Contract identity and dependencies
+
+Every contract has a stable `qualified_id`, `<source path relative to the project root>:<Name>` (for example `src/contracts/interfaces/IAToken.sol:IAToken`), and a `name` used as `{name}` in the routes below: the bare Solidity name when no other project contract shares it, otherwise the qualified id. `display_name` is the Solidity name as declared. `{name}` accepts the key, the qualified id, or a bare name that selects exactly one contract; a bare name shared by several contracts returns `409 Conflict` with `{"error": ..., "candidates": ["src/a/T.sol:T", "src/b/T.sol:T"]}`. Encode the `/` of a qualified id as `%2F` in a URL.
+
+Contracts from libraries and vendored code (`lib/`, `src/**/dependencies/`) that the project sources import are part of the model so that inheritance, modifiers, `super` and calls resolve, and are flagged `is_dependency: true`. Listings show project contracts only; `?include_dependencies=true` adds the dependencies on `/api/project`, `/api/project/map` and `/api/project/depgraph`. Dependency contracts get CFGs and path trees only when a project contract inherits them; they have no call graph or sequences of their own.
+
 ### GET /api/project
 
-Returns a project summary with file count and a list of contracts (name, kind, function count, state variable count, inheritance).
+Returns a project summary: file count, the listed contracts (`name`, `display_name`, `qualified_id`, `is_dependency`, kind, function count, state variable count, inheritance), the number of `dependency_contracts` in the model, and `warnings`. A warning is reported when test or script files fail to compile: the model is then built from the sources alone and the warning names the failing files. Errors in the sources still fail the analysis.
 
 ### GET /api/project/map
 
-Returns the full project map with all contracts, their functions (with path counts and external call flags), state variables, and cross-contract relationships extracted from call graphs.
+Returns the full project map with the listed contracts, their functions (with path counts and external call flags), state variables, and cross-contract relationships extracted from call graphs.
 
 ### GET /api/project/depgraph
 
-Returns the contract dependency graph in Cytoscape-compatible JSON. Nodes carry the contract name, kind, source folder, and topological layer. Edges carry the relationship kinds (`inherits`, `calls`, `holds`) and call count.
+Returns the contract dependency graph in Cytoscape-compatible JSON. Nodes carry the contract `name` as id, `qualified_id`, `is_dependency`, kind, source folder, and topological layer. Edges carry the relationship kinds (`inherits`, `calls`, `holds`) and call count; inheritance edges follow the declaration solc resolved, so an aliased or same-named base reaches the right contract.
 
 ### GET /api/contract/{name}
 
-Returns contract detail: name, kind, inheritance chain, functions (with path stats), state variables, and inherited functions and state variables. Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
+Returns contract detail: name, `display_name`, `qualified_id`, `is_dependency`, kind, inheritance chain, functions (with path stats), state variables, and inherited functions and state variables. Inherited functions are the public, external and internal functions of the linearization that the contract does not override; private functions and base constructors are not inherited, and an interface function implemented by a public state variable getter is not listed. Inherited state variables are in storage layout order, most base contract first (slot numbers are not computed). Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
 
 Signatures are `name(type,...)`:
 
@@ -184,7 +190,7 @@ Returns the contract's neighbourhood in the dependency graph: the contract itsel
 
 ### Function routes and overloads
 
-`{func}` in `/api/contract/{name}/{func}/cfg`, `/paths` and `/source` is a bare function name when it is unambiguous on the contract (own and inherited public functions), or a full signature such as `setPoolPause(bool,uint40)`. Whitespace in a signature is ignored, so `_sum(uint256[]storage)` matches `_sum(uint256[] storage)`. A bare name shared by several overloads returns `409 Conflict` with `{"error": ..., "candidates": ["setPoolPause(bool,uint40)", "setPoolPause(bool)"]}`. All three routes select the same overload for the same `{func}`.
+`{func}` in `/api/contract/{name}/{func}/cfg`, `/paths` and `/source` is a bare function name when it is unambiguous on the contract (own and inherited functions), or a full signature such as `setPoolPause(bool,uint40)`. Whitespace in a signature is ignored, so `_sum(uint256[]storage)` matches `_sum(uint256[] storage)`. A bare name shared by several overloads returns `409 Conflict` with `{"error": ..., "candidates": ["setPoolPause(bool,uint40)", "setPoolPause(bool)"]}`. All three routes select the same overload for the same `{func}`.
 
 ### GET /api/contract/{name}/{func}/cfg
 

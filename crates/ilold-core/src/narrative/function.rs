@@ -136,7 +136,7 @@ pub fn build_function_narrative(
         };
 
     FunctionNarrative {
-        contract: contract.name.clone(),
+        contract: contract.key().to_string(),
         name: function.name.clone(),
         access,
         total_paths: path_tree.stats.total_paths,

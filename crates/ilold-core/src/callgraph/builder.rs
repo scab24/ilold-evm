@@ -72,7 +72,7 @@ struct Target<'a> {
 
 impl<'a> Builder<'a> {
     fn in_hierarchy(&self, contract: &str) -> bool {
-        self.linearization.iter().any(|c| c.name == contract)
+        self.linearization.iter().any(|c| c.key() == contract)
     }
 
     fn model_function(&self, contract: &str, key: &str) -> Option<(&'a ContractDef, &'a FunctionDef)> {
@@ -83,13 +83,13 @@ impl<'a> Builder<'a> {
     }
 
     fn declared(&self, resolved: Option<DeclId>) -> Option<(String, String)> {
-        let target = self.project.decl_table.lookup(resolved?)?;
-        (!target.function.is_empty()).then(|| (target.contract.clone(), target.function.clone()))
+        let target = self.project.decl_table.function(resolved?)?;
+        Some((target.contract.clone(), target.function.clone()))
     }
 
     fn function_node(&mut self, owner: &'a ContractDef, func: &'a FunctionDef) -> NodeIndex {
         let target = Target {
-            contract: owner.name.clone(),
+            contract: owner.key().to_string(),
             key: func.key.clone(),
             function: func.name.clone(),
             def: Some((owner, func)),
@@ -122,7 +122,7 @@ impl<'a> Builder<'a> {
         };
         // bodies of hierarchy functions are part of this contract's code
         if let Some((owner, func)) = target.def {
-            if self.in_hierarchy(&owner.name) && self.queued.insert(id) {
+            if self.in_hierarchy(owner.key()) && self.queued.insert(id) {
                 self.queue.push_back((owner, func, idx));
             }
         }
@@ -179,7 +179,7 @@ impl<'a> Builder<'a> {
             let found = self.project.implementation(
                 &self.linearization,
                 signature.as_deref().unwrap_or(function),
-                Some(&owner.name),
+                Some(owner.key()),
             );
             if let Some((c, f)) = found {
                 return self.defined(c, f, None);
@@ -187,12 +187,12 @@ impl<'a> Builder<'a> {
         } else if kind == CallKind::Internal && qualifier.is_none() {
             // virtual dispatch from the most derived contract
             match declared_def {
-                Some((c, f)) if f.is_virtual && self.in_hierarchy(&c.name) => {
+                Some((c, f)) if f.is_virtual && self.in_hierarchy(c.key()) => {
                     if let Some((ic, i_f)) =
                         self.project.implementation(&self.linearization, f.match_signature(), None)
                     {
                         let moved = !(std::ptr::eq(ic, c) && std::ptr::eq(i_f, f));
-                        let static_target = moved.then(|| format!("{}::{}", c.name, f.key));
+                        let static_target = moved.then(|| format!("{}::{}", c.key(), f.key));
                         return self.defined(ic, i_f, static_target);
                     }
                 }
@@ -291,7 +291,7 @@ impl<'a> Builder<'a> {
 
     fn defined(&self, owner: &'a ContractDef, func: &'a FunctionDef, static_target: Option<String>) -> Target<'a> {
         Target {
-            contract: owner.name.clone(),
+            contract: owner.key().to_string(),
             key: func.key.clone(),
             function: func.name.clone(),
             def: Some((owner, func)),

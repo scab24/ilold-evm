@@ -351,7 +351,7 @@ fn execute_functions_all(data: &AnalysisData) -> CommandResult {
         .into_iter()
         .map(|af| {
             let access = if af.is_inherited {
-                if let Some(parent) = data.project.contracts.iter().find(|c| c.name == af.origin) {
+                if let Some(parent) = data.project.contract_index.get(&af.origin).map(|&i| &data.project.contracts[i]) {
                     classify_function(af.function, parent)
                 } else {
                     classify_function(af.function, data.contract)
@@ -409,7 +409,7 @@ fn execute_call(
     };
 
     let owning_contract = if resolved.is_inherited {
-        match data.project.contracts.iter().find(|c| c.name == resolved.origin) {
+        match data.project.contract_index.get(&resolved.origin).map(|&i| &data.project.contracts[i]) {
             Some(c) => c,
             None => return CommandResult::Error {
                 message: format!("Parent contract '{}' not found", resolved.origin),
@@ -419,7 +419,7 @@ fn execute_call(
         data.contract
     };
 
-    let key = (owning_contract.name.clone(), resolved.function.key.clone());
+    let key = (owning_contract.key().to_string(), resolved.function.key.clone());
     let cfg = match data.cfgs.get(&key) {
         Some(c) => c,
         None => return CommandResult::Error {
@@ -549,7 +549,7 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     let var_lower = variable.to_lowercase();
 
     let mut contract_set: std::collections::HashSet<String> = std::collections::HashSet::new();
-    contract_set.insert(data.contract.name.clone());
+    contract_set.insert(data.contract.key().to_string());
     for af in data.project.accessible_functions(data.contract) {
         if af.is_inherited {
             contract_set.insert(af.origin);
@@ -651,14 +651,14 @@ pub fn get_step_narrative(
         .resolve_function(data.contract, &step.function)
         .ok_or_else(|| format!("Function '{}' not found", step.function))?;
 
-    let key = (owning.name.clone(), func.key.clone());
+    let key = (owning.key().to_string(), func.key.clone());
     let cfg = data.cfgs.get(&key).ok_or("No CFG")?;
     let pt = data.path_trees.get(&key).ok_or("No paths")?;
 
-    let behaviors: &[FunctionBehavior] = if owning.name == data.contract.name {
+    let behaviors: &[FunctionBehavior] = if owning.key() == data.contract.key() {
         data.behaviors
     } else {
-        data.all_sequence_analyses.get(&owning.name)
+        data.all_sequence_analyses.get(owning.key())
             .map(|sa| sa.functions.as_slice())
             .unwrap_or(&[])
     };
@@ -674,14 +674,14 @@ pub fn get_function_info(
         .resolve_function(data.contract, func_name)
         .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
-    let key = (owning.name.clone(), func.key.clone());
+    let key = (owning.key().to_string(), func.key.clone());
     let cfg = data.cfgs.get(&key).ok_or_else(|| format!("No CFG for {}::{}", owning.name, func_name))?;
     let pt = data.path_trees.get(&key).ok_or("No paths")?;
 
-    let behaviors: &[FunctionBehavior] = if owning.name == data.contract.name {
+    let behaviors: &[FunctionBehavior] = if owning.key() == data.contract.key() {
         data.behaviors
     } else {
-        data.all_sequence_analyses.get(&owning.name)
+        data.all_sequence_analyses.get(owning.key())
             .map(|sa| sa.functions.as_slice())
             .unwrap_or(&[])
     };
@@ -700,7 +700,7 @@ pub fn get_flow_tree(
         .resolve_function(data.contract, func_name)
         .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
-    let key = (owning.name.clone(), func.key.clone());
+    let key = (owning.key().to_string(), func.key.clone());
     let cfg = data.cfgs.get(&key)
         .ok_or_else(|| format!("No CFG for {}::{}", owning.name, func_name))?;
 

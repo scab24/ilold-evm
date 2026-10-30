@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::model::contract::ContractDef;
-use crate::model::decl_id::DeclTable;
+use crate::model::decl_id::{DeclEntry, DeclTable};
 use crate::model::project::{Project, SourceFile};
 
-const VERSION: &str = "ilold-project-v5-foundry-0.21-sha256";
+const VERSION: &str = "ilold-project-v6-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
 const MAX_SOURCES: usize = 20_000;
@@ -169,23 +169,23 @@ pub(super) fn fingerprint(
 struct SnapshotRef<'a> {
     sources: &'a [SourceFile],
     contracts: &'a [ContractDef],
-    declarations: Vec<(isize, String, String)>,
+    declarations: Vec<DeclEntry>,
+    warnings: &'a [String],
 }
 #[derive(Deserialize)]
 struct Snapshot {
     sources: Vec<SourceFile>,
     contracts: Vec<ContractDef>,
-    declarations: Vec<(isize, String, String)>,
+    declarations: Vec<DeclEntry>,
+    warnings: Vec<String>,
 }
 impl Snapshot {
     fn into_project(self) -> Option<Project> {
-        let mut project = Project { source_files: self.sources, contracts: self.contracts,
-            contract_index: Default::default(),
-            decl_table: DeclTable::from_snapshot(self.declarations)? };
+        let mut project = Project::new(self.sources, self.contracts, DeclTable::from_snapshot(self.declarations)?);
         if project.contracts.iter().any(|c| c.span.file_index >= project.source_files.len()) {
             return None;
         }
-        project.rebuild_index();
+        project.warnings = self.warnings;
         Some(project)
     }
 }
@@ -243,7 +243,7 @@ impl Store {
     pub(super) fn publish(&self, root: &Path, key: &str, project: &Project) -> Result<(), String> {
         if project.decl_table.len() > MAX_DECLARATIONS { return Err("declaration count limit".into()); }
         let snapshot = SnapshotRef { sources: &project.source_files, contracts: &project.contracts,
-            declarations: project.decl_table.snapshot() };
+            declarations: project.decl_table.snapshot(), warnings: &project.warnings };
         write_envelope(&self.snapshot_path(root)?, VERSION, key, MAX_SNAPSHOT, &snapshot)
     }
 }
@@ -377,12 +377,12 @@ mod tests {
                 params: vec![], returns: vec![], body: None, is_virtual: false,
                 is_override: false, span }], modifiers: vec![], state_vars: vec![],
             structs: vec![], enums: vec![], events: vec![], errors: vec![], inherits: vec![],
-            id: None, linearized_bases: vec![], span };
-        let child = ContractDef { name: "Child".into(), inherits: vec!["Parent".into()],
-            functions: vec![], ..parent.clone() };
-        let mut project = Project { source_files: vec![SourceFile { path: "src/C.sol".into(), content: "contract C {}".into() }],
-            contracts: vec![parent, child], contract_index: Default::default(), decl_table: declarations };
-        project.rebuild_index();
+            id: None, linearized_bases: vec![], span, qualified_id: "src/C.sol:Parent".into(),
+            key: "Parent".into(), is_dependency: false, base_ids: vec![] };
+        let child = ContractDef { name: "Child".into(), key: "Child".into(), qualified_id: "src/C.sol:Child".into(),
+            inherits: vec!["Parent".into()], functions: vec![], ..parent.clone() };
+        let project = Project::new(vec![SourceFile { path: "src/C.sol".into(), content: "contract C {}".into() }],
+            vec![parent, child], declarations);
         (Store { base: dir.join("private-cache") }, dir, project)
     }
 
@@ -529,6 +529,8 @@ mod tests {
         let decoded = serde_json::from_slice(&encoded).unwrap();
         let restored = DeclTable::from_snapshot(decoded).unwrap();
         assert_eq!(restored.lookup(crate::model::decl_id::DeclId(12)).unwrap().function, "run");
-        assert!(DeclTable::from_snapshot(vec![(1, "a".into(), "".into()), (1, "b".into(), "".into())]).is_none());
+        use crate::model::decl_id::DeclKind;
+        let entry = |contract: &str| (1, DeclKind::Contract, contract.to_string(), String::new(), String::new(), contract.to_string());
+        assert!(DeclTable::from_snapshot(vec![entry("a"), entry("b")]).is_none());
     }
 }

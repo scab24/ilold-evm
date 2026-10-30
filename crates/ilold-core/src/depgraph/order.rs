@@ -89,6 +89,8 @@ mod tests {
             name: name.into(),
             kind: ContractKind::Contract,
             folder: String::new(),
+            qualified_id: String::new(),
+            is_dependency: false,
         })
     }
 

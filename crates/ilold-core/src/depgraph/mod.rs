@@ -17,9 +17,14 @@ pub type DepGraph = DiGraph<DepNode, DepEdge>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepNode {
+    /// Contract key (`ContractDef::key`): the bare name unless it is ambiguous.
     pub name: String,
     pub kind: ContractKind,
     pub folder: String,
+    #[serde(default)]
+    pub qualified_id: String,
+    #[serde(default)]
+    pub is_dependency: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -68,6 +73,7 @@ pub struct DepRef<'a> {
     pub edge: &'a DepEdge,
 }
 
+#[derive(Clone)]
 pub struct ContractDeps {
     pub graph: DepGraph,
     index: HashMap<String, NodeIndex>,
@@ -85,7 +91,7 @@ impl ContractDeps {
         build::from_call_graphs(project, call_graphs)
     }
 
-    /// Restores a persisted graph. Built graphs hold one node per name; anything else is rejected.
+    /// Restores a persisted graph. Built graphs hold one node per contract key; anything else is rejected.
     pub fn from_graph(graph: DepGraph) -> Option<Self> {
         let mut index = HashMap::new();
         for idx in graph.node_indices() {
@@ -94,6 +100,15 @@ impl ContractDeps {
             }
         }
         Some(ContractDeps { graph, index })
+    }
+
+    /// The graph restricted to project contracts, for listings that hide dependencies.
+    pub fn without_dependencies(&self) -> Self {
+        let graph = self.graph.filter_map(
+            |_, node| (!node.is_dependency).then(|| node.clone()),
+            |_, edge| Some(edge.clone()),
+        );
+        Self::from_graph(graph).expect("node names stay unique")
     }
 
     pub fn node(&self, name: &str) -> Option<NodeIndex> {
@@ -165,18 +180,15 @@ mod tests {
             id: None,
             linearized_bases: vec![],
             span: span(),
+            qualified_id: String::new(),
+            key: String::new(),
+            is_dependency: false,
+            base_ids: vec![],
         }
     }
 
     fn project(contracts: Vec<ContractDef>) -> Project {
-        let mut p = Project {
-            source_files: vec![],
-            contracts,
-            contract_index: Default::default(),
-            decl_table: DeclTable::default(),
-        };
-        p.rebuild_index();
-        p
+        Project::new(vec![], contracts, DeclTable::default())
     }
 
     #[test]
@@ -201,24 +213,28 @@ mod tests {
         assert_eq!(used, vec!["BasePool"]);
     }
 
+    // Same-named contracts used to collapse into one node and inherit by name; each now has
+    // its own node (by key) and inheritance follows the declaration id.
     #[test]
-    fn duplicate_names_collapse_to_one_node() {
-        let p = project(vec![
-            contract("Lib", &[]),
-            contract("Lib", &[]),
-            contract("User", &["Lib"]),
-        ]);
+    fn duplicate_names_keep_one_node_per_key() {
+        let lib = |path: &str, id: isize| ContractDef {
+            key: format!("{path}:Lib"),
+            qualified_id: format!("{path}:Lib"),
+            id: Some(crate::model::decl_id::DeclId(id)),
+            ..contract("Lib", &[])
+        };
+        let user = ContractDef { base_ids: vec![crate::model::decl_id::DeclId(2)], ..contract("User", &["Lib"]) };
+        let p = project(vec![lib("a/Lib.sol", 1), lib("b/Lib.sol", 2), user]);
         let deps = ContractDeps::build(&p);
 
         let lib_nodes = deps
             .graph
             .node_indices()
-            .filter(|&i| deps.graph[i].name == "Lib")
+            .filter(|&i| deps.graph[i].name.ends_with(":Lib"))
             .count();
-        assert_eq!(lib_nodes, 1, "same-named contracts must collapse to one node");
-        assert!(deps
-            .dependencies("User")
-            .iter()
-            .any(|d| d.node.name == "Lib" && d.edge.inherits));
+        assert_eq!(lib_nodes, 2, "same-named contracts keep separate nodes");
+        let parents: Vec<String> = deps.dependencies("User").iter()
+            .filter(|d| d.edge.inherits).map(|d| d.node.name.clone()).collect();
+        assert_eq!(parents, vec!["b/Lib.sol:Lib"]);
     }
 }

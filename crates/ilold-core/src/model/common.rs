@@ -25,6 +25,11 @@ pub struct StateVar {
     pub initial_value: Option<super::expression::Expression>,
     #[serde(default)]
     pub resolved_types: Vec<super::decl_id::DeclId>,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
+    /// Getter selector of a public variable; it implements an interface function with it.
+    #[serde(default)]
+    pub selector: Option<String>,
     pub span: SourceSpan,
 }
 
@@ -46,6 +51,8 @@ pub struct EnumDef {
 pub struct EventDef {
     pub name: String,
     pub params: Vec<Param>,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
     pub span: SourceSpan,
 }
 
@@ -53,5 +60,7 @@ pub struct EventDef {
 pub struct ErrorDef {
     pub name: String,
     pub params: Vec<Param>,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
     pub span: SourceSpan,
 }

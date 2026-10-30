@@ -188,6 +188,8 @@ pub enum BinaryOperator {
     BitXor,
     Shl,
     Shr,
+    /// An operator this model does not know; never silently mapped to another one.
+    Unknown,
 }
 
 impl BinaryOperator {
@@ -212,6 +214,7 @@ impl BinaryOperator {
             BinaryOperator::BitXor => "^",
             BinaryOperator::Shl => "<<",
             BinaryOperator::Shr => ">>",
+            BinaryOperator::Unknown => "<?>",
         }
     }
 }
@@ -226,6 +229,7 @@ pub enum UnaryOperator {
     PostIncrement,
     PostDecrement,
     Delete,
+    Unknown,
 }
 
 impl UnaryOperator {
@@ -239,6 +243,7 @@ impl UnaryOperator {
             UnaryOperator::PostIncrement => ("++", true),
             UnaryOperator::PostDecrement => ("--", true),
             UnaryOperator::Delete => ("delete ", false),
+            UnaryOperator::Unknown => ("<?>", false),
         }
     }
 
@@ -267,6 +272,7 @@ pub enum AssignOperator {
     BitXorAssign,
     ShlAssign,
     ShrAssign,
+    Unknown,
 }
 
 impl AssignOperator {
@@ -283,6 +289,7 @@ impl AssignOperator {
             AssignOperator::BitXorAssign => "^=",
             AssignOperator::ShlAssign => "<<=",
             AssignOperator::ShrAssign => ">>=",
+            AssignOperator::Unknown => "<?>=",
         }
     }
 }
@@ -293,5 +300,7 @@ pub enum LiteralType {
     String,
     Bool,
     HexString,
+    UnicodeString,
     Address,
+    Unknown,
 }

@@ -12,6 +12,7 @@ use reedline::{
 
 use ilold_core::classify::entry_points::AccessLevel;
 use ilold_core::exploration::commands::CommandResult;
+use ilold_core::model::project::ContractLookupError;
 
 use crate::colors::*;
 use crate::fmt;
@@ -41,7 +42,7 @@ pub async fn run(
             .map(|arr| arr.iter().filter_map(|c| c["name"].as_str().map(String::from)).collect())
             .unwrap_or_default();
         for cname in &contract_names {
-            if let Ok(resp) = client.get(format!("{url}/api/contract/{cname}")).send().await {
+            if let Ok(resp) = client.get(format!("{url}/api/contract/{}", cname.replace('/', "%2F"))).send().await {
                 if let Ok(detail) = resp.json::<serde_json::Value>().await {
                     names_by_contract.insert(cname.clone(), ContractNames::from_detail(&detail));
                 }
@@ -75,16 +76,16 @@ pub async fn run(
 
     let contract_name = match contract.as_deref() {
         Some(name) => state.project.find_contract(Some(name))
-            .map(|c| c.name.clone())
+            .map(|c| c.key().to_string())
             .map_err(|e| anyhow::anyhow!(e))?,
         None => state.project.default_contract()
-            .map(|c| c.name.clone())
+            .map(|c| c.key().to_string())
             .ok_or_else(|| anyhow::anyhow!("No contracts found"))?,
     };
 
     let names_by_contract = local_names(&state.project);
-    let contract_names: Vec<String> = state.project.contracts.iter()
-        .map(|c| c.name.clone())
+    let contract_names: Vec<String> = state.project.project_contracts()
+        .map(|c| c.key().to_string())
         .filter(|n| !n.is_empty())
         .collect();
 
@@ -101,8 +102,8 @@ pub async fn run(
     println!("{}\n", banner);
 
     let mut by_folder: std::collections::BTreeMap<String, Vec<&str>> = std::collections::BTreeMap::new();
-    for c in &state.project.contracts {
-        by_folder.entry(state.project.contract_folder(c)).or_default().push(c.name.as_str());
+    for c in state.project.project_contracts() {
+        by_folder.entry(state.project.contract_folder(c)).or_default().push(c.key());
     }
     println!("{}", "Contracts:".bold());
     for (folder, mut names) in by_folder {
@@ -310,42 +311,60 @@ struct ContractNames {
 impl ContractNames {
     /// From `/api/contract/{name}` (attached mode).
     fn from_detail(detail: &serde_json::Value) -> Self {
-        let collect = |keys: &[&str]| -> Vec<String> {
-            let mut out: Vec<String> = Vec::new();
-            for key in keys {
-                for item in detail[*key].as_array().into_iter().flatten() {
-                    if let Some(name) = item["name"].as_str().filter(|n| !n.is_empty()) {
-                        if !out.iter().any(|o| o == name) {
-                            out.push(name.to_string());
-                        }
-                    }
+        let items = |keys: &[&str]| -> Vec<serde_json::Value> {
+            keys.iter().flat_map(|key| detail[*key].as_array().cloned().unwrap_or_default()).collect()
+        };
+        let functions = items(&["functions", "inherited_functions"])
+            .iter()
+            .filter_map(|f| {
+                let name = f["name"].as_str()?;
+                Some((name.to_string(), f["signature"].as_str().unwrap_or(name).to_string()))
+            })
+            .collect::<Vec<_>>();
+        let mut state_vars: Vec<String> = Vec::new();
+        for v in items(&["state_vars", "inherited_state_vars"]) {
+            if let Some(name) = v["name"].as_str().filter(|n| !n.is_empty()) {
+                if !state_vars.iter().any(|o| o == name) {
+                    state_vars.push(name.to_string());
                 }
             }
-            out
-        };
-        ContractNames {
-            functions: collect(&["functions", "inherited_functions"]),
-            state_vars: collect(&["state_vars", "inherited_state_vars"]),
+        }
+        ContractNames { functions: function_names(&functions), state_vars }
+    }
+}
+
+/// Function names for completion and argument checks from `(name, signature)` pairs: the
+/// bare name, or the signature without spaces for each overload of a shared name.
+fn function_names(functions: &[(String, String)]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (name, signature) in functions.iter().filter(|(n, _)| !n.is_empty()) {
+        let overloaded = functions.iter().any(|(n, sig)| n == name && sig != signature);
+        let entry = if overloaded { compact(signature) } else { name.clone() };
+        if !out.contains(&entry) {
+            out.push(entry);
         }
     }
+    out
+}
+
+fn compact(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 fn local_names(project: &ilold_core::model::project::Project) -> HashMap<String, ContractNames> {
     let mut out = HashMap::new();
     for c in project.contracts.iter().filter(|c| !c.name.is_empty()) {
-        let mut functions: Vec<String> = Vec::new();
-        for af in project.accessible_functions(c) {
-            if !functions.contains(&af.function.name) {
-                functions.push(af.function.name.clone());
-            }
-        }
+        let functions: Vec<(String, String)> = project.accessible_functions(c).iter()
+            .map(|af| (af.function.name.clone(), af.function.match_signature().to_string()))
+            .collect();
+        let functions = function_names(&functions);
         let mut state_vars: Vec<String> = Vec::new();
         for v in project.inherited_state_vars(c) {
             if !state_vars.contains(&v.name) {
                 state_vars.push(v.name);
             }
         }
-        out.insert(c.name.clone(), ContractNames { functions, state_vars });
+        out.insert(c.key().to_string(), ContractNames { functions, state_vars });
     }
     out
 }
@@ -512,7 +531,7 @@ fn handle_input(
 
         "ct" | "contracts" => {
             if let Some(ref state) = state {
-                print_contracts(state, contract);
+                print_contracts(state, contract, arg == "all");
             } else {
                 match handle.block_on(async {
                     let resp = client.get(format!("{base_url}/api/project")).send().await?;
@@ -554,9 +573,9 @@ fn handle_input(
                 return InputResult::Continue;
             }
             if let Some(ref state) = state {
-                match state.project.find_contract(Some(arg)) {
+                match state.project.lookup_contract(arg) {
                     Ok(c) => {
-                        let name = c.name.clone();
+                        let name = c.key().to_string();
                         if name == contract {
                             println!("  Already using {}", c_accent(&name));
                             return InputResult::Continue;
@@ -567,7 +586,12 @@ fn handle_input(
                         }
                         InputResult::SwitchContract(name)
                     }
-                    Err(_) => {
+                    Err(ContractLookupError::Ambiguous(ids)) => {
+                        eprintln!("  {}", c_danger(&format!(
+                            "Contract name '{arg}' is ambiguous; use one of: {}", ids.join(", "))));
+                        InputResult::Continue
+                    }
+                    Err(ContractLookupError::NotFound) => {
                         eprintln!("  {}", c_danger(&crate::analyze::contract_not_found(
                             arg, contract_names.iter().map(String::as_str)).to_string()));
                         InputResult::Continue
@@ -1277,8 +1301,12 @@ fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<
     }
 }
 
+/// A bare name also matches its overloads (listed by signature); the server picks the first.
 fn check_function(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
-    if names.functions.is_empty() || names.functions.iter().any(|f| f == name) {
+    let query = compact(name);
+    let known = names.functions.iter()
+        .any(|f| *f == query || f.split('(').next() == Some(query.as_str()));
+    if names.functions.is_empty() || known {
         Ok(())
     } else {
         Err(unknown_name("function", name, contract, &names.functions))
@@ -1408,28 +1436,28 @@ fn print_annotation_result(result: &CommandResult, steps: &[String]) {
     }
 }
 
-fn print_contracts(state: &std::sync::Arc<ilold_web::state::AppState>, current: &str) {
+/// Project contracts by key; `ct all` adds the dependency contracts loaded for resolution.
+fn print_contracts(state: &std::sync::Arc<ilold_web::state::AppState>, current: &str, include_dependencies: bool) {
     use ilold_core::model::contract::ContractKind;
     println!();
-    let max_name = state.project.contracts.iter()
-        .filter(|c| !c.name.is_empty())
-        .map(|c| c.name.chars().count())
-        .max().unwrap_or(0);
+    let listed: Vec<_> = state.project.contracts.iter()
+        .filter(|c| !c.name.is_empty() && (include_dependencies || !c.is_dependency))
+        .collect();
+    let max_name = listed.iter().map(|c| c.key().chars().count()).max().unwrap_or(0);
 
-    for c in &state.project.contracts {
-        if c.name.is_empty() { continue; }
+    for c in listed {
         let badge = match c.kind {
             ContractKind::Contract => c_accent("[C]"),
             ContractKind::Interface => c_muted("[I]"),
             ContractKind::Library => c_muted("[L]"),
             ContractKind::Abstract => c_warn("[A]"),
         };
-        let marker = if c.name == current {
+        let marker = if c.key() == current {
             c_ok(" ← current").to_string()
         } else {
             String::new()
         };
-        let padded = fmt::pad_right(&c.name, max_name);
+        let padded = fmt::pad_right(c.key(), max_name);
         let details = format!(
             "{} functions, {} state vars",
             c.functions.iter().filter(|f| !f.name.is_empty()).count(),
@@ -1440,7 +1468,12 @@ fn print_contracts(state: &std::sync::Arc<ilold_web::state::AppState>, current: 
         } else {
             format!(", inherits {}", c.inherits.join(", "))
         };
-        println!("  {} {}  {}{}{}", badge, c_accent(&padded), c_muted(&details), c_muted(&inherits), marker);
+        let dependency = if c.is_dependency { " (dependency)" } else { "" };
+        println!("  {} {}  {}{}{}{}", badge, c_accent(&padded), c_muted(&details), c_muted(&inherits), c_muted(dependency), marker);
+    }
+    let hidden = state.project.contracts.iter().filter(|c| c.is_dependency).count();
+    if !include_dependencies && hidden > 0 {
+        println!("  {}", c_muted(&format!("{hidden} dependency contract(s) hidden; `ct all` lists them")));
     }
     println!();
 }
@@ -1454,12 +1487,19 @@ fn show_deps(
     reverse: bool,
 ) {
     if let Some(state) = state {
+        let name = match state.project.find_contract(Some(name)) {
+            Ok(c) => c.key(),
+            Err(e) => {
+                eprintln!("  {}", c_danger(&e));
+                return;
+            }
+        };
         let rows = crate::deps_view::dep_rows(&state.dep_graph, name, reverse);
         crate::deps_view::print_direction(name, reverse, rows);
         return;
     }
 
-    let url = format!("{base_url}/api/contract/{name}/depgraph");
+    let url = format!("{base_url}/api/contract/{}/depgraph", name.replace('/', "%2F"));
     let result = handle.block_on(async {
         let resp = client.get(&url).send().await?;
         if !resp.status().is_success() {
@@ -2071,7 +2111,7 @@ const HELP_GROUPS: &[(&str, &[(&str, &str, &str)])] = &[
         ("fa",     "funcs-all",        "List all accessible (incl. inherited)"),
         ("v",      "vars",             "List state variables"),
         ("va",     "vars-all",         "List all accessible (incl. inherited)"),
-        ("ct",     "contracts",        "List project contracts"),
+        ("ct",     "contracts [all]",  "List project contracts (`all`: with dependencies)"),
         ("",       "deps [contract]",  "What this contract depends on"),
         ("",       "usedby [contract]","What depends on it (blast radius)"),
         ("",       "use <contract>",   "Switch active contract (its steps are kept)"),
@@ -2116,7 +2156,7 @@ const INLINE_HELP: &[(&[&str], &str, &str)] = &[
     (&["ex", "export"],   "export",                          "Export findings, notes and coverage as ilold-report-<contract>.md."),
     (&["fa", "funcs-all"],"funcs-all",                       "List all accessible functions including inherited."),
     (&["va", "vars-all"], "vars-all",                        "List all accessible state variables including inherited."),
-    (&["ct", "contracts"],"contracts",                       "List all contracts in the project."),
+    (&["ct", "contracts"],"contracts [all]",                 "List the project contracts; `all` adds dependency contracts (lib/)."),
     (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on. Example: deps Vault"),
     (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it — the blast radius. Example: usedby IPool"),
     (&["use"],            "use <contract>",                  "Switch the active contract; each contract keeps its own steps. Example: use Staking"),
@@ -2490,6 +2530,40 @@ mod tests {
         assert!(check_state_var("anything", "C", &ContractNames::default()).is_ok());
         assert_eq!(extra_args("supply extra args"), Some("extra args"));
         assert_eq!(extra_args("supply"), None);
+    }
+
+    fn parse_fixture(name: &str) -> ilold_core::model::project::Project {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc").join(name);
+        ilold_core::parse::solc_frontend::SolcFrontend.parse_project(&root).expect("parse fixture")
+    }
+
+    #[test]
+    fn overloaded_functions_complete_by_signature() {
+        let project = parse_fixture("call_resolution");
+        let names = &local_names(&project)["Over"];
+        for sig in ["put(uint256)", "put(address)", "put(uint256,bool)"] {
+            assert!(names.functions.contains(&sig.to_string()), "{names:?}");
+        }
+        assert!(!names.functions.contains(&"put".to_string()), "bare overloaded name: {names:?}");
+        assert!(check_function("put", "Over", names).is_ok(), "bare name resolves leniently");
+        assert!(check_function("put(address)", "Over", names).is_ok());
+        assert!(check_function("pu", "Over", names).is_err());
+        assert_eq!(
+            function_names(&[("f".into(), "f(uint256[] storage)".into()), ("f".into(), "f(uint256[] memory)".into()), ("g".into(), "g()".into())]),
+            vec!["f(uint256[]storage)".to_string(), "f(uint256[]memory)".to_string(), "g".to_string()],
+        );
+    }
+
+    #[test]
+    fn duplicate_contract_names_are_keyed_by_qualified_id() {
+        let project = parse_fixture("model/project");
+        let names = local_names(&project);
+        assert!(names.contains_key("Vault"), "{:?}", names.keys());
+        assert!(names.contains_key("src/ext/IToken.sol:IToken") && !names.contains_key("IToken"), "{:?}", names.keys());
+        let contracts: Vec<String> = project.project_contracts().map(|c| c.key().to_string()).collect();
+        let comp = IloldCompleter { contracts, ..completer() };
+        let tokens = comp.candidates("use src/ext/I").1;
+        assert_eq!(tokens, vec!["src/ext/IToken.sol:IToken".to_string()]);
     }
 
     #[test]

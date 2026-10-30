@@ -28,7 +28,7 @@ pub async fn ws_pty_handler(
     // Only names of analyzed contracts reach the child's argv.
     let contract = match query.contract.as_deref().filter(|name| !name.is_empty()) {
         Some(name) => match state.project.find_contract(Some(name)) {
-            Ok(c) => Ok(Some(c.name.clone())),
+            Ok(c) => Ok(Some(c.key().to_string())),
             Err(e) => Err(e),
         },
         None => Ok(None),

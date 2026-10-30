@@ -50,21 +50,31 @@ impl ProjectAnalysis {
         let mut sequence_analyses = HashMap::new();
         let mut classifications = HashMap::new();
 
-        for contract in &project.contracts {
-            let cg = build_call_graph(project, contract);
-            call_graphs.insert(contract.name.clone(), cg);
+        // Dependency contracts are analysed only as bases of project contracts, where their
+        // functions are reachable through the derived contract; nothing else of them is built.
+        let inherited_dependencies: std::collections::HashSet<&str> = project
+            .project_contracts()
+            .flat_map(|c| project.linearization(c))
+            .filter(|c| c.is_dependency)
+            .map(|c| c.key())
+            .collect();
 
+        for contract in &project.contracts {
+            if contract.is_dependency && !inherited_dependencies.contains(contract.key()) {
+                continue;
+            }
+            let contract_key = contract.key().to_string();
             let mut contract_path_trees = Vec::new();
             let combined_state_vars = project.inherited_state_vars(contract);
 
             for func in &contract.functions {
                 // overloads have distinct keys, so they never overwrite each other
-                let key = (contract.name.clone(), func.key.clone());
+                let key = (contract_key.clone(), func.key.clone());
 
                 if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(project)) {
                     let pt = build_path_tree(
                         &cfg,
-                        &contract.name,
+                        &contract_key,
                         &func.key,
                         &combined_state_vars,
                         config,
@@ -74,18 +84,24 @@ impl ProjectAnalysis {
                     cfgs.insert(key, cfg);
                 }
             }
+            if contract.is_dependency {
+                continue;
+            }
+
+            let cg = build_call_graph(project, contract);
+            call_graphs.insert(contract_key.clone(), cg);
 
             let st = build_sequence_tree(contract, &contract_path_trees, params.max_seq_depth);
-            sequence_trees.insert(contract.name.clone(), st);
+            sequence_trees.insert(contract_key.clone(), st);
 
             let pt_map: HashMap<(String, String), PathTree> = contract_path_trees
                 .iter()
                 .map(|pt| ((pt.contract.clone(), pt.function.clone()), pt.clone()))
                 .collect();
-            let analysis = analyze_sequences(&pt_map, &contract.name);
-            sequence_analyses.insert(contract.name.clone(), analysis);
+            let analysis = analyze_sequences(&pt_map, &contract_key);
+            sequence_analyses.insert(contract_key.clone(), analysis);
 
-            classifications.insert(contract.name.clone(), classify_all(contract));
+            classifications.insert(contract_key, classify_all(contract));
         }
 
         analyze_project(project, &mut sequence_analyses);

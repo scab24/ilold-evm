@@ -1,5 +1,5 @@
-//! Manual spot check of call resolution on Aave v3 origin. Analysing writes Foundry
-//! artifacts into the project, so point it at a scratch copy:
+//! Manual spot checks on Aave v3 origin. Analysing no longer writes into the project, but
+//! `aave_model_completeness` verifies exactly that, so point it at a scratch copy:
 //! `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check -- --ignored --nocapture`
 use std::path::PathBuf;
 
@@ -132,4 +132,89 @@ fn aave_call_resolution() {
     for e in edges_from(&cg, |id| id.starts_with("PoolConfigurator::setPoolPause")) {
         println!("  {e}");
     }
+}
+
+/// Path, size and modification time of every file under `dir` (empty when it is absent).
+fn snapshot(dir: &std::path::Path) -> std::collections::BTreeMap<PathBuf, (u64, std::time::SystemTime)> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(d) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+        for entry in entries.flatten() {
+            let meta = entry.metadata().unwrap();
+            if meta.is_dir() {
+                pending.push(entry.path());
+            } else {
+                out.insert(entry.path(), (meta.len(), meta.modified().unwrap()));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+#[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
+fn aave_model_completeness() {
+    let root = PathBuf::from(std::env::var("ILOLD_AAVE_ROOT").expect("ILOLD_AAVE_ROOT"));
+    let watched = [root.join("out"), root.join("cache")];
+    let before: Vec<_> = watched.iter().map(|d| snapshot(d)).collect();
+
+    let started = std::time::Instant::now();
+    let project = SolcFrontend.parse_project(&root).expect("parse aave");
+    let cold = started.elapsed();
+    let started = std::time::Instant::now();
+    let warm_project = SolcFrontend.parse_project(&root).expect("parse aave again");
+    let warm = started.elapsed();
+    println!("== parse: first {cold:.2?}, second {warm:.2?}");
+    assert_eq!(warm_project.contracts.len(), project.contracts.len());
+
+    let after: Vec<_> = watched.iter().map(|d| snapshot(d)).collect();
+    for ((dir, b), a) in watched.iter().zip(&before).zip(&after) {
+        println!("== {}: {} files before, {} after", dir.display(), b.len(), a.len());
+        assert_eq!(b, a, "{} changed while parsing", dir.display());
+    }
+
+    let listed = project.project_contracts().count();
+    let dependencies = project.contracts.len() - listed;
+    println!("== contracts: {listed} project, {dependencies} dependency, {} total", project.contracts.len());
+    println!("== warnings: {:?}", project.warnings);
+    assert_eq!(listed, 177);
+
+    let iatoken: Vec<&ilold_core::model::contract::ContractDef> =
+        project.contracts.iter().filter(|c| c.name == "IAToken").collect();
+    for c in &iatoken {
+        println!("== IAToken {} key={} functions={}", c.qualified_id, c.key, c.functions.len());
+    }
+    assert_eq!(iatoken.len(), 2);
+    assert!(iatoken.iter().all(|c| c.key == c.qualified_id));
+    let core = iatoken.iter().find(|c| c.functions.len() == 11).expect("core IAToken");
+    let atoken = project.lookup_contract("AToken").expect("AToken unique");
+    assert!(atoken.base_ids.contains(&core.id.unwrap()), "AToken inherits {}", core.qualified_id);
+
+    for name in ["Multicall", "Context"] {
+        let found: Vec<_> = project.contracts.iter().filter(|c| c.name == name).collect();
+        println!("== {name}: {:?}", found.iter().map(|c| (&c.qualified_id, c.is_dependency)).collect::<Vec<_>>());
+        assert!(!found.is_empty() && found.iter().all(|c| c.is_dependency), "{name}");
+    }
+
+    let pool_instance = project.lookup_contract("PoolInstance").expect("PoolInstance");
+    let inherited: Vec<String> = project.accessible_functions(pool_instance).into_iter()
+        .filter(|af| af.is_inherited).map(|af| af.function.name.clone()).collect();
+    println!("== PoolInstance inherited functions: {}", inherited.len());
+    assert!(inherited.iter().any(|f| f == "multicall"), "{inherited:?}");
+    assert!(!inherited.iter().any(|f| f == "ADDRESSES_PROVIDER"), "{inherited:?}");
+
+    let pool = project.lookup_contract("Pool").expect("Pool");
+    let storage: Vec<String> = project.inherited_state_vars(pool).into_iter().map(|v| v.name).collect();
+    println!("== Pool storage order: {:?}", &storage[..storage.len().min(6)]);
+    assert_eq!(storage.first().map(String::as_str), Some("lastInitializedRevision"));
+
+    let started = std::time::Instant::now();
+    let analysis = ProjectAnalysis::build(&project, &AnalysisParams::new(1));
+    println!("== analysis build {:.2?}: {} cfgs, {} path trees, {} call graphs",
+        started.elapsed(), analysis.cfgs.len(), analysis.path_trees.len(), analysis.call_graphs.len());
+    assert!(analysis.path_trees.keys().any(|(c, f)| c.contains("Multicall") && f == "multicall"));
+    let pool_cg = graph(&project, "Pool");
+    let msg_sender: Vec<String> = edges_from(&pool_cg, |_| true).into_iter().filter(|e| e.contains("_msgSender")).collect();
+    println!("== Pool edges to _msgSender: {} e.g. {:?}", msg_sender.len(), msg_sender.first());
 }

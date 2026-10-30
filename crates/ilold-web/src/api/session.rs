@@ -18,6 +18,8 @@ use ilold_core::narrative::trace::FlowTree;
 use ilold_core::narrative::types::{FunctionNarrative, SequenceNarrative};
 use ilold_core::slicing::{build_slice_result, SliceDirection, SliceResult};
 
+use ilold_core::model::project::ContractLookupError;
+
 use crate::state::{AppState, ScenarioStore, SessionBroadcast};
 
 #[derive(Deserialize)]
@@ -30,9 +32,9 @@ fn build_analysis_data<'a>(
     state: &'a AppState,
     contract_name: &str,
 ) -> Result<AnalysisData<'a>, (StatusCode, String)> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or((StatusCode::NOT_FOUND, format!("Contract '{}' not found", contract_name)))?;
+    let contract = state.project.find_contract(Some(contract_name))
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    let contract_name = contract.key();
 
     let seq_analysis = state.sequence_analyses.get(contract_name)
         .ok_or((StatusCode::NOT_FOUND, "No analysis for contract".into()))?;
@@ -58,9 +60,15 @@ fn build_analysis_data<'a>(
 /// project's default contract).
 fn resolve_contract(state: &AppState, explicit: Option<&str>) -> Result<String, (StatusCode, String)> {
     match explicit.map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => state.project.find_contract(Some(name))
-            .map(|c| c.name.clone())
-            .map_err(|e| (StatusCode::NOT_FOUND, e)),
+        Some(name) => state.project.lookup_contract(name)
+            .map(|c| c.key().to_string())
+            .map_err(|e| {
+                let status = match e {
+                    ContractLookupError::NotFound => StatusCode::NOT_FOUND,
+                    ContractLookupError::Ambiguous(_) => StatusCode::CONFLICT,
+                };
+                (status, state.project.find_contract(Some(name)).err().unwrap_or_default())
+            }),
         None => Ok(state.scenarios.read().unwrap().current_contract().to_string()),
     }
 }
@@ -395,12 +403,8 @@ pub async fn get_function_slice(
 ) -> Result<Json<SliceResult>, (StatusCode, String)> {
     let contract_name = resolve_contract(&state, params.contract.as_deref())?;
 
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            format!("Contract '{}' not found", contract_name),
-        ))?;
+    let contract = state.project.find_contract(Some(&contract_name))
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
 
     let function = contract.functions.iter()
         .find(|f| f.name == func_name)

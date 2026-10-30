@@ -7,7 +7,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
     vec![
         tool(
             "ilold_project_overview",
-            "List every contract in the project with its kind, source folder, function and state-variable counts, and inheritance. Call this first to orient.",
+            "List every project contract with its key (route name), qualified id, kind, source folder, function and state-variable counts, and inheritance. Dependency contracts (lib/) are loaded for resolution but not listed. Call this first to orient.",
             empty_schema(),
         ),
         tool(
@@ -161,7 +161,7 @@ fn empty_schema() -> Value {
 fn contract_schema() -> Value {
     json!({
         "type": "object",
-        "properties": { "contract": { "type": "string", "description": "Contract name" } },
+        "properties": { "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" } },
         "required": ["contract"],
         "additionalProperties": false
     })
@@ -171,7 +171,7 @@ fn contract_function_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
             "function": {
                 "type": "string",
                 "description": "Function name, or its signature such as setPoolPause(bool,uint40) when the name is overloaded (an ambiguous name returns 409 with the candidate signatures)"
@@ -186,7 +186,7 @@ fn contract_variable_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
             "variable": { "type": "string", "description": "State variable name" }
         },
         "required": ["contract", "variable"],
@@ -198,7 +198,7 @@ fn trace_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
             "function": { "type": "string", "description": "Function name" },
             "depth": { "type": "integer", "description": "Max internal-call inlining depth (default 2)" },
             "reverts": { "type": "boolean", "description": "Include revert paths (default false)" },
@@ -213,7 +213,7 @@ fn sequences_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
             "depth": { "type": "integer", "description": "Max sequence depth" }
         },
         "required": ["contract"],

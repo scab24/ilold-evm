@@ -162,7 +162,7 @@ fn build_canonical_tree(
 
     let mut visited_calls: HashSet<(String, String)> = HashSet::new();
     let own_key = if function.key.is_empty() { &function.name } else { &function.key };
-    visited_calls.insert((contract.name.clone(), own_key.clone()));
+    visited_calls.insert((contract.key().to_string(), own_key.clone()));
 
     walk_cfg(
         cfg,
@@ -177,7 +177,7 @@ fn build_canonical_tree(
     );
 
     FlowTree {
-        contract: contract.name.clone(),
+        contract: contract.key().to_string(),
         function: function.name.clone(),
         signature,
         modifiers: function.modifiers.iter().map(|m| m.name.clone()).collect(),
@@ -681,8 +681,7 @@ fn build_internal_call_node(
 ) -> FlowNode {
     // the declaration solc resolved (super, library, base) wins over a lookup by name
     let declared = resolved_decl
-        .and_then(|id| project.decl_table.lookup(id))
-        .filter(|t| !t.function.is_empty())
+        .and_then(|id| project.decl_table.function(id))
         .and_then(|t| {
             let key = (t.contract.clone(), t.function.clone());
             all_cfgs.get(&key).map(|cfg| (key, cfg))
@@ -736,9 +735,9 @@ fn build_internal_call_node(
     visited_calls.insert(call_key.clone());
 
     let owning_contract = project
-        .contracts
-        .iter()
-        .find(|c| c.name == owning_name)
+        .contract_index
+        .get(&owning_name)
+        .map(|&i| &project.contracts[i])
         .unwrap_or(contract);
 
     let mut children = Vec::new();
@@ -778,33 +777,11 @@ fn resolve_callee_cfg<'a>(
     project: &Project,
     all_cfgs: &'a HashMap<(String, String), CfgGraph>,
 ) -> Option<(String, &'a CfgGraph)> {
-    let key = (starting_contract.name.clone(), callee.to_string());
-    if let Some(cfg) = all_cfgs.get(&key) {
-        return Some((starting_contract.name.clone(), cfg));
-    }
-
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut queue: Vec<String> = starting_contract.inherits.clone();
-
-    while let Some(parent_name) = queue.pop() {
-        if !visited.insert(parent_name.clone()) {
-            continue;
-        }
-
-        let key = (parent_name.clone(), callee.to_string());
-        if let Some(cfg) = all_cfgs.get(&key) {
-            return Some((parent_name, cfg));
-        }
-
-        if let Some(parent_idx) = project.contract_index.get(&parent_name) {
-            let parent = &project.contracts[*parent_idx];
-            for grand in &parent.inherits {
-                queue.push(grand.clone());
-            }
-        }
-    }
-
-    None
+    // the first contract of the linearization that defines it
+    project.linearization(starting_contract).into_iter().find_map(|c| {
+        let key = (c.key().to_string(), callee.to_string());
+        all_cfgs.get(&key).map(|cfg| (key.0, cfg))
+    })
 }
 
 fn count_statements(cfg: &CfgGraph) -> usize {

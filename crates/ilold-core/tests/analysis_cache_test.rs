@@ -57,13 +57,12 @@ fn small_project() -> Project {
     let base = ContractDef { name: "Base".into(), kind: ContractKind::Contract,
         functions: vec![function("ping"), function("pong")], modifiers: vec![], state_vars: vec![],
         structs: vec![], enums: vec![], events: vec![], errors: vec![], inherits: vec![],
-        id: None, linearized_bases: vec![], span };
-    let child = ContractDef { name: "Child".into(), inherits: vec!["Base".into()],
-        functions: vec![function("run")], ..base.clone() };
-    let mut project = Project { source_files: vec![SourceFile { path: "src/C.sol".into(), content: String::new() }],
-        contracts: vec![base, child], contract_index: Default::default(), decl_table: DeclTable::default() };
-    project.rebuild_index();
-    project
+        id: None, linearized_bases: vec![], span, qualified_id: "src/C.sol:Base".into(),
+        key: "Base".into(), is_dependency: false, base_ids: vec![] };
+    let child = ContractDef { name: "Child".into(), key: "Child".into(), qualified_id: "src/C.sol:Child".into(),
+        inherits: vec!["Base".into()], functions: vec![function("run")], ..base.clone() };
+    Project::new(vec![SourceFile { path: "src/C.sol".into(), content: String::new() }],
+        vec![base, child], DeclTable::default())
 }
 
 fn key(root: &Path, seed: &str) -> ProjectKey {
