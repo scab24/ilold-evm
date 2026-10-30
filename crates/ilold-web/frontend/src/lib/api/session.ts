@@ -30,6 +30,15 @@ export type SessionCommand =
   | 'SaveSession'
   | { Scenario: { sub: ScenarioAction } };
 
+/** A command the server rejected with `CommandResult::Error` (HTTP 200). */
+export class CommandError extends Error {}
+
+/** `?contract=` selector for session-scoped reads; without it the server uses
+ *  the contract of the most recent command. */
+function contractQuery(contract: string | undefined): string {
+  return contract ? `?contract=${encodeURIComponent(contract)}` : '';
+}
+
 export async function postCommand(command: SessionCommand, contract?: string) {
   const body: CommandRequest = { command };
   if (contract) body.contract = contract;
@@ -43,36 +52,40 @@ export async function postCommand(command: SessionCommand, contract?: string) {
     const text = await res.text();
     throw new Error(text || `Command failed: ${res.status}`);
   }
-  return res.json();
+  const result = await res.json();
+  if (result && typeof result === 'object' && 'Error' in result) {
+    throw new CommandError(result.Error?.message ?? 'Command failed');
+  }
+  return result;
 }
 
 
-export async function getSessionState() {
-  const res = await fetch(`${BASE}/api/session/state`);
+export async function getSessionState(contract?: string) {
+  const res = await fetch(`${BASE}/api/session/state${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function getSessionSequence() {
-  const res = await fetch(`${BASE}/api/session/sequence`);
+export async function getSessionSequence(contract?: string) {
+  const res = await fetch(`${BASE}/api/session/sequence${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function getStepNarrative(index: number) {
-  const res = await fetch(`${BASE}/api/session/step/${index}/narrative`);
+export async function getStepNarrative(index: number, contract?: string) {
+  const res = await fetch(`${BASE}/api/session/step/${index}/narrative${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function getStepTrace(index: number) {
-  const res = await fetch(`${BASE}/api/session/step/${index}/trace`);
+export async function getStepTrace(index: number, contract?: string) {
+  const res = await fetch(`${BASE}/api/session/step/${index}/trace${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function getVariableTimeline(variable: string) {
-  const res = await fetch(`${BASE}/api/session/timeline/${variable}`);
+export async function getVariableTimeline(variable: string, contract?: string) {
+  const res = await fetch(`${BASE}/api/session/timeline/${variable}${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -81,11 +94,12 @@ export interface SliceParams {
   func: string;
   variable: string;
   direction?: 'backward' | 'forward' | 'both';
+  contract?: string;
 }
 
 export async function getSlice(params: SliceParams) {
-  let url = `${BASE}/api/session/slice/${params.func}/${params.variable}`;
-  if (params.direction) url += `?direction=${params.direction}`;
+  let url = `${BASE}/api/session/slice/${params.func}/${params.variable}${contractQuery(params.contract)}`;
+  if (params.direction) url += `${params.contract ? '&' : '?'}direction=${params.direction}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -118,14 +132,14 @@ export async function getFunctionNarrative(contract: string, func: string) {
 }
 
 
-export async function getScenarios(): Promise<ScenarioInfo[]> {
-  const res = await fetch(`${BASE}/api/scenarios`);
+export async function getScenarios(contract?: string): Promise<ScenarioInfo[]> {
+  const res = await fetch(`${BASE}/api/scenarios${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function getAllScenarios(): Promise<AllScenariosResponse> {
-  const res = await fetch(`${BASE}/api/scenarios/all`);
+export async function getAllScenarios(contract?: string): Promise<AllScenariosResponse> {
+  const res = await fetch(`${BASE}/api/scenarios/all${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

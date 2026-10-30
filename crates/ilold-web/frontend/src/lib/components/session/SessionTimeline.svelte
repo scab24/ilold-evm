@@ -2,6 +2,7 @@
   import { getSteps, getHighlightedFunction } from '$lib/stores/session.svelte';
   import { getStepNarrative, postCommand } from '$lib/api/session';
   import { formatAccess } from '$lib/utils/access';
+  import { notifyError } from '$lib/components/ui/notifications.svelte';
   import type { AccessLevel } from '$lib/api/types';
 
   interface Props {
@@ -51,7 +52,7 @@
     loadingNarrative = true;
     const gen = ++narrativeGen;
     try {
-      const res = await getStepNarrative(stepIndex);
+      const res = await getStepNarrative(stepIndex, contract);
       if (gen !== narrativeGen) return; // stale
       narrative = typeof res === 'string' ? res : (res.narrative ?? JSON.stringify(res, null, 2));
     } catch (e: unknown) {
@@ -68,7 +69,7 @@
     try {
       await postCommand('Back', contract);
     } catch (e) {
-      console.warn('Back failed:', e);
+      notifyError('session back', e);
     } finally {
       backBusy = false;
     }

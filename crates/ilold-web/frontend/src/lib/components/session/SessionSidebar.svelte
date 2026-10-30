@@ -242,5 +242,5 @@
   </div>
 
   <!-- Floating terminal (positions itself fixed, outside sidebar flow) -->
-  <EmbeddedTerminal />
+  <EmbeddedTerminal {contract} />
 </div>

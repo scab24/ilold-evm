@@ -8,7 +8,9 @@
   import { setSearchContext, getSearchNavigate, setSearchNavigate } from '$lib/stores/search.svelte';
   import { togglePalette, setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
-  import { getHighlightedFunction, getScenarios, getActiveScenario, getForkOrigins } from '$lib/stores/session.svelte';
+  import { getHighlightedFunction, getScenarios, getActiveScenario, getForkOrigins, setSessionContract } from '$lib/stores/session.svelte';
+  import { notifyError } from '$lib/components/ui/notifications.svelte';
+  import ErrorToasts from '$lib/components/ui/ErrorToasts.svelte';
   import { composeScenarioTree, type ComposedNode } from '$lib/canvas/scenarios';
   import { promptScenarioName } from '$lib/scenarios/name';
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
@@ -541,10 +543,14 @@
     });
   });
 
+  // The session store follows the contract this page shows.
+  $effect(() => {
+    const name = contract?.name;
+    if (name) untrack(() => setSessionContract(name));
+  });
+
   function notifyFailure(label: string, e: unknown) {
-    const reason = e instanceof Error ? e.message : String(e);
-    console.warn(`${label} failed:`, e);
-    alert(`${label} failed:\n\n${reason}`);
+    notifyError(label, e);
   }
 
   async function handleSidebarAdd(funcName: string) {
@@ -1271,5 +1277,6 @@
 
     <Legend {mode} />
   {/if}
+  <ErrorToasts />
 </div>
 

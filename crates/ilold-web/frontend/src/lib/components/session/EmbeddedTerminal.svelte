@@ -5,6 +5,13 @@
   import '@xterm/xterm/css/xterm.css';
   import { isTerminalVisible, hideTerminal } from '$lib/stores/terminal.svelte';
 
+  interface Props {
+    /** Contract of the page; the attached REPL starts on it. */
+    contract: string;
+  }
+
+  let { contract }: Props = $props();
+
   let terminalEl: HTMLDivElement;
   let terminal: Terminal;
   let fitAddon: FitAddon;
@@ -16,11 +23,18 @@
   let fadeIn = $state(false);
   let termCols = $state(0);
   let termRows = $state(0);
+  let ready = $state(false);
 
   $effect(() => {
     if (isTerminalVisible() && fitAddon) {
       requestAnimationFrame(() => fitAddon?.fit());
     }
+  });
+
+  // The PTY (and its REPL process) starts the first time the terminal is shown,
+  // then stays alive while hidden.
+  $effect(() => {
+    if (ready && isTerminalVisible() && !ws) connect();
   });
 
   let prevPosX = 0;
@@ -179,31 +193,6 @@
     terminal.open(terminalEl);
     requestAnimationFrame(() => fitAddon.fit());
 
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${location.host}/ws/pty`);
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      connected = true;
-      const { cols, rows } = terminal;
-      termCols = cols;
-      termRows = rows;
-      ws!.send(JSON.stringify({ type: 'resize', cols, rows }));
-    };
-
-    ws.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        terminal.write(new Uint8Array(event.data));
-      } else {
-        terminal.write(event.data);
-      }
-    };
-
-    ws.onclose = () => {
-      connected = false;
-      terminal.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
-    };
-
     terminal.onData((data) => {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
@@ -235,7 +224,36 @@
 
     resizeObserver = new ResizeObserver(() => fitAddon.fit());
     resizeObserver.observe(terminalEl);
+    ready = true;
   });
+
+  function connect() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const query = contract ? `?contract=${encodeURIComponent(contract)}` : '';
+    ws = new WebSocket(`${protocol}//${location.host}/ws/pty${query}`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      connected = true;
+      const { cols, rows } = terminal;
+      termCols = cols;
+      termRows = rows;
+      ws!.send(JSON.stringify({ type: 'resize', cols, rows }));
+    };
+
+    ws.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        terminal.write(new Uint8Array(event.data));
+      } else {
+        terminal.write(event.data);
+      }
+    };
+
+    ws.onclose = () => {
+      connected = false;
+      terminal.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
+    };
+  }
 
   onDestroy(() => {
     window.removeEventListener('resize', clampToViewport);

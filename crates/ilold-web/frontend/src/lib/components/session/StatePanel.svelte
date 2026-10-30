@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { postCommand } from '$lib/api/session';
+  import { getSessionState } from '$lib/api/session';
   import { getSteps } from '$lib/stores/session.svelte';
 
   interface Props {
@@ -18,9 +18,8 @@
     loading = true;
     error = null;
     try {
-      const result: any = await postCommand('State', contract);
-      const view = result.StateView ?? result;
-      stateVars = view.summary ?? [];
+      // A read of this contract's session; never a command that takes it over.
+      stateVars = await getSessionState(contract);
     } catch (e: any) {
       error = e.message ?? 'Failed to fetch state';
       stateVars = [];
@@ -31,10 +30,13 @@
 
   let prevStepCount = -1;
 
+  let prevContract = '';
+
   $effect(() => {
     const count = getSteps().length;
-    if (count !== prevStepCount) {
+    if (count !== prevStepCount || contract !== prevContract) {
       prevStepCount = count;
+      prevContract = contract;
       fetchState();
     }
   });

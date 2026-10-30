@@ -7,6 +7,7 @@ export type AccessLevel =
 
 export interface SessionAddNode {
   type: "session_add_node";
+  contract: string;
   scenario: string;
   function: string;
   access: AccessLevel;
@@ -15,16 +16,19 @@ export interface SessionAddNode {
 
 export interface SessionRemoveNode {
   type: "session_remove_node";
+  contract: string;
   scenario: string;
 }
 
 export interface SessionClear {
   type: "session_clear";
+  contract: string;
   scenario: string;
 }
 
 export interface SessionHighlight {
   type: "session_highlight";
+  contract: string;
   scenario: string;
   function: string;
 }
@@ -32,22 +36,26 @@ export interface SessionHighlight {
 
 export interface ScenarioCreated {
   type: "scenario_created";
+  contract: string;
   name: string;
 }
 
 export interface ScenarioSwitched {
   type: "scenario_switched";
+  contract: string;
   from: string;
   to: string;
 }
 
 export interface ScenarioDeleted {
   type: "scenario_deleted";
+  contract: string;
   name: string;
 }
 
 export interface ScenarioForked {
   type: "scenario_forked";
+  contract: string;
   from: string;
   to: string;
   at_step: number;
@@ -55,9 +63,15 @@ export interface ScenarioForked {
 
 export interface ScenarioStoreReloaded {
   type: "scenario_store_reloaded";
+  contract: string;
   active: string;
 }
 
+
+/** Session patches were dropped for this client; refetch the session. */
+export interface SessionResync {
+  type: "session_resync";
+}
 
 export interface ScenarioInfo {
   name: string;
@@ -83,6 +97,7 @@ export interface ScenarioSnapshot {
 }
 
 export interface AllScenariosResponse {
+  contract: string;
   active: string;
   scenarios: ScenarioSnapshot[];
 }
@@ -119,6 +134,7 @@ export type ServerMessage =
   | ScenarioDeleted
   | ScenarioForked
   | ScenarioStoreReloaded
+  | SessionResync
   | SearchResult
   | SearchComplete
   | SearchError;
@@ -144,6 +160,7 @@ export interface TopicMap {
   scenario_deleted: ScenarioDeleted;
   scenario_forked: ScenarioForked;
   scenario_store_reloaded: ScenarioStoreReloaded;
+  session_resync: SessionResync;
   connection: ConnectionEvent;
 }
 
