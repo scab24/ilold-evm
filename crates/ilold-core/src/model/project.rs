@@ -39,6 +39,14 @@ impl Project {
             .collect();
     }
 
+    /// Contract a session starts on when none is named; see [`pick_default_contract`].
+    pub fn default_contract(&self) -> Option<&ContractDef> {
+        let name = pick_default_contract(
+            self.contracts.iter().map(|c| (c.name.as_str(), c.kind, c.inherits.as_slice())),
+        )?;
+        self.contracts.iter().find(|c| c.name == name)
+    }
+
     pub fn find_contract(&self, filter: Option<&str>) -> Result<&ContractDef, String> {
         if let Some(name) = filter {
             return self
@@ -259,5 +267,93 @@ impl Project {
         }
 
         result
+    }
+}
+
+/// Deterministic default contract shared by the web server and both REPL modes.
+/// Prefers deployable contracts, then abstract contracts, libraries and interfaces;
+/// within a kind the most derived contract (most transitive ancestors) wins and
+/// ties break by name. Unnamed entries are ignored; `None` only for no contracts.
+pub fn pick_default_contract<'a>(
+    candidates: impl IntoIterator<Item = (&'a str, ContractKind, &'a [String])>,
+) -> Option<&'a str> {
+    let candidates: Vec<(&str, ContractKind, &[String])> = candidates
+        .into_iter()
+        .filter(|(name, _, _)| !name.is_empty())
+        .collect();
+    let parents: HashMap<&str, &[String]> =
+        candidates.iter().map(|(name, _, inherits)| (*name, *inherits)).collect();
+    let ancestors = |name: &str| -> usize {
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut queue: Vec<&str> = parents.get(name).into_iter()
+            .flat_map(|p| p.iter().map(String::as_str)).collect();
+        while let Some(parent) = queue.pop() {
+            if parent == name || !seen.insert(parent) { continue; }
+            if let Some(grand) = parents.get(parent) {
+                queue.extend(grand.iter().map(String::as_str));
+            }
+        }
+        seen.len()
+    };
+    let kind_rank = |kind: ContractKind| match kind {
+        ContractKind::Contract => 0,
+        ContractKind::Abstract => 1,
+        ContractKind::Library => 2,
+        ContractKind::Interface => 3,
+    };
+    candidates
+        .iter()
+        .map(|(name, kind, _)| (kind_rank(*kind), std::cmp::Reverse(ancestors(name)), *name))
+        .min()
+        .map(|(_, _, name)| name)
+}
+
+#[cfg(test)]
+mod default_contract_tests {
+    use super::*;
+
+    fn pick(items: &[(&str, ContractKind, Vec<String>)]) -> Option<String> {
+        pick_default_contract(items.iter().map(|(n, k, i)| (*n, *k, i.as_slice())))
+            .map(str::to_string)
+    }
+
+    fn parents(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn prefers_most_derived_deployable_contract() {
+        let items = [
+            ("SafeMath", ContractKind::Library, vec![]),
+            ("IPool", ContractKind::Interface, vec![]),
+            ("BasePool", ContractKind::Abstract, vec![]),
+            ("Vault", ContractKind::Contract, vec![]),
+            ("LendingPool", ContractKind::Contract, parents(&["BasePool", "IPool"])),
+        ];
+        assert_eq!(pick(&items).as_deref(), Some("LendingPool"));
+    }
+
+    #[test]
+    fn counts_transitive_ancestors_and_breaks_ties_by_name() {
+        let items = [
+            ("Zeta", ContractKind::Contract, parents(&["Base"])),
+            ("Alpha", ContractKind::Contract, parents(&["Base"])),
+            ("Base", ContractKind::Contract, parents(&["Root"])),
+            ("Root", ContractKind::Abstract, vec![]),
+        ];
+        assert_eq!(pick(&items).as_deref(), Some("Alpha"));
+        let order_independent: Vec<_> = items.iter().rev().cloned().collect();
+        assert_eq!(pick(&order_independent).as_deref(), Some("Alpha"));
+    }
+
+    #[test]
+    fn falls_back_to_non_deployable_kinds_and_ignores_unnamed() {
+        let items = [
+            ("", ContractKind::Contract, vec![]),
+            ("IToken", ContractKind::Interface, vec![]),
+            ("Math", ContractKind::Library, vec![]),
+        ];
+        assert_eq!(pick(&items).as_deref(), Some("Math"));
+        assert_eq!(pick(&[]), None);
     }
 }

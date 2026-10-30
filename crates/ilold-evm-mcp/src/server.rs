@@ -206,16 +206,16 @@ pub async fn dispatch(
             client.post("/api/cmd", json!({ "contract": c, "command": "Clear" })).await
         }
         "ilold_timeline" => {
-            let _ = active!();
+            let c = active!();
             let v = need!(arg_str(arguments, "variable"), "variable");
-            client.get(&format!("/api/session/timeline/{v}")).await
+            client.get(&format!("/api/session/timeline/{v}?contract={c}")).await
         }
         "ilold_slice" => {
-            let _ = active!();
+            let c = active!();
             let f = need!(arg_str(arguments, "function"), "function");
             let v = need!(arg_str(arguments, "variable"), "variable");
             let dir = arg_str(arguments, "direction").unwrap_or_else(|| "both".to_string());
-            client.get(&format!("/api/session/slice/{f}/{v}?direction={dir}")).await
+            client.get(&format!("/api/session/slice/{f}/{v}?direction={dir}&contract={c}")).await
         }
         "ilold_record_finding" => {
             let c = active!();

@@ -147,13 +147,16 @@ interactive graph on the web canvas.
 
 `use <contract>`
 
-Switches the active contract. Clears the current session steps.
+Switches the active contract. Every contract keeps its own session (scenarios,
+forks and steps), so switching never discards work: `use` back to a contract to
+continue where you left it.
 
 ```
 ilold[Staking]> use Ownable
 
   ✓ Now using: Ownable
-  Cleared 2 step(s) from previous contract
+  Staking keeps its 2 step(s); `use Staking` returns to them
 ```
 
 After switching, all session and analysis commands operate on the new contract.
+To start the REPL directly on a contract, pass `ilold explore <path> --contract <name>`.

@@ -8,11 +8,13 @@ ilold exposes an HTTP API on the configured port (default 3001). All endpoints r
 
 Execute a session command. This is the single entry point for all state-mutating session operations.
 
+Each contract owns an independent session store (scenarios, forks and steps). A command only touches the store of the contract it names, and that contract becomes the server's **current contract**. Naming another contract never discards the previous contract's session. At startup the current contract is the project default: the most derived deployable contract (abstract contracts, libraries and interfaces only as fallbacks), ties broken by name. `explore` uses the same rule.
+
 **Request body:**
 
 ```
 {
-  "contract": "Staking",          // optional, defaults to session contract
+  "contract": "Staking",          // optional, defaults to the current contract
   "command": { "Call": { "func": "deposit" } }
 }
 ```
@@ -47,7 +49,14 @@ Execute a session command. This is the single entry point for all state-mutating
 
 ## Session query endpoints
 
-These endpoints read from the active session. They return 404 if no session exists (no `Call` command has been issued).
+These endpoints read the active scenario of one contract's session. They never change which contract is current.
+
+Every endpoint in this section, plus `GET /api/scenarios` and `GET /api/scenarios/all`, accepts an optional `?contract=<name>` query parameter:
+
+- With `contract`, the endpoint reads that contract's session. An unknown contract returns 404. A contract with no commands yet reads as an empty `main` scenario.
+- Without `contract`, the endpoint reads the current contract: the one named by the most recent `POST /api/cmd`, or the project default before any command. This keeps older clients working, but clients that work on a specific contract should pass it.
+
+`GET /api/scenarios/all` includes the resolved `contract` in its response.
 
 ### GET /api/session/state
 
@@ -175,11 +184,17 @@ Returns search suggestions for the contract: function names, state variable name
 
 ### GET /ws
 
-Upgrades to a WebSocket connection. The server pushes `CanvasPatch` messages when session state changes:
+Upgrades to a WebSocket connection. The server pushes JSON messages when session state changes. Every session message carries the `contract` whose session changed, so clients ignore messages for other contracts:
 
-- `AddNode`: a step was added (function, access level, step index)
-- `RemoveLastNode`: the last step was removed
-- `ClearAll`: all steps were cleared
+- `session_add_node`: a step was added (scenario, function, access level, step index)
+- `session_remove_node`: the last step was removed
+- `session_clear`: all steps were cleared
+- `scenario_created`, `scenario_switched`, `scenario_deleted`, `scenario_forked`, `scenario_store_reloaded`: scenario lifecycle events
+- `session_resync` (no `contract`): the client fell behind and messages were dropped; refetch the session with `GET /api/scenarios/all?contract=<name>`
+
+### GET /ws/pty
+
+Upgrades to a WebSocket bridged to an `ilold explore --attach` REPL, which is used by the embedded terminal. The optional `?contract=<name>` parameter starts the REPL on that contract (it must exist, otherwise the socket reports an error and closes).
 
 ## Related pages
 

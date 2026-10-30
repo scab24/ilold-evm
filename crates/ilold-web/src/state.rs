@@ -166,6 +166,67 @@ impl ScenarioStore {
     }
 }
 
+/// One ScenarioStore per contract. Commands only touch the store of the contract
+/// they name, so switching contracts never drops scenarios, forks or steps.
+/// `current` is the contract named by the most recent `/api/cmd`; session reads
+/// without an explicit contract resolve to it. Derefs to the current store.
+pub struct ScenarioRegistry {
+    current: String,
+    stores: HashMap<String, ScenarioStore>,
+}
+
+impl ScenarioRegistry {
+    pub fn new(default_contract: impl Into<String>) -> Self {
+        let current = default_contract.into();
+        let mut stores = HashMap::new();
+        stores.insert(current.clone(), ScenarioStore::new_for_contract(&current));
+        Self { current, stores }
+    }
+
+    pub fn current_contract(&self) -> &str {
+        &self.current
+    }
+
+    pub fn store(&self, contract: &str) -> Option<&ScenarioStore> {
+        self.stores.get(contract)
+    }
+
+    /// Store of `contract`, created on first use; it becomes the current contract.
+    pub fn select(&mut self, contract: &str) -> &mut ScenarioStore {
+        self.current = contract.to_string();
+        self.stores
+            .entry(contract.to_string())
+            .or_insert_with(|| ScenarioStore::new_for_contract(contract))
+    }
+
+    /// Replaces the store of `store.contract` (session load) and makes it current.
+    pub fn replace(&mut self, store: ScenarioStore) {
+        self.current = store.contract.clone();
+        self.stores.insert(store.contract.clone(), store);
+    }
+}
+
+impl std::ops::Deref for ScenarioRegistry {
+    type Target = ScenarioStore;
+
+    fn deref(&self) -> &ScenarioStore {
+        self.stores.get(&self.current).expect("current contract always has a store")
+    }
+}
+
+impl std::ops::DerefMut for ScenarioRegistry {
+    fn deref_mut(&mut self) -> &mut ScenarioStore {
+        self.stores.get_mut(&self.current).expect("current contract always has a store")
+    }
+}
+
+/// A canvas patch tagged with the contract whose session produced it.
+#[derive(Debug, Clone)]
+pub struct SessionBroadcast {
+    pub contract: String,
+    pub patch: CanvasPatch,
+}
+
 #[derive(Serialize, Deserialize)]
 struct ScenarioStoreFile {
     version: u32,
@@ -185,8 +246,8 @@ pub struct AppState {
     pub sequence_analyses: HashMap<String, SequenceAnalysis>,
     pub classifications: HashMap<String, Vec<(String, AccessLevel)>>,
     pub annotations: RwLock<Vec<Annotation>>,
-    pub scenarios: RwLock<ScenarioStore>,
-    pub session_tx: broadcast::Sender<CanvasPatch>,
+    pub scenarios: RwLock<ScenarioRegistry>,
+    pub session_tx: broadcast::Sender<SessionBroadcast>,
     pub port: u16,
     pub contract_path: PathBuf,
 }
@@ -240,10 +301,9 @@ impl AppState {
 
         let (session_tx, _) = broadcast::channel(64);
 
-        let default_contract = project.contracts.iter()
-            .find(|c| !c.name.is_empty())
+        let default_contract = project.default_contract()
             .map(|c| c.name.clone())
-            .unwrap_or_else(|| "unknown".to_string());
+            .ok_or_else(|| anyhow::anyhow!("No contracts found"))?;
 
         Ok(Self {
             project,
@@ -255,7 +315,7 @@ impl AppState {
             sequence_analyses,
             classifications,
             annotations: RwLock::new(Vec::new()),
-            scenarios: RwLock::new(ScenarioStore::new_for_contract(default_contract)),
+            scenarios: RwLock::new(ScenarioRegistry::new(default_contract)),
             session_tx,
             port,
             contract_path,

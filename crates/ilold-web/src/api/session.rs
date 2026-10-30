@@ -18,7 +18,7 @@ use ilold_core::narrative::trace::FlowTree;
 use ilold_core::narrative::types::{FunctionNarrative, SequenceNarrative};
 use ilold_core::slicing::{build_slice_result, SliceDirection, SliceResult};
 
-use crate::state::{AppState, ScenarioStore};
+use crate::state::{AppState, ScenarioStore, SessionBroadcast};
 
 #[derive(Deserialize)]
 pub struct CommandRequest {
@@ -53,21 +53,44 @@ fn build_analysis_data<'a>(
     })
 }
 
+/// Contract a session request targets: the explicit name when given (it must exist),
+/// otherwise the contract named by the most recent `/api/cmd` (initially the
+/// project's default contract).
 fn resolve_contract(state: &AppState, explicit: Option<&str>) -> Result<String, (StatusCode, String)> {
-    if let Some(name) = explicit {
-        return Ok(name.to_string());
+    match explicit.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => state.project.find_contract(Some(name))
+            .map(|c| c.name.clone())
+            .map_err(|e| (StatusCode::NOT_FOUND, e)),
+        None => Ok(state.scenarios.read().unwrap().current_contract().to_string()),
     }
+}
 
-    let scenarios_guard = state.scenarios.read().unwrap();
-    let session = scenarios_guard.active_session();
-    if !session.contract.is_empty() {
-        return Ok(session.contract.clone());
+/// Optional `?contract=` selector accepted by every session-scoped read.
+#[derive(Deserialize)]
+pub struct ContractQuery {
+    #[serde(default)]
+    pub contract: Option<String>,
+}
+
+/// Runs `read` on the store of the resolved contract without changing ownership;
+/// a contract with no store yet reads as a fresh empty one.
+fn read_store<R>(
+    state: &AppState,
+    explicit: Option<&str>,
+    read: impl FnOnce(&ScenarioStore) -> Result<R, (StatusCode, String)>,
+) -> Result<R, (StatusCode, String)> {
+    let contract = resolve_contract(state, explicit)?;
+    let guard = state.scenarios.read().unwrap();
+    match guard.store(&contract) {
+        Some(store) => read(store),
+        None => read(&ScenarioStore::new_for_contract(&contract)),
     }
-    drop(scenarios_guard);
+}
 
-    state.project.find_contract(None)
-        .map(|c| c.name.clone())
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+fn broadcast(state: &AppState, contract: &str, patch: Option<CanvasPatch>) {
+    if let Some(patch) = patch {
+        state.session_tx.send(SessionBroadcast { contract: contract.to_string(), patch }).ok();
+    }
 }
 
 fn timestamp_now() -> String {
@@ -204,98 +227,72 @@ pub async fn handle_command(
     let data = build_analysis_data(&state, &contract_name)?;
     let timestamp = timestamp_now();
 
-    let mut scenarios_guard = state.scenarios.write().unwrap();
-    let is_persistence = matches!(
-        req.command,
-        SessionCommand::SaveSession | SessionCommand::LoadSession { .. }
-    );
-    let needs_reset = !is_persistence
-        && scenarios_guard.active_session().contract != contract_name;
-    if needs_reset {
-        let had_steps = !scenarios_guard.active_session().steps.is_empty();
-        let active_before_reset = scenarios_guard.active().to_string();
-        *scenarios_guard = ScenarioStore::new_for_contract(&contract_name);
-        if had_steps {
-            state.session_tx.send(CanvasPatch::ClearAll {
-                scenario: active_before_reset,
-            }).ok();
-        }
-    }
-    match req.command {
-        SessionCommand::Scenario { sub } => {
-            let active_before = scenarios_guard.active().to_string();
-            let result = execute_scenario(&mut scenarios_guard, sub, &timestamp, &contract_name);
-            if let Some(patch) = canvas_patch_from(&result, &active_before) {
-                state.session_tx.send(patch).ok();
-            }
-            Ok(Json(result))
-        }
-        SessionCommand::SaveSession => {
-            let active_before = scenarios_guard.active().to_string();
-            let result = match scenarios_guard.save_to_json() {
-                Ok(json) => CommandResult::SessionSaved { json },
-                Err(message) => CommandResult::Error { message },
-            };
-            if let Some(patch) = canvas_patch_from(&result, &active_before) {
-                state.session_tx.send(patch).ok();
-            }
-            Ok(Json(result))
-        }
-        SessionCommand::LoadSession { json } => {
-            let result = match ScenarioStore::load_from_json(&json) {
-                Ok(loaded) => {
-                    let contract = loaded.contract.clone();
-                    let step_names: Vec<String> = loaded
-                        .active_session()
-                        .steps
-                        .iter()
-                        .map(|s| s.function.clone())
-                        .collect();
-                    *scenarios_guard = loaded;
-                    CommandResult::SessionLoaded { contract, steps: step_names }
+    let mut registry = state.scenarios.write().unwrap();
+    if let SessionCommand::LoadSession { json } = req.command {
+        let result = match ScenarioStore::load_from_json(&json) {
+            Ok(loaded) if state.project.find_contract(Some(&loaded.contract)).is_err() => {
+                CommandResult::Error {
+                    message: format!("Saved session targets unknown contract '{}'", loaded.contract),
                 }
-                Err(message) => CommandResult::Error { message },
-            };
-            let active_after = scenarios_guard.active().to_string();
-            if let Some(patch) = canvas_patch_from(&result, &active_after) {
-                state.session_tx.send(patch).ok();
             }
-            Ok(Json(result))
-        }
-        other => {
-            let active_name = scenarios_guard.active().to_string();
-            let session = scenarios_guard.active_session_mut();
-            let result = execute_command(other, session, &data, &timestamp);
-            if let Some(patch) = canvas_patch_from(&result, &active_name) {
-                state.session_tx.send(patch).ok();
+            Ok(loaded) => {
+                let contract = loaded.contract.clone();
+                let step_names: Vec<String> = loaded
+                    .active_session()
+                    .steps
+                    .iter()
+                    .map(|s| s.function.clone())
+                    .collect();
+                registry.replace(loaded);
+                CommandResult::SessionLoaded { contract, steps: step_names }
             }
-            Ok(Json(result))
-        }
+            Err(message) => CommandResult::Error { message },
+        };
+        let active_after = registry.active().to_string();
+        let loaded_contract = registry.current_contract().to_string();
+        broadcast(&state, &loaded_contract, canvas_patch_from(&result, &active_after));
+        return Ok(Json(result));
     }
+
+    let store = registry.select(&contract_name);
+    let active_before = store.active().to_string();
+    let result = match req.command {
+        SessionCommand::Scenario { sub } => {
+            execute_scenario(store, sub, &timestamp, &contract_name)
+        }
+        SessionCommand::SaveSession => match store.save_to_json() {
+            Ok(json) => CommandResult::SessionSaved { json },
+            Err(message) => CommandResult::Error { message },
+        },
+        other => execute_command(other, store.active_session_mut(), &data, &timestamp),
+    };
+    broadcast(&state, &contract_name, canvas_patch_from(&result, &active_before));
+    Ok(Json(result))
 }
 
 pub async fn get_step_detail(
     State(state): State<Arc<AppState>>,
     Path(step_index): Path<usize>,
+    Query(query): Query<ContractQuery>,
 ) -> Result<Json<FunctionNarrative>, (StatusCode, String)> {
-    let scenarios_guard = state.scenarios.read().unwrap();
-    let session = scenarios_guard.active_session();
-
-    let data = build_analysis_data(&state, &session.contract)?;
-
-    let narrative = get_step_narrative(session, step_index, &data)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-
-    Ok(Json(narrative))
+    read_store(&state, query.contract.as_deref(), |store| {
+        let session = store.active_session();
+        let data = build_analysis_data(&state, &store.contract)?;
+        get_step_narrative(session, step_index, &data)
+            .map(Json)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))
+    })
 }
 
 pub async fn get_session_step_trace(
     State(state): State<Arc<AppState>>,
     Path(step_index): Path<usize>,
+    Query(query): Query<ContractQuery>,
 ) -> Result<Json<FlowTree>, (StatusCode, String)> {
-    let scenarios_guard = state.scenarios.read().unwrap();
-    let session = scenarios_guard.active_session();
+    read_store(&state, query.contract.as_deref(), |store| step_trace(store.active_session(), step_index))
+}
 
+fn step_trace(session: &ExplorationSession, step_index: usize) -> Result<Json<FlowTree>, (StatusCode, String)> {
     let step = session.steps.get(step_index)
         .ok_or((StatusCode::NOT_FOUND, format!("step {} not found", step_index)))?;
 
@@ -315,35 +312,32 @@ pub async fn get_session_step_trace(
 pub async fn get_variable_timeline_handler(
     State(state): State<Arc<AppState>>,
     Path(variable): Path<String>,
+    Query(query): Query<ContractQuery>,
 ) -> Result<Json<VariableTimeline>, (StatusCode, String)> {
-    let scenarios_guard = state.scenarios.read().unwrap();
-    let session = scenarios_guard.active_session();
-
-    let timeline = build_variable_timeline(session, &variable);
-    Ok(Json(timeline))
+    read_store(&state, query.contract.as_deref(), |store| {
+        Ok(Json(build_variable_timeline(store.active_session(), &variable)))
+    })
 }
 
 pub async fn get_state_detail(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<ContractQuery>,
 ) -> Result<Json<Vec<VariableSummary>>, (StatusCode, String)> {
-    let scenarios_guard = state.scenarios.read().unwrap();
-    let session = scenarios_guard.active_session();
-
-    Ok(Json(get_session_state(session)))
+    read_store(&state, query.contract.as_deref(), |store| {
+        Ok(Json(get_session_state(store.active_session())))
+    })
 }
 
 pub async fn get_sequence_detail(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<ContractQuery>,
 ) -> Result<Json<SequenceNarrative>, (StatusCode, String)> {
-    let scenarios_guard = state.scenarios.read().unwrap();
-    let session = scenarios_guard.active_session();
-
-    let data = build_analysis_data(&state, &session.contract)?;
-
-    let narrative = get_sequence_narrative(session, &data)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-
-    Ok(Json(narrative))
+    read_store(&state, query.contract.as_deref(), |store| {
+        let data = build_analysis_data(&state, &store.contract)?;
+        get_sequence_narrative(store.active_session(), &data)
+            .map(Json)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))
+    })
 }
 
 pub async fn get_function_detail(
@@ -390,6 +384,8 @@ pub async fn get_flow_trace(
 pub struct SliceQuery {
     #[serde(default)]
     pub direction: Option<String>,
+    #[serde(default)]
+    pub contract: Option<String>,
 }
 
 pub async fn get_function_slice(
@@ -397,10 +393,7 @@ pub async fn get_function_slice(
     Path((func_name, variable)): Path<(String, String)>,
     Query(params): Query<SliceQuery>,
 ) -> Result<Json<SliceResult>, (StatusCode, String)> {
-    let contract_name = {
-        let guard = state.scenarios.read().unwrap();
-        guard.active_session().contract.clone()
-    };
+    let contract_name = resolve_contract(&state, params.contract.as_deref())?;
 
     let contract = state.project.contracts.iter()
         .find(|c| c.name == contract_name)
@@ -459,59 +452,66 @@ pub struct ScenarioSnapshot {
 
 #[derive(Serialize)]
 pub struct AllScenariosResponse {
+    pub contract: String,
     pub active: String,
     pub scenarios: Vec<ScenarioSnapshot>,
 }
 
 pub async fn get_scenarios(
     State(state): State<Arc<AppState>>,
-) -> Json<Vec<ScenarioInfo>> {
-    let guard = state.scenarios.read().unwrap();
-    let active = guard.active().to_string();
-    let items = guard
-        .names()
-        .iter()
-        .map(|name| ScenarioInfo {
-            name: name.clone(),
-            active: name == &active,
-            step_count: guard.get(name).map(|s| s.steps.len()).unwrap_or(0),
-        })
-        .collect();
-    Json(items)
+    Query(query): Query<ContractQuery>,
+) -> Result<Json<Vec<ScenarioInfo>>, (StatusCode, String)> {
+    read_store(&state, query.contract.as_deref(), |store| {
+        let active = store.active();
+        Ok(Json(store
+            .names()
+            .iter()
+            .map(|name| ScenarioInfo {
+                name: name.clone(),
+                active: name == active,
+                step_count: store.get(name).map(|s| s.steps.len()).unwrap_or(0),
+            })
+            .collect()))
+    })
 }
 
 pub async fn get_all_scenarios(
     State(state): State<Arc<AppState>>,
-) -> Json<AllScenariosResponse> {
-    let guard = state.scenarios.read().unwrap();
-    let active = guard.active().to_string();
-    let mut scenarios: Vec<ScenarioSnapshot> = Vec::with_capacity(guard.len());
-    for name in guard.names() {
-        let Some(session) = guard.get(name) else { continue };
-        let classifs = state.classifications.get(&session.contract);
-        let steps = session
-            .steps
-            .iter()
-            .enumerate()
-            .map(|(idx, step)| {
-                let access = classifs
-                    .and_then(|c| c.iter().find(|(n, _)| n == &step.function))
-                    .map(|(_, a)| a.clone())
-                    .unwrap_or(AccessLevel::Internal);
-                SessionStepView {
-                    function: step.function.clone(),
-                    access,
-                    step_index: idx,
-                }
-            })
-            .collect();
-        scenarios.push(ScenarioSnapshot {
-            name: name.clone(),
-            steps,
-            forked_from: session.forked_from.clone(),
-        });
-    }
-    Json(AllScenariosResponse { active, scenarios })
+    Query(query): Query<ContractQuery>,
+) -> Result<Json<AllScenariosResponse>, (StatusCode, String)> {
+    read_store(&state, query.contract.as_deref(), |store| {
+        let classifs = state.classifications.get(&store.contract);
+        let mut scenarios: Vec<ScenarioSnapshot> = Vec::with_capacity(store.len());
+        for name in store.names() {
+            let Some(session) = store.get(name) else { continue };
+            let steps = session
+                .steps
+                .iter()
+                .enumerate()
+                .map(|(idx, step)| {
+                    let access = classifs
+                        .and_then(|c| c.iter().find(|(n, _)| n == &step.function))
+                        .map(|(_, a)| a.clone())
+                        .unwrap_or(AccessLevel::Internal);
+                    SessionStepView {
+                        function: step.function.clone(),
+                        access,
+                        step_index: idx,
+                    }
+                })
+                .collect();
+            scenarios.push(ScenarioSnapshot {
+                name: name.clone(),
+                steps,
+                forked_from: session.forked_from.clone(),
+            });
+        }
+        Ok(Json(AllScenariosResponse {
+            contract: store.contract.clone(),
+            active: store.active().to_string(),
+            scenarios,
+        }))
+    })
 }
 
 fn parse_expand_set(raw: Option<&str>) -> Result<std::collections::HashSet<usize>, String> {

@@ -3,20 +3,44 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use crate::state::AppState;
 
+#[derive(Deserialize)]
+pub struct PtyQuery {
+    /// Contract the attached REPL starts on (the page the terminal belongs to).
+    #[serde(default)]
+    pub contract: Option<String>,
+}
+
 pub async fn ws_pty_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<PtyQuery>,
 ) -> impl IntoResponse {
     let port = state.port;
     let contract_path = state.contract_path.clone();
-    ws.on_upgrade(move |socket| handle_pty_session(socket, port, contract_path))
+    // Only names of analyzed contracts reach the child's argv.
+    let contract = match query.contract.as_deref().filter(|name| !name.is_empty()) {
+        Some(name) => match state.project.find_contract(Some(name)) {
+            Ok(c) => Ok(Some(c.name.clone())),
+            Err(e) => Err(e),
+        },
+        None => Ok(None),
+    };
+    ws.on_upgrade(move |mut socket| async move {
+        match contract {
+            Ok(contract) => handle_pty_session(socket, port, contract_path, contract).await,
+            Err(e) => {
+                let _ = socket.send(Message::Text(format!("PTY error: {e}\r\n").into())).await;
+            }
+        }
+    })
 }
 
 /// PATH positional for `ilold explore --attach`; clap rejects an empty value.
@@ -28,7 +52,12 @@ pub fn attach_path(contract_path: &Path) -> PathBuf {
     }
 }
 
-async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: PathBuf) {
+async fn handle_pty_session(
+    mut socket: WebSocket,
+    port: u16,
+    contract_path: PathBuf,
+    contract: Option<String>,
+) {
     let pty_system = NativePtySystem::default();
     let pair = match pty_system.openpty(PtySize {
         rows: 24,
@@ -61,6 +90,10 @@ async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: Pat
     cmd.arg("explore");
     cmd.arg("--attach");
     cmd.arg(format!("http://localhost:{port}"));
+    if let Some(contract) = &contract {
+        cmd.arg("--contract");
+        cmd.arg(contract);
+    }
     let attach_path = attach_path(&contract_path);
     cmd.arg(attach_path.as_os_str());
     let cwd = if attach_path.is_dir() { Some(attach_path.as_path()) } else { attach_path.parent() };

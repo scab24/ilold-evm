@@ -55,8 +55,13 @@ enum Commands {
         port: u16,
         #[arg(long, default_value = "3")]
         max_seq_depth: usize,
+        /// Attach to an existing ilold server URL instead of starting one
         #[arg(long)]
         attach: Option<String>,
+        /// Contract to start on; must exist in the project. Defaults to the most
+        /// derived deployable contract (ties broken by name)
+        #[arg(long)]
+        contract: Option<String>,
     },
     EvmMcp {
         #[arg(long, default_value = "http://127.0.0.1:8080")]
@@ -83,12 +88,12 @@ async fn main() -> Result<()> {
             let root = foundry_root(&path)?;
             ilold_web::serve(vec![root], port, max_seq_depth).await
         }
-        Commands::Explore { path, port, max_seq_depth, attach } => {
+        Commands::Explore { path, port, max_seq_depth, attach, contract } => {
             if attach.is_some() {
-                explore::run(Vec::new(), port, max_seq_depth, attach).await
+                explore::run(Vec::new(), port, max_seq_depth, attach, contract).await
             } else {
                 let root = foundry_root(&path)?;
-                explore::run(vec![root], port, max_seq_depth, attach).await
+                explore::run(vec![root], port, max_seq_depth, attach, contract).await
             }
         }
         Commands::EvmMcp { server_url } => {

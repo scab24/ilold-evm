@@ -15,7 +15,13 @@ use ilold_core::exploration::commands::CommandResult;
 use crate::colors::*;
 use crate::fmt;
 
-pub async fn run(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize, attach: Option<String>) -> Result<()> {
+pub async fn run(
+    paths: Vec<PathBuf>,
+    port: u16,
+    max_seq_depth: usize,
+    attach: Option<String>,
+    contract: Option<String>,
+) -> Result<()> {
     if let Some(url) = attach {
         let client = reqwest::Client::new();
         let resp = client.get(format!("{url}/api/project"))
@@ -27,12 +33,7 @@ pub async fn run(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize, attach: O
         let project_info: serde_json::Value = resp.json().await?;
 
         let contracts_arr = project_info["contracts"].as_array();
-        let contract_name = contracts_arr
-            .and_then(|arr| arr.iter().rev().find(|c| c["kind"].as_str() == Some("Contract")))
-            .or_else(|| contracts_arr.and_then(|arr| arr.last()))
-            .and_then(|c| c["name"].as_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let contract_name = start_contract(&project_info, contract.as_deref())?;
 
         let mut functions_by_contract = HashMap::<String, Vec<String>>::new();
         let contract_names_raw: Vec<String> = contracts_arr
@@ -74,9 +75,14 @@ pub async fn run(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize, attach: O
     println!("Analyzing {} file(s)...", paths.len());
     let (state, actual_port, server) = ilold_web::start_server_with_handle(paths, port, max_seq_depth).await?;
 
-    let contract_name = state.project.find_contract(None)
-        .map(|c| c.name.clone())
-        .unwrap_or_else(|_| "unknown".into());
+    let contract_name = match contract.as_deref() {
+        Some(name) => state.project.find_contract(Some(name))
+            .map(|c| c.name.clone())
+            .map_err(|e| anyhow::anyhow!(e))?,
+        None => state.project.default_contract()
+            .map(|c| c.name.clone())
+            .ok_or_else(|| anyhow::anyhow!("No contracts found"))?,
+    };
 
     let function_names: Vec<String> = state.project.contracts.iter()
         .find(|c| c.name == contract_name)
@@ -137,6 +143,33 @@ pub async fn run(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize, attach: O
     Ok(())
 }
 
+/// Contract the REPL starts on: `--contract` when it names a project contract,
+/// otherwise the shared default rule applied to the server's `/api/project`.
+fn start_contract(project_info: &serde_json::Value, explicit: Option<&str>) -> Result<String> {
+    use ilold_core::model::contract::ContractKind;
+
+    let contracts: Vec<(String, ContractKind, Vec<String>)> = project_info["contracts"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|c| Some((
+            c["name"].as_str()?.to_string(),
+            serde_json::from_value(c["kind"].clone()).ok()?,
+            serde_json::from_value(c["inherits"].clone()).unwrap_or_default(),
+        ))).collect())
+        .unwrap_or_default();
+    if let Some(name) = explicit {
+        if contracts.iter().any(|(n, _, _)| n == name) {
+            return Ok(name.to_string());
+        }
+        let names: Vec<&str> = contracts.iter().map(|(n, _, _)| n.as_str()).filter(|n| !n.is_empty()).collect();
+        anyhow::bail!("Contract '{name}' not found. Available: {}", names.join(", "));
+    }
+    ilold_core::model::project::pick_default_contract(
+        contracts.iter().map(|(n, k, i)| (n.as_str(), *k, i.as_slice())),
+    )
+    .map(str::to_string)
+    .ok_or_else(|| anyhow::anyhow!("No contracts found"))
+}
+
 fn open_browser(url: &str) -> Result<()> {
     let status = if cfg!(target_os = "macos") {
         std::process::Command::new("open").arg(url).status()?
@@ -193,21 +226,14 @@ fn repl_loop(
         scenario: scenario_name.clone(),
     };
 
-    if state.is_none() {
-        if let Some(server_steps) = sync_steps(&handle, &client, &base_url, &contract) {
-            steps = server_steps;
-            prompt.steps = steps.clone();
-        }
-    }
-
     loop {
-        if state.is_none() {
-            if let Some(server_steps) = sync_steps(&handle, &client, &base_url, &contract) {
-                if server_steps != steps {
-                    steps = server_steps;
-                    prompt.steps = steps.clone();
-                }
-            }
+        // The browser and other clients share the server session: refresh before
+        // every prompt in local and attached mode alike.
+        if let Some((active, server_steps)) = sync_session(&handle, &client, &base_url, &contract) {
+            steps = server_steps;
+            scenario_name = active;
+            prompt.steps = steps.clone();
+            prompt.scenario = scenario_name.clone();
         }
 
         match editor.read_line(&prompt) {
@@ -467,7 +493,7 @@ fn handle_input(
                         }
                         println!("  {} Now using: {}", c_ok("✓"), c_accent(&name));
                         if !steps.is_empty() {
-                            println!("  {}", c_muted(&format!("Cleared {} step(s) from previous contract", steps.len())));
+                            println!("  {}", c_muted(&format!("{contract} keeps its {} step(s); `use {contract}` returns to them", steps.len())));
                         }
                         InputResult::SwitchContract(name)
                     }
@@ -484,7 +510,7 @@ fn handle_input(
                 }
                 println!("  {} Now using: {}", c_ok("✓"), c_accent(&name));
                 if !steps.is_empty() {
-                    println!("  {}", c_muted(&format!("Cleared {} step(s) from previous contract", steps.len())));
+                    println!("  {}", c_muted(&format!("{contract} keeps its {} step(s); `use {contract}` returns to them", steps.len())));
                 }
                 InputResult::SwitchContract(name)
             }
@@ -726,7 +752,7 @@ fn handle_input(
                     url
                 }
                 TraceTarget::SessionStep(idx) => {
-                    format!("{base_url}/api/session/step/{idx}/trace")
+                    format!("{base_url}/api/session/step/{idx}/trace?contract={contract}")
                 }
             };
             match send_get(handle, client, &url) {
@@ -747,7 +773,7 @@ fn handle_input(
             InputResult::Continue
         }
         "seq" | "sequence" => {
-            match send_get(handle, client, &format!("{base_url}/api/session/sequence")) {
+            match send_get(handle, client, &format!("{base_url}/api/session/sequence?contract={contract}")) {
                 Ok(val) => print_sequence_narrative(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -758,7 +784,7 @@ fn handle_input(
                 println!("  Usage: timeline <variable>");
                 return InputResult::Continue;
             }
-            match send_get(handle, client, &format!("{base_url}/api/session/timeline/{arg}")) {
+            match send_get(handle, client, &format!("{base_url}/api/session/timeline/{arg}?contract={contract}")) {
                 Ok(val) => match serde_json::from_value::<ilold_core::exploration::timeline::VariableTimeline>(val) {
                     Ok(tl) => print!("{}", fmt::render_variable_timeline(&tl)),
                     Err(e) => eprintln!("  {} Parse VariableTimeline: {}", c_danger("✗"), e),
@@ -785,9 +811,9 @@ fn handle_input(
             }
             let func_name = positionals[0];
             let var_name = positionals[1];
-            let mut url = format!("{base_url}/api/session/slice/{func_name}/{var_name}");
+            let mut url = format!("{base_url}/api/session/slice/{func_name}/{var_name}?contract={contract}");
             if let Some(d) = direction {
-                url.push_str(&format!("?direction={d}"));
+                url.push_str(&format!("&direction={d}"));
             }
             match send_get(handle, client, &url) {
                 Ok(val) => match serde_json::from_value::<ilold_core::slicing::SliceResult>(val) {
@@ -803,7 +829,7 @@ fn handle_input(
                 println!("  Usage: step <index>");
                 return InputResult::Continue;
             }
-            match send_get(handle, client, &format!("{base_url}/api/session/step/{arg}/narrative")) {
+            match send_get(handle, client, &format!("{base_url}/api/session/step/{arg}/narrative?contract={contract}")) {
                 Ok(val) => print_narrative(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -889,20 +915,24 @@ fn handle_input(
     }
 }
 
-fn sync_steps(
+/// Active scenario and its steps for `contract`, read without changing which
+/// contract the server considers current.
+fn sync_session(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
     base_url: &str,
     contract: &str,
-) -> Option<Vec<String>> {
-    let body = serde_json::json!({
-        "contract": contract,
-        "command": "Session"
-    });
-    match send_command(handle, client, base_url, &body) {
-        Ok(CommandResult::SessionView { steps, .. }) => Some(steps),
-        _ => None,
-    }
+) -> Option<(String, Vec<String>)> {
+    let all = send_get(handle, client, &format!("{base_url}/api/scenarios/all?contract={contract}")).ok()?;
+    let active = all["active"].as_str()?.to_string();
+    let steps = all["scenarios"].as_array()?
+        .iter()
+        .find(|s| s["name"].as_str() == Some(active.as_str()))?["steps"]
+        .as_array()?
+        .iter()
+        .filter_map(|s| s["function"].as_str().map(String::from))
+        .collect();
+    Some((active, steps))
 }
 
 fn send_command(
@@ -912,12 +942,23 @@ fn send_command(
     body: &serde_json::Value,
 ) -> Result<CommandResult, String> {
     handle.block_on(async {
-        client.post(format!("{base_url}/api/cmd"))
+        let resp = client.post(format!("{base_url}/api/cmd"))
             .json(body)
             .send()
             .await
-            .map_err(|e| format!("Request failed: {e}"))?
-            .json::<CommandResult>()
+            .map_err(|e| format!("Request failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(if body.is_empty() {
+                format!("Server error: {status}")
+            } else {
+                body
+            });
+        }
+
+        resp.json::<CommandResult>()
             .await
             .map_err(|e| format!("Parse failed: {e}"))
     })
@@ -1936,5 +1977,66 @@ impl Completer for IloldCompleter {
                 match_indices: None,
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cross() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/cross")
+    }
+
+    fn server() -> (tokio::runtime::Runtime, std::sync::Arc<ilold_web::state::AppState>, String) {
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let (state, port) = rt.block_on(ilold_web::start_server(vec![cross()], 0, 2)).unwrap();
+        (rt, state, format!("http://127.0.0.1:{port}"))
+    }
+
+    #[test]
+    fn send_command_surfaces_server_error_text() {
+        let (rt, _state, url) = server();
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({ "contract": "Nope", "command": "Session" });
+        let err = send_command(rt.handle(), &client, &url, &body).unwrap_err();
+        assert_eq!(err, "Contract 'Nope' not found");
+    }
+
+    #[test]
+    fn start_contract_matches_server_default_and_validates_explicit_names() {
+        let (rt, state, url) = server();
+        let client = reqwest::Client::new();
+        let info = send_get(rt.handle(), &client, &format!("{url}/api/project")).unwrap();
+
+        let attached = start_contract(&info, None).unwrap();
+        let local = state.project.default_contract().unwrap().name.clone();
+        assert_eq!(attached, local);
+        assert_eq!(attached, state.scenarios.read().unwrap().current_contract());
+        assert_ne!(attached, "unknown");
+
+        assert_eq!(start_contract(&info, Some("Vault")).unwrap(), "Vault");
+        let err = start_contract(&info, Some("Nope")).unwrap_err().to_string();
+        assert!(err.contains("Contract 'Nope' not found") && err.contains("Vault"), "{err}");
+    }
+
+    #[test]
+    fn sync_session_reflects_changes_made_by_other_clients() {
+        let (rt, state, url) = server();
+        let client = reqwest::Client::new();
+        assert_eq!(sync_session(rt.handle(), &client, &url, "Vault"), Some(("main".into(), vec![])));
+
+        // Another client (the browser) adds a step and moves to another contract.
+        let call = serde_json::json!({ "contract": "Vault", "command": { "Call": { "func": "depositVia" } } });
+        send_command(rt.handle(), &client, &url, &call).unwrap();
+        let other = serde_json::json!({ "contract": "LendingPool", "command": "Session" });
+        send_command(rt.handle(), &client, &url, &other).unwrap();
+
+        assert_eq!(
+            sync_session(rt.handle(), &client, &url, "Vault"),
+            Some(("main".into(), vec!["depositVia".to_string()])),
+        );
+        // Syncing is a read: it does not take the session over from the browser.
+        assert_eq!(state.scenarios.read().unwrap().current_contract(), "LendingPool");
     }
 }
