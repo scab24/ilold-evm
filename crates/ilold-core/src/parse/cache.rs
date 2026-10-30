@@ -1,5 +1,5 @@
 //! Conservative, content-addressed parsed-project snapshot. Never stores compiler artifacts.
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -18,8 +18,14 @@ use crate::model::project::{Project, SourceFile};
 const VERSION: &str = "ilold-project-v2-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
-const MAX_FILES: usize = 4096;
-const MAX_INPUT: u64 = 64 * 1024 * 1024;
+const MAX_SOURCES: usize = 20_000;
+const MAX_ENTRIES: usize = 1_000_000;
+const MAX_DECLARATIONS: usize = 262_144;
+const MAX_INPUT: u64 = 256 * 1024 * 1024;
+/// Never compiled by Foundry unless imported; pruned only inside library and remapping trees,
+/// where the import preflight bypasses the cache if an import lands in a pruned directory.
+const NON_SOURCE_DIRS: &[&str] = &[".git", ".codegraph", "node_modules", "target", "out", "cache",
+    "broadcast", "artifacts", "zkout", "coverage"];
 const MAX_COMPILER: u64 = 128 * 1024 * 1024;
 const MAX_SNAPSHOT: u64 = 64 * 1024 * 1024;
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
@@ -51,27 +57,37 @@ fn hash_file(path: &Path, max: u64) -> Result<String, String> {
     Ok(digest(&bytes))
 }
 
-fn walk(path: &Path, files: &mut BTreeSet<PathBuf>, visited: &mut usize) -> Result<(), String> {
-    *visited += 1;
-    if *visited > MAX_FILES { return Err("file count limit".into()); }
-    let meta = match fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e.to_string()),
-    };
-    if meta.file_type().is_symlink() { return Err("symlinked source tree".into()); }
-    if meta.is_dir() {
-        for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            if matches!(entry.file_name().to_str(), Some(".git" | ".codegraph" | "target" | "out" | "cache")) {
-                continue;
+/// Bounded enumeration: Solidity sources and their bytes are limited, other entries only
+/// bound the walk itself. Directories reached from several roots are walked once.
+struct Walk { files: BTreeSet<PathBuf>, dirs: HashSet<PathBuf>, entries: usize, bytes: u64 }
+
+impl Walk {
+    fn walk(&mut self, path: &Path, prune: bool) -> Result<(), String> {
+        self.entries += 1;
+        if self.entries > MAX_ENTRIES { return Err("directory entry limit".into()); }
+        let meta = match fs::symlink_metadata(path) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.to_string()),
+        };
+        if meta.file_type().is_symlink() { return Err("symlinked source tree".into()); }
+        if meta.is_dir() {
+            if !self.dirs.insert(path.to_path_buf()) { return Ok(()); }
+            for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                if prune && entry.file_name().to_str().is_some_and(|name| NON_SOURCE_DIRS.contains(&name)) {
+                    continue;
+                }
+                self.walk(&entry.path(), prune)?;
             }
-            walk(&entry.path(), files, visited)?;
+        } else if meta.is_file() && path.extension().is_some_and(|ext| ext == "sol")
+            && self.files.insert(path.to_path_buf()) {
+            if self.files.len() > MAX_SOURCES { return Err("source file count limit".into()); }
+            self.bytes = self.bytes.checked_add(meta.len()).ok_or("input size overflow")?;
+            if self.bytes > MAX_INPUT { return Err("input size limit".into()); }
         }
-    } else if meta.is_file() && path.extension().is_some_and(|ext| ext == "sol") {
-        files.insert(path.to_path_buf());
+        Ok(())
     }
-    Ok(())
 }
 
 /// Full roots, library and remapping trees are included, not just prior compiled files.
@@ -88,15 +104,16 @@ pub(super) fn fingerprint(
     }
     let compiler_path = solc.solc.canonicalize().map_err(|e| e.to_string())?;
     let compiler = hash_file(&compiler_path, MAX_COMPILER)?;
-    let mut files = BTreeSet::new();
-    let mut visited = 0;
-    for dir in [&paths.sources, &paths.tests, &paths.scripts].into_iter()
-        .map(PathBuf::as_path)
-        .chain(paths.libraries.iter().map(PathBuf::as_path))
-        .chain(paths.remappings.iter().map(|r| Path::new(&r.path))) {
-        walk(dir, &mut files, &mut visited)?;
+    let mut walk = Walk { files: BTreeSet::new(), dirs: HashSet::new(), entries: 0, bytes: 0 };
+    // Foundry compiles every source under these roots, so nothing is pruned there.
+    for dir in [&paths.sources, &paths.tests, &paths.scripts] {
+        walk.walk(dir, false)?;
     }
-    if files.len() > MAX_FILES { return Err("file count limit".into()); }
+    for dir in paths.libraries.iter().map(PathBuf::as_path)
+        .chain(paths.remappings.iter().map(|r| Path::new(&r.path))) {
+        walk.walk(dir, true)?;
+    }
+    let files = walk.files;
     // Parse only already-bounded bytes. Foundry's graph resolver reads dependencies
     // before returning its graph, so it cannot enforce a pre-read byte budget here.
     // The same Foundry path resolver checks import targets without opening source data.
@@ -109,13 +126,23 @@ pub(super) fn fingerprint(
         let content = read_bounded(file, MAX_INPUT - (total - len))?;
         sources.push((file.clone(), content));
     }
-    for (file, content) in &sources {
+    // Follow the import closure of what Foundry compiles: every file under the source roots
+    // plus their transitive imports. Unreachable library files are hashed but never parsed.
+    let index = sources.iter().enumerate().map(|(i, (file, _))| (file.as_path(), i))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut pending = sources.iter().enumerate()
+        .filter(|(_, (file, _))| [&paths.sources, &paths.tests, &paths.scripts].iter().any(|dir| file.starts_with(dir)))
+        .map(|(i, _)| i).collect::<Vec<_>>();
+    let mut reached = pending.iter().copied().collect::<HashSet<_>>();
+    while let Some(i) = pending.pop() {
+        let (file, content) = &sources[i];
         let parsed = SolData::parse(content, file);
         parsed.parse_result().map_err(|_| "unprovable import parse".to_string())?;
         for import in parsed.imports {
             let target = paths.resolve_import(file.parent().ok_or("missing import parent")?, import.data.path())
                 .map_err(|_| "unprovable import resolution".to_string())?;
-            if !files.contains(&target) { return Err("import outside enumerated roots".into()); }
+            let Some(&next) = index.get(target.as_path()) else { return Err("import outside enumerated roots".into()) };
+            if reached.insert(next) { pending.push(next); }
         }
     }
     let mut material = serde_json::to_vec(&(VERSION, &root, profile, settings, &paths.root,
@@ -214,7 +241,7 @@ impl Store {
     }
 
     pub(super) fn publish(&self, root: &Path, key: &str, project: &Project) -> Result<(), String> {
-        if project.decl_table.len() > MAX_FILES * 8 { return Err("declaration count limit".into()); }
+        if project.decl_table.len() > MAX_DECLARATIONS { return Err("declaration count limit".into()); }
         let snapshot = SnapshotRef { sources: &project.source_files, contracts: &project.contracts,
             declarations: project.decl_table.snapshot() };
         write_envelope(&self.snapshot_path(root)?, VERSION, key, MAX_SNAPSHOT, &snapshot)
@@ -261,7 +288,11 @@ pub(crate) fn write_envelope(path: &Path, version: &str, key: &str, max: u64,
         file.write_all(&[0u8; HEADER]).map_err(|e| e.to_string())?;
         let (len, checksum) = {
             let mut writer = BoundedWriter { file: &mut file, count: 0, max, hash: Sha256::new() };
-            serde_json::to_writer(&mut writer, payload).map_err(|e| e.to_string())?;
+            // Buffer serde's small writes; one syscall per token dominates large snapshots.
+            let mut buffered = std::io::BufWriter::with_capacity(1 << 16, &mut writer);
+            serde_json::to_writer(&mut buffered, payload).map_err(|e| e.to_string())?;
+            buffered.flush().map_err(|e| e.to_string())?;
+            drop(buffered);
             (writer.count, writer.hash.finalize())
         };
         let mut header = [0u8; HEADER];
@@ -281,24 +312,26 @@ pub(crate) fn write_envelope(path: &Path, version: &str, key: &str, max: u64,
 }
 
 /// The compile closure is never called on a validated hit. Errors are returned unchanged.
+/// `target` is the store, canonical root and key, or the single reason the cache is bypassed.
 /// The flag reports whether the returned project is known to match `key`.
 pub(super) fn reuse_or_compile<E>(
-    store: Option<&Store>, root: Option<&Path>, key: Option<&str>,
+    target: Result<(&Store, &Path, &str), String>,
     mut unchanged: impl FnMut() -> bool, compile: impl FnOnce() -> Result<Project, E>,
 ) -> Result<(Project, bool), E> {
-    if let (Some(store), Some(root), Some(key)) = (store, root, key) {
-        match store.load(root, key) {
+    match &target {
+        Ok((store, root, key)) => match store.load(root, key) {
             Ok(project) if unchanged() => {
                 eprintln!("ilold project cache hit");
                 return Ok((project, true));
             }
             Ok(_) => eprintln!("ilold project cache miss: inputs changed during lookup"),
             Err(reason) => eprintln!("ilold project cache miss: {reason}"),
-        }
-    } else { eprintln!("ilold project cache bypass: compiler, input or store unavailable"); }
+        },
+        Err(reason) => eprintln!("ilold project cache bypass: {reason}"),
+    }
     let project = compile()?;
     let mut validated = false;
-    if let (Some(store), Some(root), Some(key)) = (store, root, key) {
+    if let Ok((store, root, key)) = target {
         if unchanged() {
             validated = true;
             if let Err(reason) = store.publish(root, key, &project) {
@@ -376,15 +409,15 @@ mod tests {
         let key = digest(b"compile");
         let calls = std::cell::Cell::new(0);
         let compile = || { calls.set(calls.get() + 1); Ok::<_, &'static str>(project.clone()) };
-        assert!(reuse_or_compile(Some(&store), Some(&dir), Some(&key), || true, compile).unwrap().1);
-        let (warm, validated) = reuse_or_compile(Some(&store), Some(&dir), Some(&key), || true, || {
+        assert!(reuse_or_compile(Ok((&store, &dir, &key)), || true, compile).unwrap().1);
+        let (warm, validated) = reuse_or_compile(Ok((&store, &dir, &key)), || true, || {
             calls.set(calls.get() + 1);
             Err::<Project, _>("must not compile")
         }).unwrap();
         assert!(validated);
         assert_eq!(calls.get(), 1);
-        assert!(!reuse_or_compile(None, Some(&dir), Some(&key), || true, || Ok::<_, ()>(project.clone())).unwrap().1);
-        assert!(!reuse_or_compile(Some(&store), Some(&dir), Some(&digest(b"moving")), || false,
+        assert!(!reuse_or_compile(Err("disabled".into()), || true, || Ok::<_, ()>(project.clone())).unwrap().1);
+        assert!(!reuse_or_compile(Ok((&store, &dir, &digest(b"moving"))), || false,
             || Ok::<_, ()>(project.clone())).unwrap().1);
         assert_eq!(warm.decl_table.lookup(crate::model::decl_id::DeclId(7)).unwrap().function,
             project.decl_table.lookup(crate::model::decl_id::DeclId(7)).unwrap().function);
@@ -392,9 +425,12 @@ mod tests {
         let warm_child = warm.find_contract(Some("Child")).unwrap();
         assert_eq!(warm.resolve_function(warm_child, "f").unwrap().0.name,
             project.resolve_function(cold_child, "f").unwrap().0.name);
-        let failure = reuse_or_compile(Some(&store), Some(&dir), Some(&digest(b"changed")),
+        let failure = reuse_or_compile(Ok((&store, &dir, &digest(b"changed"))),
             || true, || Err::<Project, _>("compile failed"));
         assert_eq!(failure.unwrap_err(), "compile failed");
+        let bypassed = reuse_or_compile(Err("source file count limit".into()),
+            || true, || Err::<Project, _>("compile failed"));
+        assert_eq!(bypassed.unwrap_err(), "compile failed");
     }
 
     #[test]
@@ -444,6 +480,41 @@ mod tests {
         fs::write(root.join("src/Main.sol"), "pragma solidity ^0.8.0; import 'ext/External.sol'; contract Main {}\n").unwrap();
         File::create(root.join("src/Large.sol")).unwrap().set_len(MAX_INPUT + 1).unwrap();
         assert!(fingerprint(&root, &paths, &settings, "default", &compiler).is_err());
+    }
+
+    #[test]
+    fn walk_counts_sources_and_prunes_only_library_trees() {
+        let (_, root, _) = fixture();
+        fs::create_dir_all(root.join("src/cache")).unwrap();
+        fs::create_dir_all(root.join("lib/dep/src")).unwrap();
+        fs::create_dir_all(root.join("lib/dep/node_modules/pkg")).unwrap();
+        fs::create_dir_all(root.join("lib/dep/docs")).unwrap();
+        fs::write(root.join("src/Main.sol"), "pragma solidity ^0.8.0; import 'dep/Dep.sol'; contract Main {}\n").unwrap();
+        fs::write(root.join("src/cache/Kept.sol"), "pragma solidity ^0.8.0; contract Kept {}\n").unwrap();
+        fs::write(root.join("lib/dep/src/Dep.sol"), "pragma solidity ^0.8.0; contract Dep {}\n").unwrap();
+        fs::write(root.join("lib/dep/node_modules/pkg/Pruned.sol"), "pragma solidity ^0.8.0; contract Pruned {}\n").unwrap();
+        // Library files outside the import closure are hashed, but their imports need not resolve.
+        fs::write(root.join("lib/dep/src/Unused.sol"), "pragma solidity ^0.8.0; import 'missing/X.sol';\n").unwrap();
+        // Non-Solidity entries no longer count against the source limit.
+        for i in 0..5000 { fs::write(root.join(format!("lib/dep/docs/{i}.md")), "doc").unwrap(); }
+        let compiler_path = root.join("solc-fixture");
+        fs::write(&compiler_path, b"compiler").unwrap();
+        let compiler = Solc::new_with_version(&compiler_path, "0.8.20".parse().unwrap());
+        let remapping = format!("dep/={}/", root.join("lib/dep/src").display()).parse().unwrap();
+        let paths = ProjectPathsConfig::builder().root(&root).libs([root.join("lib")])
+            .remappings(vec![remapping]).build::<SolcLanguage>().unwrap();
+        let settings = serde_json::json!({});
+        let original = fingerprint(&root, &paths, &settings, "default", &compiler).unwrap();
+        fs::write(root.join("lib/dep/node_modules/pkg/Pruned.sol"), "pragma solidity ^0.8.0; contract Pruned { uint x; }\n").unwrap();
+        assert_eq!(original, fingerprint(&root, &paths, &settings, "default", &compiler).unwrap());
+        // Foundry compiles every file under the source roots, whatever the directory name.
+        fs::write(root.join("src/cache/Kept.sol"), "pragma solidity ^0.8.0; contract Kept { uint x; }\n").unwrap();
+        assert_ne!(original, fingerprint(&root, &paths, &settings, "default", &compiler).unwrap());
+        // An import into a pruned directory is outside the enumerated closure: bypass.
+        fs::write(root.join("lib/dep/src/Dep.sol"),
+            "pragma solidity ^0.8.0; import '../node_modules/pkg/Pruned.sol'; contract Dep {}\n").unwrap();
+        assert_eq!(fingerprint(&root, &paths, &settings, "default", &compiler).unwrap_err(),
+            "import outside enumerated roots");
     }
 
     #[test]

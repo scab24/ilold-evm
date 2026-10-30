@@ -45,11 +45,16 @@ impl SolcFrontend {
         let store = cache::Store::from_env();
         let key = prepared.key();
         let canonical = prepared.canonical.clone();
-        let (project, validated) = cache::reuse_or_compile(store.as_ref().ok(), canonical.as_deref(),
-            key.as_deref(), || prepare(root).ok().and_then(|p| p.key()) == key,
+        let target = match (&store, &canonical, &key) {
+            (Ok(store), Some(canonical), Ok(key)) => Ok((store, canonical.as_path(), key.as_str())),
+            (Err(reason), _, _) | (_, _, Err(reason)) => Err(reason.clone()),
+            (_, None, _) => Err("noncanonical project root".to_string()),
+        };
+        let (project, validated) = cache::reuse_or_compile(target,
+            || prepare(root).ok().map(|p| p.key()) == Some(key.clone()),
             || self.compile_prepared(root, prepared))?;
         let key = match (validated, canonical, key) {
-            (true, Some(root), Some(key)) => Some(ProjectKey { root, key }),
+            (true, Some(root), Ok(key)) => Some(ProjectKey { root, key }),
             _ => None,
         };
         Ok((project, key))
@@ -134,11 +139,10 @@ struct Prepared {
     installed: Option<Solc>,
 }
 impl Prepared {
-    fn key(&self) -> Option<String> {
-        cache::fingerprint(self.canonical.as_ref()?, &self.paths, &self.settings,
-            &self.profile, self.installed.as_ref()?).map_err(|reason| {
-                eprintln!("ilold project cache bypass: {reason}");
-            }).ok()
+    fn key(&self) -> Result<String, String> {
+        let root = self.canonical.as_ref().ok_or("noncanonical project root")?;
+        let solc = self.installed.as_ref().ok_or("no pinned, installed solc")?;
+        cache::fingerprint(root, &self.paths, &self.settings, &self.profile, solc)
     }
 }
 fn prepare(root: &Path) -> Result<Prepared, ParseError> {
@@ -269,18 +273,19 @@ fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<
     let mut remappings = cfg.remappings.clone();
     remappings.extend(read_remappings_file(root));
     if cfg.auto_detect_remappings() {
-        let lib_paths = cfg
-            .libs
-            .as_ref()
-            .map(|libs| libs.iter().map(|lib| rooted_path(root, lib)).collect::<Vec<_>>())
-            .unwrap_or_else(|| ProjectPathsConfig::find_libs(root));
-        for detected in lib_paths
-            .iter()
-            .flat_map(|path| Remapping::find_many(path.as_path()))
-        {
-            if !remappings.iter().any(|existing| {
-                existing.name == detected.name && existing.context == detected.context
-            }) {
+        let explicit = remappings.len();
+        for detected in library_remappings(root, &lib_paths(root, cfg), &selected_profile()) {
+            // Explicit remappings win over any conflicting library remapping in their context;
+            // library remappings only displace each other within the same context.
+            let shadowed = remappings[..explicit].iter().any(|existing| {
+                names_conflict(&existing.name, &detected.name)
+                    && existing.context.as_deref().is_none_or(|context| {
+                        detected.context.as_deref().is_some_and(|c| c.starts_with(context))
+                    })
+            }) || remappings[explicit..].iter().any(|existing| {
+                names_conflict(&existing.name, &detected.name) && existing.context == detected.context
+            });
+            if !shadowed {
                 remappings.push(detected);
             }
         }
@@ -290,6 +295,122 @@ fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<
     builder.build().map_err(|e| ParseError::Internal {
         message: format!("solc paths config: {e}"),
     })
+}
+
+fn lib_paths(root: &Path, cfg: &FoundryConfig) -> Vec<PathBuf> {
+    cfg.libs
+        .as_ref()
+        .map(|libs| libs.iter().map(|lib| rooted_path(root, lib)).collect())
+        .unwrap_or_else(|| ProjectPathsConfig::find_libs(root))
+}
+
+fn names_conflict(existing: &str, new: &str) -> bool {
+    let mut existing_dir = existing.to_string();
+    if !existing_dir.ends_with('/') {
+        existing_dir.push('/');
+    }
+    new.starts_with(&existing_dir) || existing.starts_with(new)
+}
+
+/// Library remappings as Foundry derives them: auto-detected library directories plus the
+/// `remappings.txt` / `foundry.toml` remappings of nested Foundry projects, rebased to their
+/// own root. The closest path wins globally; a name that resolves to different paths in
+/// different projects is also emitted scoped to each owning project, so nested imports keep
+/// their own copy. Contexted entries come first because import resolution takes the first match.
+fn library_remappings(root: &Path, libs: &[PathBuf], profile: &str) -> Vec<Remapping> {
+    let mut owned = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_library_remappings(root, libs, profile, &mut owned, &mut seen);
+
+    let mut global = std::collections::BTreeMap::<String, String>::new();
+    let mut paths_by_name = std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+    for (_, remapping, _) in &owned {
+        let closer = global.get(&remapping.name).is_none_or(|current| {
+            Path::new(current).components().count() > Path::new(&remapping.path).components().count()
+        });
+        if closer {
+            global.insert(remapping.name.clone(), remapping.path.clone());
+        }
+    }
+    for (_, remapping, direct) in &owned {
+        if *direct {
+            paths_by_name.entry(remapping.name.clone()).or_default()
+                .insert(remapping.path.trim_end_matches('/').to_string());
+        }
+    }
+
+    let mut scoped = std::collections::BTreeMap::<(String, String), String>::new();
+    for (owner, remapping, direct) in owned {
+        let ambiguous = paths_by_name.get(&remapping.name).is_some_and(|paths| paths.len() > 1);
+        let Ok(relative) = owner.strip_prefix(root) else { continue };
+        if !direct || !ambiguous || relative.as_os_str().is_empty() {
+            continue;
+        }
+        let context = format!("{}/", relative.to_string_lossy().trim_end_matches('/'));
+        scoped.entry((context, remapping.name)).or_insert(remapping.path);
+    }
+    let mut scoped = scoped.into_iter()
+        .map(|((context, name), path)| Remapping { context: Some(context), name, path })
+        .collect::<Vec<_>>();
+    scoped.sort_by_key(|r| std::cmp::Reverse(r.context.as_ref().map_or(0, String::len)));
+    scoped.extend(global.into_iter().map(|(name, path)| Remapping { context: None, name, path }));
+    scoped
+}
+
+/// Collects `(owning project, remapping, owned directly)` for `project`'s libraries and,
+/// recursively, for every nested Foundry project found in them.
+fn collect_library_remappings(
+    project: &Path,
+    libs: &[PathBuf],
+    profile: &str,
+    owned: &mut Vec<(PathBuf, Remapping, bool)>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+) {
+    for lib in libs {
+        for detected in Remapping::find_many(lib) {
+            if ["lib/", "src/", "contracts/"].contains(&detected.name.as_str()) {
+                continue;
+            }
+            // A detected directory is owned by `project` only when it sits directly in its libs.
+            let first = detected.name.split('/').next().unwrap_or_default();
+            let direct = Path::new(&detected.path).strip_prefix(lib).ok()
+                .and_then(|rest| rest.components().next())
+                .is_some_and(|component| component.as_os_str() == first);
+            owned.push((project.to_path_buf(), detected, direct));
+        }
+        for nested in foundry_toml_dirs(lib) {
+            if nested == project || !seen.insert(nested.canonicalize().unwrap_or_else(|_| nested.clone())) {
+                continue;
+            }
+            let Ok(cfg) = read_foundry_config_with_profile(&nested, profile) else { continue };
+            let mut explicit = read_remappings_file(&nested);
+            explicit.extend(cfg.remappings.iter().cloned());
+            // Every nested project is importable by its directory name through its `src`.
+            if let Some(name) = nested.file_name().and_then(|name| name.to_str()) {
+                let src = cfg.src.as_deref().unwrap_or("src");
+                let path = format!("{}/", nested.join(src).to_string_lossy().trim_end_matches('/'));
+                owned.push((project.to_path_buf(), Remapping { context: None, name: format!("{name}/"), path }, false));
+            }
+            // Like Foundry, contexts declared inside a library are not rebased; skip them.
+            for remapping in explicit.into_iter().filter(|r| r.context.is_none()) {
+                owned.push((nested.clone(), remapping, true));
+            }
+            if cfg.auto_detect_remappings() {
+                collect_library_remappings(&nested, &lib_paths(&nested, &cfg), profile, owned, seen);
+            }
+        }
+    }
+}
+
+/// `dir` itself and its direct subdirectories that contain a `foundry.toml`.
+fn foundry_toml_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = std::fs::read_dir(dir)
+        .map(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    dirs.push(dir.to_path_buf());
+    dirs.retain(|path| path.is_dir() && path.join("foundry.toml").is_file());
+    dirs.sort();
+    dirs
 }
 
 fn solc_settings(cfg: &FoundryConfig) -> Result<Settings, ParseError> {
@@ -1394,6 +1515,49 @@ mod tests {
             .remappings
             .iter()
             .any(|r| r.name == "auto/" && r.context.is_none()));
+    }
+
+    fn relative_remappings(root: &Path) -> std::collections::BTreeSet<String> {
+        let cfg = read_foundry_config(root).expect("foundry config");
+        let prefix = format!("{}/", root.display());
+        project_paths(root, &cfg).expect("project paths").remappings.into_iter()
+            .map(|mut r| {
+                r.path = r.path.strip_prefix(&prefix).unwrap_or(&r.path).to_string();
+                r.to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn nested_library_remappings_are_rebased_and_scoped() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/nested_remappings")
+            .canonicalize().unwrap();
+        let remappings = relative_remappings(&root);
+        for expected in [
+            "@scoped/token/=lib/outer/lib/inner/contracts/",
+            "dep/=lib/outer/lib/dep/src/",
+            "lib/outer/:dep/=lib/outer/lib/dep/src/",
+            "lib/outer/lib/inner/:dep/=lib/outer/lib/inner/lib/dep/src/",
+        ] {
+            assert!(remappings.contains(expected), "missing {expected}: {remappings:?}");
+        }
+    }
+
+    /// Compares against `forge remappings` for each root in `ILOLD_FORGE_PARITY_ROOTS` (`:`-separated).
+    #[test]
+    #[ignore = "requires forge and ILOLD_FORGE_PARITY_ROOTS"]
+    fn remappings_match_forge() {
+        let roots = std::env::var("ILOLD_FORGE_PARITY_ROOTS").expect("ILOLD_FORGE_PARITY_ROOTS");
+        for root in roots.split(':').filter(|r| !r.is_empty()) {
+            let root = Path::new(root).canonicalize().unwrap();
+            let output = std::process::Command::new("forge").arg("remappings").current_dir(&root)
+                .output().expect("run forge remappings");
+            assert!(output.status.success(), "forge remappings failed in {}", root.display());
+            let forge = String::from_utf8_lossy(&output.stdout).lines()
+                .map(|line| line.trim().to_string()).filter(|line| !line.is_empty())
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(relative_remappings(&root), forge, "remapping parity for {}", root.display());
+        }
     }
 
     #[test]

@@ -77,6 +77,29 @@ fn separate_process_hit_and_input_invalidation() {
     fs::write(root.join("foundry.toml"), format!("[profile.default]\nsolc = '{version}'\nauto_detect_remappings = false\noptimizer = true\n")).unwrap();
     let (ok, config) = child(&root, &cache, "default");
     assert!(ok && config.contains("ilold project cache miss"), "{config}");
+
+    // Imports resolved through a nested library's own remappings.txt stay cacheable.
+    let outer = root.join("lib/outer");
+    for inner in ["inner", "inner2"] {
+        fs::create_dir_all(outer.join("lib").join(inner).join("src")).unwrap();
+        fs::write(outer.join("lib").join(inner).join("src/Inner.sol"),
+            format!("pragma solidity ^0.8.0; contract Inner {{ string public origin = '{inner}'; }}\n")).unwrap();
+    }
+    fs::write(outer.join("foundry.toml"), "[profile.default]\n").unwrap();
+    fs::write(outer.join("remappings.txt"), "@nested/=lib/inner/src/\n").unwrap();
+    fs::write(root.join("foundry.toml"), format!("[profile.default]\nsolc = '{version}'\noptimizer = true\n")).unwrap();
+    fs::write(root.join("src/Main.sol"), "pragma solidity ^0.8.0; import './Helper.sol'; import '@nested/Inner.sol'; contract Main is Helper {}\n").unwrap();
+    let (ok, nested) = child(&root, &cache, "default");
+    assert!(ok && nested.contains("ilold project cache miss") && !nested.contains("bypass"), "{nested}");
+    let (ok, nested_warm) = child(&root, &cache, "default");
+    assert!(ok && nested_warm.contains("ilold project cache hit"), "{nested_warm}");
+    fs::write(outer.join("lib/inner/src/Inner.sol"), "pragma solidity ^0.8.0; contract Inner { uint public changed; }\n").unwrap();
+    let (ok, nested_source) = child(&root, &cache, "default");
+    assert!(ok && nested_source.contains("ilold project cache miss"), "{nested_source}");
+    fs::write(outer.join("remappings.txt"), "@nested/=lib/inner2/src/\n").unwrap();
+    let (ok, nested_remap) = child(&root, &cache, "default");
+    assert!(ok && nested_remap.contains("ilold project cache miss"), "{nested_remap}");
+
     fs::write(root.join("src/Helper.sol"), "pragma solidity ^0.8.0; contract Helper { function broken( }\n").unwrap();
     let (ok, failure) = child(&root, &cache, "default");
     assert!(!ok && !failure.contains("ilold project cache hit"), "{failure}");
