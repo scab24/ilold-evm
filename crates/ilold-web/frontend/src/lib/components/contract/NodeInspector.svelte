@@ -9,7 +9,7 @@
     seqExpanded: Map<string, boolean>;
     mode: 'cfg' | 'sequences' | 'session';
     seqAnalysis: any;
-    contract: { name: string; functions?: any[] };
+    contract: { name: string; functions?: any[]; inherited_functions?: any[] };
     lookupBlock: (blockId: string) => { statements: string[]; node_type: string } | null;
     onpathselect: (funcName: string, path: any) => void;
     onexpandcfg: (funcName: string, nodeId?: string) => void;
@@ -38,6 +38,14 @@
     return t === 'Return' ? 'var(--color-success)' : t === 'Revert' ? 'var(--color-danger)' : 'var(--color-text-muted)';
   }
 
+  // Declared visibility from the contract detail; the call graph's is_external only
+  // says whether the node belongs to another contract.
+  function visibilityOf(node: any): string | null {
+    if (node.visibility) return node.visibility;
+    const all = [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])];
+    return all.find((f) => f.name === node.label)?.visibility ?? null;
+  }
+
   const inspectorTitle = $derived(
     selectedNode ? (selectedNode._funcName || selectedNode.label || 'Node') : '',
   );
@@ -60,7 +68,11 @@
 
     <div class="inspector-body">
       {#if selectedNode._type === 'function'}
-        <div class="d-row"><span class="d-label">Type</span><span>{selectedNode.is_external ? 'External' : 'Internal'}</span></div>
+        {@const visibility = visibilityOf(selectedNode)}
+        <div class="d-row"><span class="d-label">Visibility</span><span>{visibility ?? 'unknown'}</span></div>
+        {#if selectedNode.is_external}
+          <div class="d-row"><span class="d-label">Contract</span><span>{selectedNode.contractName ?? 'other contract'} (external call target)</span></div>
+        {/if}
         {#if !selectedNode.is_external}
           <div class="d-actions">
             <button class="d-action-btn" onclick={() => onexpandcfg(selectedNode.label, selectedNode.id)}>
@@ -115,7 +127,8 @@
                   {@const branchKind = typeof step.branch_taken === 'string' ? step.branch_taken : step.branch_taken?.kind || ''}
                   {#if kind === 'Entry'}
                     <div class="flow-step flow-entry">{pFunc}()</div>
-                  {:else if kind === 'Return'}
+                  {/if}
+                  {#if kind === 'Return'}
                     <div class="flow-step flow-return">return</div>
                   {:else if kind === 'Revert'}
                     <div class="flow-step flow-revert">revert</div>
@@ -275,7 +288,8 @@
                   {@const branchKind = typeof step.branch_taken === 'string' ? step.branch_taken : step.branch_taken?.kind || ''}
                   {#if kind === 'Entry'}
                     <div class="flow-step flow-entry">{parentFunc}()</div>
-                  {:else if kind === 'Return'}
+                  {/if}
+                  {#if kind === 'Return'}
                     <div class="flow-step flow-return" class:flow-here={isHere}>return {isHere ? '← here' : ''}</div>
                   {:else if kind === 'Revert'}
                     <div class="flow-step flow-revert" class:flow-here={isHere}>revert {isHere ? '← here' : ''}</div>

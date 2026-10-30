@@ -26,9 +26,11 @@
     onnodemouseleave?: (node: Node<GraphNodeData>) => void;
     /** Fit the viewport once, after the pane has a size and every visible node is measured. */
     initialFit?: FitViewOptions;
+    /** Lowest zoom; the initial fit never needs to clamp above it. */
+    minZoom?: number;
   }
 
-  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, initialFit }: Props = $props();
+  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, initialFit, minZoom = 0.1 }: Props = $props();
 
   const deleteKeysProp = $derived<string[] | null>(canDeleteNodes ? ['Delete', 'Backspace'] : null);
 
@@ -148,7 +150,7 @@
         flowFitView = fitView;
         onready?.({ fitView });
       }}
-      minZoom={0.1}
+      {minZoom}
       maxZoom={4}
       colorMode="dark"
       panOnDrag={panOnDragProp}

@@ -1,5 +1,5 @@
 
-import type { ScenarioInfo, AllScenariosResponse } from './types';
+import type { ScenarioInfo, AllScenariosResponse, FunctionNarrative } from './types';
 
 const BASE = '';
 
@@ -72,7 +72,7 @@ export async function getSessionSequence(contract?: string) {
   return res.json();
 }
 
-export async function getStepNarrative(index: number, contract?: string) {
+export async function getStepNarrative(index: number, contract?: string): Promise<FunctionNarrative> {
   const res = await fetch(`${BASE}/api/session/step/${index}/narrative${contractQuery(contract)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();

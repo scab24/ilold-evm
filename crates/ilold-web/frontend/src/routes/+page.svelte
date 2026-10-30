@@ -16,7 +16,7 @@
     setNodes, setEdges, getNodes, getEdges, clearGraph,
     type GraphNodeData,
   } from '$lib/stores/graph.svelte';
-  import { runDagreLayout } from '$lib/utils/graph-helpers';
+  import { runDagreLayout, packLayeredLR } from '$lib/utils/graph-helpers';
 
   const ROOT_COLOR = '#8b949e';
   const EDGE_COLOR: Record<string, string> = {
@@ -88,14 +88,12 @@
       targetHandle: 'l',
       data: { kind: e.data.kind, kinds: e.data.kinds, stroke: EDGE_COLOR[e.data.kind] ?? ROOT_COLOR },
     }));
-    const laid = runDagreLayout(nodes, edges, {
-      rankDir: 'LR',
-      nodeWidth: 170,
-      nodeHeight: 54,
-      nodeSep: 28,
-      rankSep: 110,
-    });
-    setNodes(laid);
+    const layout = { nodeWidth: 170, nodeHeight: 54, nodeSep: 28, rankSep: 110 };
+    const layered = runDagreLayout(nodes, edges, { rankDir: 'LR', ...layout });
+    // Large projects have ranks with dozens of contracts: wrap them so the whole
+    // map fits the viewport legibly instead of a strip that fit() clamps at minZoom.
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight - 80);
+    setNodes(packLayeredLR(layered, { ...layout, aspect }));
     setEdges(edges);
     applyVisual();
   }
@@ -210,6 +208,7 @@
         onnodemouseleave={offHover}
         canDeleteNodes={false}
         initialFit={{ padding: 0.15 }}
+        minZoom={0.02}
       />
 
       <div

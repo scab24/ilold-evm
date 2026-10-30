@@ -3,7 +3,7 @@
   import { getStepNarrative, postCommand } from '$lib/api/session';
   import { formatAccess } from '$lib/utils/access';
   import { notifyError } from '$lib/components/ui/notifications.svelte';
-  import type { AccessLevel } from '$lib/api/types';
+  import type { AccessLevel, FunctionNarrative, TransitiveEffect } from '$lib/api/types';
 
   interface Props {
     contract: string;
@@ -12,7 +12,8 @@
   let { contract }: Props = $props();
 
   let expandedStep = $state<number | null>(null);
-  let narrative = $state<string>('');
+  let narrative = $state<FunctionNarrative | null>(null);
+  let narrativeError = $state<string | null>(null);
   let loadingNarrative = $state(false);
   let backBusy = $state(false);
   let narrativeGen = 0;
@@ -44,23 +45,48 @@
   async function toggleNarrative(stepIndex: number) {
     if (expandedStep === stepIndex) {
       expandedStep = null;
-      narrative = '';
+      narrative = null;
+      narrativeError = null;
       return;
     }
     expandedStep = stepIndex;
-    narrative = '';
+    narrative = null;
+    narrativeError = null;
     loadingNarrative = true;
     const gen = ++narrativeGen;
     try {
       const res = await getStepNarrative(stepIndex, contract);
       if (gen !== narrativeGen) return; // stale
-      narrative = typeof res === 'string' ? res : (res.narrative ?? JSON.stringify(res, null, 2));
+      narrative = res;
     } catch (e: unknown) {
       if (gen !== narrativeGen) return;
-      narrative = `Error: ${e instanceof Error ? e.message : String(e)}`;
+      narrativeError = e instanceof Error ? e.message : String(e);
     } finally {
       if (gen === narrativeGen) loadingNarrative = false;
     }
+  }
+
+  interface NarrativeSection {
+    label: string;
+    tone: 'muted' | 'write' | 'call' | 'event';
+    items: string[];
+  }
+
+  function viaLabel(effects: TransitiveEffect[] | undefined): string[] {
+    return (effects ?? []).map((e) => `${e.item}  via ${e.via.join(' → ')}`);
+  }
+
+  // Non-empty narrative sections in reading order: what the step changes first.
+  function sections(n: FunctionNarrative): NarrativeSection[] {
+    const all: NarrativeSection[] = [
+      { label: 'Writes', tone: 'write', items: n.state_writes },
+      { label: 'Writes via calls', tone: 'write', items: viaLabel(n.transitive_state_writes) },
+      { label: 'External calls', tone: 'call', items: [...n.external_calls, ...viaLabel(n.transitive_external_calls)] },
+      { label: 'Internal calls', tone: 'muted', items: n.internal_calls ?? [] },
+      { label: 'Reads', tone: 'muted', items: [...n.state_reads, ...viaLabel(n.transitive_state_reads)] },
+      { label: 'Events', tone: 'event', items: [...(n.events ?? []), ...viaLabel(n.transitive_events)] },
+    ];
+    return all.filter((s) => s.items.length > 0);
   }
 
   async function goBack() {
@@ -136,8 +162,42 @@
               >
                 {#if loadingNarrative}
                   <span class="text-text-dim text-[10px] italic">Loading...</span>
-                {:else}
-                  <pre class="text-text-muted text-[11px] font-mono m-0 whitespace-pre-wrap break-words leading-relaxed">{narrative}</pre>
+                {:else if narrativeError}
+                  <span class="text-danger text-[11px]">{narrativeError}</span>
+                {:else if narrative}
+                  <div class="narrative text-[11px] leading-relaxed" data-testid="step-narrative">
+                    <div class="text-text">
+                      <span class="font-mono">{narrative.name}</span>
+                      <span class="text-text-muted">· {formatAccess(narrative.access)}</span>
+                      {#if narrative.modifiers.length > 0}
+                        <span class="text-text-dim">· {narrative.modifiers.join(', ')}</span>
+                      {/if}
+                    </div>
+                    <div class="text-text-muted">
+                      {narrative.total_paths} path(s):
+                      <span class="text-success">{narrative.happy_paths} return</span>,
+                      <span class="text-danger">{narrative.revert_paths} revert</span>
+                    </div>
+                    {#each sections(narrative) as section}
+                      <div class="narr-label">{section.label}</div>
+                      <ul class="narr-list tone-{section.tone}">
+                        {#each section.items as item}
+                          <li class="font-mono break-words">{item}</li>
+                        {/each}
+                      </ul>
+                    {/each}
+                    {#if narrative.observations.length > 0}
+                      <div class="narr-label">Observations</div>
+                      <ul class="narr-list tone-call">
+                        {#each narrative.observations as o}
+                          <li>{o.description}</li>
+                        {/each}
+                      </ul>
+                    {/if}
+                    {#if sections(narrative).length === 0 && narrative.observations.length === 0}
+                      <div class="text-text-dim italic">No state, call or event effects.</div>
+                    {/if}
+                  </div>
                 {/if}
               </div>
             {/if}
@@ -196,6 +256,20 @@
     color: var(--color-purple);
     background: color-mix(in srgb, var(--color-purple) 12%, transparent);
   }
+
+  .narr-label {
+    margin-top: 6px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-dim);
+  }
+  .narr-list { list-style: none; margin: 2px 0 0; padding: 0; }
+  .narr-list li { padding-left: 8px; border-left: 2px solid var(--color-border); }
+  .tone-muted li { color: var(--color-text-muted); }
+  .tone-write li { color: var(--color-accent); border-color: var(--color-accent); }
+  .tone-call li { color: var(--color-danger); border-color: var(--color-danger); }
+  .tone-event li { color: var(--color-success); border-color: var(--color-success); }
 
   .timeline-body::-webkit-scrollbar { width: 4px; }
   .timeline-body::-webkit-scrollbar-track { background: transparent; }

@@ -207,3 +207,30 @@ export interface SessionEventCallbacks {
   onClear?: (msg: SessionClear) => void;
   onHighlight?: (msg: SessionHighlight) => void;
 }
+
+export interface TransitiveEffect {
+  via: string[];
+  item: string;
+  origin_contract: string;
+}
+
+/** `/api/session/step/{i}/narrative` (Rust `FunctionNarrative`). */
+export interface FunctionNarrative {
+  contract: string;
+  name: string;
+  access: AccessLevel;
+  total_paths: number;
+  happy_paths: number;
+  revert_paths: number;
+  observations: { kind: string; description: string }[];
+  state_writes: string[];
+  state_reads: string[];
+  external_calls: string[];
+  internal_calls?: string[];
+  modifiers: string[];
+  events?: string[];
+  transitive_state_writes?: TransitiveEffect[];
+  transitive_state_reads?: TransitiveEffect[];
+  transitive_external_calls?: TransitiveEffect[];
+  transitive_events?: TransitiveEffect[];
+}

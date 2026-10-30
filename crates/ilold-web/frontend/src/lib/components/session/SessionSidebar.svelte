@@ -30,7 +30,7 @@
     seqExpanded?: Map<string, boolean>;
     mode?: 'cfg' | 'sequences' | 'session';
     seqAnalysis?: any;
-    contractDetail?: { name: string; functions?: any[] } | null;
+    contractDetail?: { name: string; functions?: any[]; inherited_functions?: any[] } | null;
     lookupBlock?: (blockId: string) => { statements: string[]; node_type: string } | null;
     onpathselect?: (funcName: string, path: any) => void;
     onexpandcfg?: (funcName: string, nodeId?: string) => void;

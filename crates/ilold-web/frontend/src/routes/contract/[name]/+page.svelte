@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { onMount, onDestroy, tick, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { getContract, getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, getProjectMap, type ContractDetail, type CytoscapeGraph, type SequenceAnalysis, type MapContract } from '$lib/api/rest';
   import { goto } from '$app/navigation';
   import { toggleTerminal } from '$lib/stores/terminal.svelte';
@@ -70,6 +70,8 @@
   const sessionHighlight = $derived(getHighlightedFunction());
 
   let callgraphRaw: CytoscapeGraph | null = $state(null);
+  // Bumped whenever cfgCache changes so lookups made from templates re-run.
+  let cfgCacheVersion = $state(0);
   let flowApi: { fitView: (opts?: any) => Promise<boolean> } | null = $state(null);
   let graphCanvas: GraphCanvasFlow;
   const cfgCache = new Map<string, CytoscapeGraph>();
@@ -103,6 +105,7 @@
   const SEQ_NODE_H = 80;
   const SEQ_SIBLING_GAP = 30; // gap between siblings at the same level
   const SEQ_LEVEL_GAP = 120;  // gap between parent and children rank
+  const SEQ_MAX_PER_ROW = 8;  // wider levels wrap into several rows (columns in LR)
 
   function relayoutSeqTree(rootId: string) {
     const root = findNode(rootId);
@@ -156,24 +159,31 @@
 
     const isLR = seqDirection === 'LR';
     const posMap = new Map<string, { x: number; y: number }>();
+    // Offset of each level along the depth axis; a wrapped level is several bands deep.
+    let depthOffset = isLR ? SEQ_NODE_W + SEQ_LEVEL_GAP : SEQ_NODE_H + SEQ_LEVEL_GAP;
     for (let lvl = 1; lvl <= maxLevel; lvl++) {
       const ids = byLevel[lvl];
-      const count = ids.length;
-      if (isLR) {
-        const totalH = count * SEQ_NODE_H + (count - 1) * SEQ_SIBLING_GAP;
-        const startY = rootPos.y + SEQ_NODE_H / 2 - totalH / 2;
-        const x = rootPos.x + lvl * (SEQ_NODE_W + SEQ_LEVEL_GAP);
-        ids.forEach((id, i) => {
-          posMap.set(id, { x, y: startY + i * (SEQ_NODE_H + SEQ_SIBLING_GAP) });
-        });
-      } else {
-        const totalW = count * SEQ_NODE_W + (count - 1) * SEQ_SIBLING_GAP;
-        const startX = rootPos.x + SEQ_NODE_W / 2 - totalW / 2;
-        const y = rootPos.y + lvl * (SEQ_NODE_H + SEQ_LEVEL_GAP);
-        ids.forEach((id, i) => {
-          posMap.set(id, { x: startX + i * (SEQ_NODE_W + SEQ_SIBLING_GAP), y });
-        });
-      }
+      const perBand = Math.min(ids.length, SEQ_MAX_PER_ROW);
+      const bands = Math.ceil(ids.length / SEQ_MAX_PER_ROW);
+      ids.forEach((id, i) => {
+        const band = Math.floor(i / SEQ_MAX_PER_ROW);
+        const slot = i % SEQ_MAX_PER_ROW;
+        if (isLR) {
+          const totalH = perBand * SEQ_NODE_H + (perBand - 1) * SEQ_SIBLING_GAP;
+          posMap.set(id, {
+            x: rootPos.x + depthOffset + band * (SEQ_NODE_W + SEQ_SIBLING_GAP),
+            y: rootPos.y + SEQ_NODE_H / 2 - totalH / 2 + slot * (SEQ_NODE_H + SEQ_SIBLING_GAP),
+          });
+        } else {
+          const totalW = perBand * SEQ_NODE_W + (perBand - 1) * SEQ_SIBLING_GAP;
+          posMap.set(id, {
+            x: rootPos.x + SEQ_NODE_W / 2 - totalW / 2 + slot * (SEQ_NODE_W + SEQ_SIBLING_GAP),
+            y: rootPos.y + depthOffset + band * (SEQ_NODE_H + SEQ_SIBLING_GAP),
+          });
+        }
+      });
+      const bandSize = isLR ? SEQ_NODE_W + SEQ_SIBLING_GAP : SEQ_NODE_H + SEQ_SIBLING_GAP;
+      depthOffset += (bands - 1) * bandSize + (isLR ? SEQ_NODE_W + SEQ_LEVEL_GAP : SEQ_NODE_H + SEQ_LEVEL_GAP);
     }
 
     setNodes(getNodes().map(n => {
@@ -471,37 +481,66 @@
     if (node) selectedNode = node;
   });
 
-  onMount(async () => {
-    const contractName = page.params.name;
-    if (!contractName) return;
+  // The page component is reused across /contract/A → /contract/B (palette, links,
+  // back/forward), so every load keys on the route param and drops stale responses.
+  let loadGen = 0;
+
+  async function loadContract(contractName: string) {
+    const gen = ++loadGen;
+    const current = () => gen === loadGen;
     clearGraph();
+    cfgCache.clear();
+    cfgCacheVersion++;
+    contract = null;
+    callgraphRaw = null;
+    seqTree = null;
+    seqAnalysis = null;
+    error = null;
+    funcPaths = {};
     canvasFuncs = new Set();
     expandedFuncs = new Set();
     seqExpanded = new Map();
     selectedNode = null;
     selectedPath = null;
+    contextMenu = null;
+    sourcePanel = null;
     setSearchContext(contractName);
     try {
-      contract = await getContract(contractName);
+      const detail = await getContract(contractName);
       const callgraphData = await getCallGraph(contractName);
+      if (!current()) return;
       callgraphRaw = callgraphData;
-      try { seqTree = await getSequences(contractName); } catch {}
-      try { seqAnalysis = await getSequenceAnalysis(contractName); } catch {}
-      try {
-        const pm = await getProjectMap();
-        projectMap = pm.contracts;
-      } catch {}
+      contract = detail;
+      const [seq, analysis, pm] = await Promise.allSettled([
+        getSequences(contractName),
+        getSequenceAnalysis(contractName),
+        getProjectMap(),
+      ]);
+      if (!current()) return;
+      if (seq.status === 'fulfilled') seqTree = seq.value;
+      if (analysis.status === 'fulfilled') seqAnalysis = analysis.value;
+      if (pm.status === 'fulfilled') projectMap = pm.value.contracts;
     } catch (e) {
-      error = `Contract "${contractName}" not found`;
+      if (current()) error = `Contract "${contractName}" not found`;
     }
-  });
+  }
 
   $effect(() => {
+    const contractName = page.params.name;
+    if (contractName) untrack(() => loadContract(contractName));
+  });
+
+  // Path search results (palette): open the result's contract, then its path.
+  $effect(() => {
     const nav = getSearchNavigate();
+    const loaded = contract?.name;
     if (!nav) return;
     untrack(() => {
-      if (!contract) return;
-      if (nav.contract !== contract.name) return;
+      if (nav.contract !== page.params.name) {
+        goto(`/contract/${encodeURIComponent(nav.contract)}`);
+        return;
+      }
+      if (!contract || loaded !== nav.contract) return;
 
       let stale = false;
 
@@ -530,7 +569,7 @@
           if (funcNode) {
             selectedNode = { ...funcNode.data, id: funcNode.id };
             const path = (hasPaths(nav.func) ? funcPaths[nav.func] : undefined)?.paths?.find((p: any) => p.id === nav.pathId);
-            if (path) highlightPath(nav.func, path);
+            if (path) selectPath(nav.func, path);
             if (flowApi) {
               await tick();
               flowApi.fitView({ nodes: [{ id: funcNode.id }], padding: 0.5, duration: 400 });
@@ -881,11 +920,8 @@
       return;
     }
 
-    let cfg = cfgCache.get(funcName);
-    if (!cfg) {
-      cfg = await getCfg(contract.name, funcName);
-      cfgCache.set(funcName, cfg);
-    }
+    const cfg = await ensureCfg(funcName);
+    if (!cfg) return;
     const parentPos = liveNodePosition(parentId) ?? { x: 300, y: 200 };
 
     const cfgNodes: Node<GraphNodeData>[] = cfg.nodes.map(n => ({
@@ -969,6 +1005,44 @@
 
     expandedFuncs.add(funcName);
     expandedFuncs = new Set(expandedFuncs);
+  }
+
+  async function ensureCfg(funcName: string): Promise<CytoscapeGraph | null> {
+    if (!contract) return null;
+    const cached = cfgCache.get(funcName);
+    if (cached) return cached;
+    const name = contract.name;
+    try {
+      const cfg = await getCfg(name, funcName);
+      if (contract?.name !== name) return null;
+      cfgCache.set(funcName, cfg);
+      cfgCacheVersion++;
+      return cfg;
+    } catch (e) {
+      notifyFailure('load CFG', e);
+      return null;
+    }
+  }
+
+  // Block statements for the inspector: from the canvas when the CFG is expanded,
+  // otherwise from the cached CFG so a collapsed CFG still shows the flow.
+  function lookupBlock(blockId: string): { statements: string[]; node_type: string } | null {
+    const node = findNode(blockId);
+    if (node && node.data._type === 'block') {
+      return { statements: (node.data as any).statements ?? [], node_type: (node.data as any).node_type };
+    }
+    void cfgCacheVersion;
+    const match = blockId.match(/^cfg:(.*):(b\d+)$/);
+    if (!match) return null;
+    const block = cfgCache.get(match[1])?.nodes.find((n) => n.data.id === match[2]);
+    if (!block) return null;
+    return { statements: block.data.statements ?? [], node_type: block.data.node_type };
+  }
+
+  function selectPath(funcName: string, path: any) {
+    selectedPath = path;
+    highlightPath(funcName, path);
+    if (!cfgCache.has(funcName)) ensureCfg(funcName);
   }
 
   async function toggleSeqExpand(funcName: string, parentNodeId: string) {
@@ -1232,13 +1306,9 @@
           {seqExpanded}
           {mode}
           {seqAnalysis}
-          contractDetail={{ name: contract.name, functions: contract.functions }}
-          lookupBlock={(blockId) => {
-            const node = findNode(blockId);
-            if (!node || node.data._type !== 'block') return null;
-            return { statements: (node.data as any).statements ?? [], node_type: (node.data as any).node_type };
-          }}
-          onpathselect={(funcName, path) => { selectedPath = path; highlightPath(funcName, path); }}
+          contractDetail={{ name: contract.name, functions: contract.functions, inherited_functions: contract.inherited_functions }}
+          {lookupBlock}
+          onpathselect={selectPath}
           onexpandcfg={(funcName, nodeId) => toggleFuncExpand(funcName, nodeId)}
         />
       {/if}

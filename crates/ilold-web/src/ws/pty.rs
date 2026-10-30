@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::IntoResponse;
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{Child, CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
@@ -58,22 +58,6 @@ async fn handle_pty_session(
     contract_path: PathBuf,
     contract: Option<String>,
 ) {
-    let pty_system = NativePtySystem::default();
-    let pair = match pty_system.openpty(PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    }) {
-        Ok(pair) => pair,
-        Err(e) => {
-            let _ = socket
-                .send(Message::Text(format!("PTY error: {e}").into()))
-                .await;
-            return;
-        }
-    };
-
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
@@ -101,8 +85,56 @@ async fn handle_pty_session(
         cmd.cwd(cwd);
     }
 
-    let mut child = match pair.slave.spawn_command(cmd) {
-        Ok(child) => child,
+    bridge_pty(socket, cmd).await;
+}
+
+/// Kills and reaps the PTY child however the bridge ends, including when the
+/// connection task itself is dropped.
+struct ChildGuard(Option<Box<dyn Child + Send + Sync>>);
+
+impl ChildGuard {
+    async fn reap(mut self) {
+        if let Some(child) = self.0.take() {
+            let _ = tokio::task::spawn_blocking(move || kill_and_wait(child)).await;
+        }
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.take() {
+            kill_and_wait(child);
+        }
+    }
+}
+
+fn kill_and_wait(mut child: Box<dyn Child + Send + Sync>) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Runs `cmd` in a fresh PTY wired to `socket` (binary frames both ways, JSON
+/// `{"type":"resize"}` text frames). The child never outlives the socket: a
+/// close frame, a dropped connection or a receive error ends it.
+pub async fn bridge_pty(mut socket: WebSocket, cmd: CommandBuilder) {
+    let pty_system = NativePtySystem::default();
+    let pair = match pty_system.openpty(PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    }) {
+        Ok(pair) => pair,
+        Err(e) => {
+            let _ = socket
+                .send(Message::Text(format!("PTY error: {e}").into()))
+                .await;
+            return;
+        }
+    };
+
+    let child = match pair.slave.spawn_command(cmd) {
+        Ok(child) => ChildGuard(Some(child)),
         Err(e) => {
             let _ = socket
                 .send(Message::Text(format!("Spawn error: {e}").into()))
@@ -118,7 +150,7 @@ async fn handle_pty_session(
             let _ = socket
                 .send(Message::Text(format!("PTY reader error: {e}").into()))
                 .await;
-            let _ = child.kill();
+            child.reap().await;
             return;
         }
     };
@@ -128,7 +160,7 @@ async fn handle_pty_session(
             let _ = socket
                 .send(Message::Text(format!("PTY writer error: {e}").into()))
                 .await;
-            let _ = child.kill();
+            child.reap().await;
             return;
         }
     };
@@ -210,13 +242,12 @@ async fn handle_pty_session(
                             }
                         }
                     }
-                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                     _ => continue,
                 }
             }
         }
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
+    child.reap().await;
 }
