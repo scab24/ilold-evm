@@ -40,6 +40,8 @@ In the REPL, `deps <contract>` lists what a contract depends on and `usedby <con
 ./target/release/ilold analyze tests/fixtures/solc/cross --deps
 ```
 
+`analyze --contract <name>` limits the output to one contract. An unknown name exits with status 1 and names the closest contracts (`Did you mean: Vault?`) or lists the available ones. Exit codes for every subcommand: `0` success, `1` error (unknown contract, not a Foundry project, compile or server failure), `2` invalid command-line usage.
+
 ## Exploring a contract
 
 ```
@@ -68,7 +70,7 @@ Explore prints a local URL; enter `browser` to open it, or visit it manually. CL
 | Findings | `finding`, `note`, `scenario`, `status`, `findings`, `export` |
 | Workspace | `save`, `load`, `browser`, `quit` |
 
-Appending `?` to any command prints its usage. Sessions can be named, forked into scenarios, and saved or loaded across runs.
+Appending `?` to any command prints its usage. Tab completes commands, functions, state variables, contracts and scenario names; `Ctrl+C` clears the line and `Ctrl+D` or `q` exits. Sessions can be named, forked into scenarios (`scenario new|list|switch|fork|delete <name>`), and saved or loaded across runs under `~/.ilold/sessions/` (plain names only). A finding or note recorded before any step is kept as session-level and labelled so in the report.
 
 ## Trace and slice
 

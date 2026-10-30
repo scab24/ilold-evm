@@ -102,7 +102,11 @@ ilold[Staking]> tr withdraw
 - `--reverts` -- Include revert paths in the tree.
 - `+N` -- Force-expand a depth-limited internal call at step N. Multiple `+N` flags allowed.
 - `-i` -- Open the trace in an interactive TUI with keyboard navigation. Increases default depth to 4.
-- `step N` -- Re-render the persisted flow tree from session step N (depth/expand flags are ignored).
+- `step N` -- Re-render the persisted flow tree from session step N. `-i` opens it in the TUI;
+  `--depth`, `--reverts` or `+N` after `step N` rebuild that step's function with those flags.
+
+Unknown flags, a non-numeric `--depth`, `trace step` without an index, a step that does not
+exist and extra words are rejected with a message instead of being ignored.
 
 ```
 ilold[Staking]> tr withdraw +6

@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 use colored::Colorize;
 use reedline::{
-    Completer, DefaultHinter, FileBackedHistory, Prompt, PromptEditMode,
-    PromptHistorySearch, PromptHistorySearchStatus, Reedline, Signal, Span, Suggestion,
+    default_emacs_keybindings, ColumnarMenu, Completer, DefaultHinter, Emacs, FileBackedHistory,
+    KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
+    PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion,
 };
 
 use ilold_core::classify::entry_points::AccessLevel;
@@ -35,24 +36,19 @@ pub async fn run(
         let contracts_arr = project_info["contracts"].as_array();
         let contract_name = start_contract(&project_info, contract.as_deref())?;
 
-        let mut functions_by_contract = HashMap::<String, Vec<String>>::new();
-        let contract_names_raw: Vec<String> = contracts_arr
+        let mut names_by_contract = HashMap::<String, ContractNames>::new();
+        let contract_names: Vec<String> = contracts_arr
             .map(|arr| arr.iter().filter_map(|c| c["name"].as_str().map(String::from)).collect())
             .unwrap_or_default();
-        for cname in &contract_names_raw {
+        for cname in &contract_names {
             if let Ok(resp) = client.get(format!("{url}/api/contract/{cname}")).send().await {
                 if let Ok(detail) = resp.json::<serde_json::Value>().await {
-                    let funcs: Vec<String> = detail["functions"].as_array()
-                        .map(|fs| fs.iter().filter_map(|f| f["name"].as_str().map(String::from)).collect())
-                        .unwrap_or_default();
-                    functions_by_contract.insert(cname.clone(), funcs);
+                    names_by_contract.insert(cname.clone(), ContractNames::from_detail(&detail));
                 }
             }
         }
 
-        let function_names = functions_by_contract.get(&contract_name).cloned().unwrap_or_default();
-        let contract_names: Vec<String> = functions_by_contract.keys().cloned().collect();
-        let func_count = function_names.len();
+        let func_count = names_by_contract.get(&contract_name).map_or(0, |n| n.functions.len());
 
         let banner = fmt::header_box(&[
             &format!("ilold explore — {} (attached)", contract_name),
@@ -64,7 +60,7 @@ pub async fn run(
         let base_url = url;
         let handle = tokio::runtime::Handle::current();
         let repl_thread = std::thread::spawn(move || {
-            repl_loop(handle, contract_name, function_names, contract_names, None, base_url, Some(functions_by_contract));
+            repl_loop(handle, contract_name, contract_names, names_by_contract, None, base_url);
         });
         tokio::task::spawn_blocking(move || repl_thread.join())
             .await?
@@ -72,7 +68,9 @@ pub async fn run(
         return Ok(());
     }
 
-    println!("Analyzing {} file(s)...", paths.len());
+    for root in &paths {
+        println!("Analyzing {}...", root.display());
+    }
     let (state, actual_port, server) = ilold_web::start_server_with_handle(paths, port, max_seq_depth).await?;
 
     let contract_name = match contract.as_deref() {
@@ -84,28 +82,21 @@ pub async fn run(
             .ok_or_else(|| anyhow::anyhow!("No contracts found"))?,
     };
 
-    let function_names: Vec<String> = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .map(|c| {
-            state.project
-                .accessible_functions(c)
-                .iter()
-                .map(|af| af.function.name.clone())
-                .collect()
-        })
-        .unwrap_or_default();
-
+    let names_by_contract = local_names(&state.project);
     let contract_names: Vec<String> = state.project.contracts.iter()
         .map(|c| c.name.clone())
         .filter(|n| !n.is_empty())
         .collect();
 
-    let func_count = function_names.len();
+    let func_count = names_by_contract.get(&contract_name).map_or(0, |n| n.functions.len());
 
     let banner = fmt::header_box(&[
         &format!("ilold explore — {}", contract_name),
-        &format!("{} functions | Type ? for help", func_count),
-        &format!("Web UI: http://localhost:{}", actual_port),
+        &format!(
+            "{} file(s), {} contract(s) | {} functions in {}",
+            state.project.source_files.len(), contract_names.len(), func_count, contract_name,
+        ),
+        &format!("Web UI: http://localhost:{} | Type ? for help", actual_port),
     ]);
     println!("{}\n", banner);
 
@@ -125,7 +116,7 @@ pub async fn run(
     let state_for_thread = state.clone();
     let base_url = format!("http://127.0.0.1:{}", actual_port);
     let repl_thread = std::thread::spawn(move || {
-        repl_loop(handle, contract_name, function_names, contract_names, Some(state_for_thread), base_url, None);
+        repl_loop(handle, contract_name, contract_names, names_by_contract, Some(state_for_thread), base_url);
     });
 
     // Never block the Tokio worker while Reedline waits for input: a
@@ -185,11 +176,10 @@ fn open_browser(url: &str) -> Result<()> {
 fn repl_loop(
     handle: tokio::runtime::Handle,
     mut contract: String,
-    mut functions: Vec<String>,
     contract_names: Vec<String>,
+    names_by_contract: HashMap<String, ContractNames>,
     state: Option<std::sync::Arc<ilold_web::state::AppState>>,
     base_url: String,
-    functions_by_contract: Option<HashMap<String, Vec<String>>>,
 ) {
     let history_path = dirs::home_dir()
         .map(|h| h.join(".ilold").join("history"))
@@ -203,15 +193,36 @@ fn repl_loop(
         FileBackedHistory::with_file(500, history_path).expect("Failed to create history"),
     );
 
+    let names_for = |name: &str| names_by_contract.get(name).cloned().unwrap_or_default();
+    let mut names = names_for(&contract);
     let completer = std::sync::Arc::new(std::sync::Mutex::new(IloldCompleter {
-        functions: functions.clone(),
+        functions: names.functions.clone(),
+        state_vars: names.state_vars.clone(),
         contracts: contract_names.clone(),
         scenarios: vec!["main".to_string()],
     }));
 
+    let mut keybindings = default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu(COMPLETION_MENU.to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+    keybindings.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
+
     let mut editor = Reedline::create()
         .with_history(history)
         .with_completer(Box::new(CompleterWrapper(completer.clone())))
+        .with_menu(ReedlineMenu::EngineCompleter(Box::new(
+            ColumnarMenu::default().with_name(COMPLETION_MENU),
+        )))
+        .with_edit_mode(Box::new(Emacs::new(keybindings)))
+        // One candidate completes in place; several fill their common prefix, then list.
+        .with_quick_completions(true)
+        .with_partial_completions(true)
         .with_hinter(Box::new(DefaultHinter::default().with_style(
             nu_ansi_term::Style::new().fg(nu_ansi_term::Color::DarkGray),
         )));
@@ -227,13 +238,16 @@ fn repl_loop(
     };
 
     loop {
-        // The browser and other clients share the server session: refresh before
-        // every prompt in local and attached mode alike.
-        if let Some((active, server_steps)) = sync_session(&handle, &client, &base_url, &contract) {
-            steps = server_steps;
-            scenario_name = active;
+        // The browser and other clients share the server session: refresh steps,
+        // active scenario and scenario names before every prompt.
+        if let Some(snapshot) = sync_session(&handle, &client, &base_url, &contract) {
+            steps = snapshot.steps;
+            scenario_name = snapshot.active;
             prompt.steps = steps.clone();
             prompt.scenario = scenario_name.clone();
+            if let Ok(mut comp) = completer.lock() {
+                comp.scenarios = snapshot.scenarios;
+            }
         }
 
         match editor.read_line(&prompt) {
@@ -241,10 +255,16 @@ fn repl_loop(
                 let line = line.trim();
                 if line.is_empty() { continue; }
 
-                match handle_input(
-                    line, &handle, &client, &base_url, &contract,
-                    &mut steps, &mut scenario_name, &completer, &state,
-                ) {
+                let ctx = ReplContext {
+                    handle: &handle,
+                    client: &client,
+                    base_url: &base_url,
+                    contract: &contract,
+                    names: &names,
+                    contract_names: &contract_names,
+                    state: &state,
+                };
+                match handle_input(line, &ctx, &mut steps, &mut scenario_name, &completer) {
                     InputResult::Continue => {}
                     InputResult::Quit => break,
                     InputResult::UpdatePrompt => {
@@ -252,44 +272,93 @@ fn repl_loop(
                         prompt.scenario = scenario_name.clone();
                     }
                     InputResult::SwitchContract(new_name) => {
-                        contract = new_name.clone();
+                        contract = new_name;
                         steps.clear();
                         scenario_name = "main".into();
-                        if let Some(ref state) = state {
-                            if let Some(c) = state.project.contracts.iter().find(|c| c.name == new_name) {
-                                functions = state.project
-                                    .accessible_functions(c)
-                                    .iter()
-                                    .map(|af| af.function.name.clone())
-                                    .collect();
-                                if let Ok(mut comp) = completer.lock() {
-                                    comp.functions = functions.clone();
-                                }
-                            }
-                        } else if let Some(ref fbc) = functions_by_contract {
-                            if let Some(funcs) = fbc.get(&new_name) {
-                                functions = funcs.clone();
-                                if let Ok(mut comp) = completer.lock() {
-                                    comp.functions = functions.clone();
-                                }
-                            }
+                        names = names_for(&contract);
+                        if let Ok(mut comp) = completer.lock() {
+                            comp.functions = names.functions.clone();
+                            comp.state_vars = names.state_vars.clone();
+                            comp.scenarios = vec!["main".to_string()];
                         }
                         prompt.contract = contract.clone();
                         prompt.steps = Vec::new();
                         prompt.scenario = scenario_name.clone();
-                        if let Ok(mut comp) = completer.lock() {
-                            comp.scenarios = vec!["main".to_string()];
-                        }
                     }
                 }
             }
-            Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => break,
+            // Ctrl-C only discards the line being edited; Ctrl-D (or `q`) exits.
+            Ok(Signal::CtrlC) => continue,
+            Ok(Signal::CtrlD) => break,
             Err(e) => {
                 eprintln!("Error: {e}");
                 break;
             }
         }
     }
+}
+
+const COMPLETION_MENU: &str = "completion_menu";
+
+/// Names the completer and argument checks use for one contract (own and inherited).
+#[derive(Debug, Clone, Default, PartialEq)]
+struct ContractNames {
+    functions: Vec<String>,
+    state_vars: Vec<String>,
+}
+
+impl ContractNames {
+    /// From `/api/contract/{name}` (attached mode).
+    fn from_detail(detail: &serde_json::Value) -> Self {
+        let collect = |keys: &[&str]| -> Vec<String> {
+            let mut out: Vec<String> = Vec::new();
+            for key in keys {
+                for item in detail[*key].as_array().into_iter().flatten() {
+                    if let Some(name) = item["name"].as_str().filter(|n| !n.is_empty()) {
+                        if !out.iter().any(|o| o == name) {
+                            out.push(name.to_string());
+                        }
+                    }
+                }
+            }
+            out
+        };
+        ContractNames {
+            functions: collect(&["functions", "inherited_functions"]),
+            state_vars: collect(&["state_vars", "inherited_state_vars"]),
+        }
+    }
+}
+
+fn local_names(project: &ilold_core::model::project::Project) -> HashMap<String, ContractNames> {
+    let mut out = HashMap::new();
+    for c in project.contracts.iter().filter(|c| !c.name.is_empty()) {
+        let mut functions: Vec<String> = Vec::new();
+        for af in project.accessible_functions(c) {
+            if !functions.contains(&af.function.name) {
+                functions.push(af.function.name.clone());
+            }
+        }
+        let mut state_vars: Vec<String> = Vec::new();
+        for v in project.inherited_state_vars(c) {
+            if !state_vars.contains(&v.name) {
+                state_vars.push(v.name);
+            }
+        }
+        out.insert(c.name.clone(), ContractNames { functions, state_vars });
+    }
+    out
+}
+
+/// Everything a command needs besides the mutable session view.
+struct ReplContext<'a> {
+    handle: &'a tokio::runtime::Handle,
+    client: &'a reqwest::Client,
+    base_url: &'a str,
+    contract: &'a str,
+    names: &'a ContractNames,
+    contract_names: &'a [String],
+    state: &'a Option<std::sync::Arc<ilold_web::state::AppState>>,
 }
 
 enum InputResult {
@@ -309,15 +378,12 @@ impl Completer for CompleterWrapper {
 
 fn handle_input(
     line: &str,
-    handle: &tokio::runtime::Handle,
-    client: &reqwest::Client,
-    base_url: &str,
-    contract: &str,
+    ctx: &ReplContext,
     steps: &mut Vec<String>,
     scenario_name: &mut String,
     completer: &std::sync::Arc<std::sync::Mutex<IloldCompleter>>,
-    state: &Option<std::sync::Arc<ilold_web::state::AppState>>,
 ) -> InputResult {
+    let ReplContext { handle, client, base_url, contract, names, contract_names, state } = *ctx;
     let normalized = split_numeric_suffix(line);
     let parts: Vec<&str> = normalized.splitn(2, ' ').collect();
     let cmd = parts[0].to_lowercase();
@@ -483,6 +549,10 @@ fn handle_input(
                 println!("  Usage: use <contract>");
                 return InputResult::Continue;
             }
+            if let Some(extra) = extra_args(arg) {
+                eprintln!("  {}", c_danger(&format!("use takes one contract name; unexpected: '{extra}'")));
+                return InputResult::Continue;
+            }
             if let Some(ref state) = state {
                 match state.project.find_contract(Some(arg)) {
                     Ok(c) => {
@@ -497,13 +567,19 @@ fn handle_input(
                         }
                         InputResult::SwitchContract(name)
                     }
-                    Err(e) => {
-                        eprintln!("  {}", c_danger(&e));
+                    Err(_) => {
+                        eprintln!("  {}", c_danger(&crate::analyze::contract_not_found(
+                            arg, contract_names.iter().map(String::as_str)).to_string()));
                         InputResult::Continue
                     }
                 }
             } else {
                 let name = arg.to_string();
+                if !contract_names.iter().any(|c| *c == name) {
+                    eprintln!("  {}", c_danger(&crate::analyze::contract_not_found(
+                        &name, contract_names.iter().map(String::as_str)).to_string()));
+                    return InputResult::Continue;
+                }
                 if name == contract {
                     println!("  Already using {}", c_accent(&name));
                     return InputResult::Continue;
@@ -519,6 +595,11 @@ fn handle_input(
         "c" | "call" => {
             if arg.is_empty() {
                 println!("  Usage: call <function>");
+                return InputResult::Continue;
+            }
+            if let Some(extra) = extra_args(arg) {
+                eprintln!("  {}", c_danger(&format!(
+                    "call takes one function name (no arguments); unexpected: '{extra}'. Usage: call <function>")));
                 return InputResult::Continue;
             }
             let body = serde_json::json!({
@@ -577,8 +658,11 @@ fn handle_input(
             match send_command(handle, client, base_url, &body) {
                 Ok(result) => {
                     print_result(&result, steps);
-                    steps.clear();
-                    return InputResult::UpdatePrompt;
+                    // Only a confirmed clear empties the local view; an Error keeps it.
+                    if matches!(result, CommandResult::Cleared) {
+                        steps.clear();
+                        return InputResult::UpdatePrompt;
+                    }
                 }
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -614,7 +698,7 @@ fn handle_input(
                 "command": { "Note": { "text": arg } }
             });
             match send_command(handle, client, base_url, &body) {
-                Ok(result) => print_result(&result, steps),
+                Ok(result) => print_annotation_result(&result, steps),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
             InputResult::Continue
@@ -643,7 +727,7 @@ fn handle_input(
                                 }
                             });
                             match send_command(handle, client, base_url, &body) {
-                                Ok(result) => print_result(&result, steps),
+                                Ok(result) => print_annotation_result(&result, steps),
                                 Err(e) => eprintln!("  {}", c_danger(&e)),
                             }
                         }
@@ -683,6 +767,10 @@ fn handle_input(
                 println!("  Usage: who <variable>");
                 return InputResult::Continue;
             }
+            if let Err(e) = check_state_var(arg, contract, names) {
+                eprintln!("  {}", c_danger(&e));
+                return InputResult::Continue;
+            }
             let body = serde_json::json!({
                 "contract": contract,
                 "command": { "Who": { "variable": arg } }
@@ -707,6 +795,10 @@ fn handle_input(
                 println!("  Usage: info <function>");
                 return InputResult::Continue;
             }
+            if let Some(extra) = extra_args(arg) {
+                eprintln!("  {}", c_danger(&format!("info takes one function name; unexpected: '{extra}'")));
+                return InputResult::Continue;
+            }
             match send_get(handle, client, &format!("{base_url}/api/session/function/{contract}/{arg}")) {
                 Ok(val) => print_narrative(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
@@ -715,44 +807,32 @@ fn handle_input(
         }
         "tr" | "trace" => {
             if arg.is_empty() {
-                println!("  Usage: trace <function> [--depth N] [--reverts] [+N...] [-i]");
-                println!("         trace step <N>");
+                println!("  Usage: {TRACE_USAGE}");
                 return InputResult::Continue;
             }
-            let parsed = parse_trace_args(arg);
-            let target = match parsed.target {
-                Some(t) => t,
-                None => {
-                    println!("  Usage: trace <function> [--depth N] [--reverts] [+N...] [-i]");
-                    println!("         trace step <N>");
+            let parsed = match parse_trace_args(arg) {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    eprintln!("  {}", c_danger(&e));
+                    println!("  Usage: {TRACE_USAGE}");
                     return InputResult::Continue;
                 }
             };
-            let url = match target {
-                TraceTarget::Function(func_name) => {
-                    let mut url = format!("{base_url}/api/session/trace/{contract}/{func_name}");
-                    let mut sep = '?';
-                    let effective_depth = parsed.depth
-                        .or(if parsed.interactive { Some(4) } else { None });
-                    if let Some(d) = effective_depth {
-                        url.push_str(&format!("{sep}depth={d}"));
-                        sep = '&';
-                    }
-                    if parsed.reverts {
-                        url.push_str(&format!("{sep}reverts=true"));
-                        sep = '&';
-                    }
-                    if !parsed.expand.is_empty() {
-                        let csv = parsed.expand.iter()
-                            .map(|n| n.to_string())
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        url.push_str(&format!("{sep}expand={csv}"));
-                    }
-                    url
-                }
+            let url = match &parsed.target {
+                TraceTarget::Function(func_name) => function_trace_url(base_url, contract, func_name, &parsed),
                 TraceTarget::SessionStep(idx) => {
-                    format!("{base_url}/api/session/step/{idx}/trace?contract={contract}")
+                    if let Err(e) = check_step_index(*idx, steps) {
+                        eprintln!("  {}", c_danger(&e));
+                        return InputResult::Continue;
+                    }
+                    if parsed.has_render_flags() {
+                        // The persisted trace has a fixed shape: flags rebuild the step's function.
+                        let func_name = &steps[*idx];
+                        println!("  {}", c_muted(&format!("step {idx} ({func_name}) rebuilt with the given flags")));
+                        function_trace_url(base_url, contract, func_name, &parsed)
+                    } else {
+                        format!("{base_url}/api/session/step/{idx}/trace?contract={contract}")
+                    }
                 }
             };
             match send_get(handle, client, &url) {
@@ -784,6 +864,10 @@ fn handle_input(
                 println!("  Usage: timeline <variable>");
                 return InputResult::Continue;
             }
+            if let Err(e) = check_state_var(arg, contract, names) {
+                eprintln!("  {}", c_danger(&e));
+                return InputResult::Continue;
+            }
             match send_get(handle, client, &format!("{base_url}/api/session/timeline/{arg}?contract={contract}")) {
                 Ok(val) => match serde_json::from_value::<ilold_core::exploration::timeline::VariableTimeline>(val) {
                     Ok(tl) => print!("{}", fmt::render_variable_timeline(&tl)),
@@ -805,12 +889,22 @@ fn handle_input(
                     _ => positionals.push(part),
                 }
             }
-            if positionals.len() < 2 {
+            if let Some(flag) = positionals.iter().find(|p| p.starts_with('-')) {
+                eprintln!("  {}", c_danger(&format!("Unknown flag '{flag}'. Valid: --backward/-b, --forward/-f, --both")));
+                return InputResult::Continue;
+            }
+            if positionals.len() != 2 {
                 println!("  Usage: slice <function> <variable> [--backward|--forward|--both]");
                 return InputResult::Continue;
             }
             let func_name = positionals[0];
             let var_name = positionals[1];
+            if let Err(e) = check_function(func_name, contract, names)
+                .and_then(|_| check_state_var(var_name, contract, names))
+            {
+                eprintln!("  {}", c_danger(&e));
+                return InputResult::Continue;
+            }
             let mut url = format!("{base_url}/api/session/slice/{func_name}/{var_name}?contract={contract}");
             if let Some(d) = direction {
                 url.push_str(&format!("&direction={d}"));
@@ -829,7 +923,14 @@ fn handle_input(
                 println!("  Usage: step <index>");
                 return InputResult::Continue;
             }
-            match send_get(handle, client, &format!("{base_url}/api/session/step/{arg}/narrative?contract={contract}")) {
+            let idx = match parse_step_index(arg).and_then(|idx| check_step_index(idx, steps).map(|_| idx)) {
+                Ok(idx) => idx,
+                Err(e) => {
+                    eprintln!("  {}", c_danger(&e));
+                    return InputResult::Continue;
+                }
+            };
+            match send_get(handle, client, &format!("{base_url}/api/session/step/{idx}/narrative?contract={contract}")) {
                 Ok(val) => print_narrative(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -861,14 +962,19 @@ fn handle_input(
                 println!("  Usage: save <name>");
                 return InputResult::Continue;
             }
+            let path = match session_file(arg) {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("  {}", c_danger(&e));
+                    return InputResult::Continue;
+                }
+            };
             let body = serde_json::json!({ "contract": contract, "command": "SaveSession" });
             match send_command(handle, client, base_url, &body) {
                 Ok(CommandResult::SessionSaved { json }) => {
-                    let dir = dirs::home_dir()
-                        .map(|h| h.join(".ilold").join("sessions"))
-                        .unwrap_or_else(|| std::path::PathBuf::from(".ilold/sessions"));
-                    std::fs::create_dir_all(&dir).ok();
-                    let path = dir.join(format!("{}.json", arg));
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir).ok();
+                    }
                     match std::fs::write(&path, &json) {
                         Ok(_) => println!("  {} Saved to {}", c_ok("✓"), c_accent(&path.display().to_string())),
                         Err(e) => eprintln!("  {} Write failed: {}", c_danger("✗"), e),
@@ -884,10 +990,13 @@ fn handle_input(
                 println!("  Usage: load <name>");
                 return InputResult::Continue;
             }
-            let dir = dirs::home_dir()
-                .map(|h| h.join(".ilold").join("sessions"))
-                .unwrap_or_else(|| std::path::PathBuf::from(".ilold/sessions"));
-            let path = dir.join(format!("{}.json", arg));
+            let path = match session_file(arg) {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("  {}", c_danger(&e));
+                    return InputResult::Continue;
+                }
+            };
             let json = match std::fs::read_to_string(&path) {
                 Ok(j) => j,
                 Err(e) => {
@@ -897,9 +1006,13 @@ fn handle_input(
             };
             let body = serde_json::json!({ "contract": contract, "command": { "LoadSession": { "json": json } } });
             match send_command(handle, client, base_url, &body) {
-                Ok(CommandResult::SessionLoaded { steps: loaded_steps, .. }) => {
+                Ok(CommandResult::SessionLoaded { contract: loaded, steps: loaded_steps }) => {
+                    println!("  {} Session loaded: {} ({} steps)", c_ok("✓"), c_accent(&loaded), loaded_steps.len());
+                    // The saved store belongs to its own contract; follow it there.
+                    if loaded != contract {
+                        return InputResult::SwitchContract(loaded);
+                    }
                     *steps = loaded_steps;
-                    println!("  {} Session loaded ({} steps)", c_ok("✓"), steps.len());
                     return InputResult::UpdatePrompt;
                 }
                 Ok(other) => print_result(&other, steps),
@@ -915,24 +1028,33 @@ fn handle_input(
     }
 }
 
-/// Active scenario and its steps for `contract`, read without changing which
-/// contract the server considers current.
+#[derive(Debug, PartialEq)]
+struct SessionSnapshot {
+    active: String,
+    steps: Vec<String>,
+    scenarios: Vec<String>,
+}
+
+/// Active scenario, its steps and every scenario name for `contract`, read
+/// without changing which contract the server considers current.
 fn sync_session(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
     base_url: &str,
     contract: &str,
-) -> Option<(String, Vec<String>)> {
+) -> Option<SessionSnapshot> {
     let all = send_get(handle, client, &format!("{base_url}/api/scenarios/all?contract={contract}")).ok()?;
     let active = all["active"].as_str()?.to_string();
-    let steps = all["scenarios"].as_array()?
+    let scenarios = all["scenarios"].as_array()?;
+    let steps = scenarios
         .iter()
         .find(|s| s["name"].as_str() == Some(active.as_str()))?["steps"]
         .as_array()?
         .iter()
         .filter_map(|s| s["function"].as_str().map(String::from))
         .collect();
-    Some((active, steps))
+    let scenarios = scenarios.iter().filter_map(|s| s["name"].as_str().map(String::from)).collect();
+    Some(SessionSnapshot { active, steps, scenarios })
 }
 
 fn send_command(
@@ -1024,20 +1146,32 @@ fn split_numeric_suffix(line: &str) -> String {
     line.to_string()
 }
 
+const TRACE_USAGE: &str = "trace <function> [--depth N] [--reverts] [+N...] [-i] | trace step <N> [-i]";
+
+#[derive(Debug, PartialEq)]
 enum TraceTarget {
     Function(String),
     SessionStep(usize),
 }
 
+#[derive(Debug, PartialEq)]
 struct TraceArgs {
-    target: Option<TraceTarget>,
+    target: TraceTarget,
     depth: Option<usize>,
     reverts: bool,
     expand: Vec<usize>,
     interactive: bool,
 }
 
-fn parse_trace_args(arg: &str) -> TraceArgs {
+impl TraceArgs {
+    /// Flags that change what the trace contains (not just how it is shown).
+    fn has_render_flags(&self) -> bool {
+        self.depth.is_some() || self.reverts || !self.expand.is_empty()
+    }
+}
+
+/// `trace` arguments; unknown flags, bad numbers and stray words are errors.
+fn parse_trace_args(arg: &str) -> Result<TraceArgs, String> {
     let tokens: Vec<&str> = arg.split_whitespace().collect();
     let mut target: Option<TraceTarget> = None;
     let mut depth: Option<usize> = None;
@@ -1047,39 +1181,136 @@ fn parse_trace_args(arg: &str) -> TraceArgs {
     let mut i = 0;
     while i < tokens.len() {
         let t = tokens[i];
-        if t == "--depth" {
-            if let Some(v) = tokens.get(i + 1).and_then(|s| s.parse::<usize>().ok()) {
-                depth = Some(v);
+        match t {
+            "--depth" | "-d" => {
+                let value = tokens.get(i + 1).ok_or("--depth needs a value: --depth N")?;
+                depth = Some(value.parse::<usize>().map_err(|_| {
+                    format!("--depth needs a non-negative integer, got '{value}'")
+                })?);
                 i += 2;
                 continue;
             }
-            i += 1;
-        } else if t == "--reverts" {
-            reverts = true;
-            i += 1;
-        } else if t == "-i" || t == "--interactive" {
-            interactive = true;
-            i += 1;
-        } else if let Some(rest) = t.strip_prefix('+') {
-            if let Ok(id) = rest.parse::<usize>() {
+            "--reverts" | "-r" => reverts = true,
+            "-i" | "--interactive" => interactive = true,
+            _ if t.starts_with('+') => {
+                let id = t[1..].parse::<usize>()
+                    .map_err(|_| format!("'{t}' is not a node to expand: use +N with a numeric node id"))?;
                 expand.push(id);
             }
-            i += 1;
-        } else if t == "step"
-            && target.is_none()
-            && tokens.get(i + 1).and_then(|s| s.parse::<usize>().ok()).is_some()
-        {
-            let idx = tokens[i + 1].parse::<usize>().unwrap();
-            target = Some(TraceTarget::SessionStep(idx));
-            i += 2;
-        } else if target.is_none() {
-            target = Some(TraceTarget::Function(t.to_string()));
-            i += 1;
-        } else {
-            i += 1;
+            _ if t.starts_with('-') => {
+                return Err(format!("Unknown flag '{t}'. Valid: --depth N, --reverts, +N, -i"));
+            }
+            "step" if target.is_none() => {
+                let n = tokens.get(i + 1).ok_or("trace step needs a step index: trace step <N>")?;
+                target = Some(TraceTarget::SessionStep(parse_step_index(n)?));
+                i += 2;
+                continue;
+            }
+            _ if target.is_none() => target = Some(TraceTarget::Function(t.to_string())),
+            _ => return Err(format!("Unexpected argument '{t}': trace takes one function")),
         }
+        i += 1;
     }
-    TraceArgs { target, depth, reverts, expand, interactive }
+    let target = target.ok_or("trace needs a function or `step <N>`")?;
+    Ok(TraceArgs { target, depth, reverts, expand, interactive })
+}
+
+fn function_trace_url(base_url: &str, contract: &str, func_name: &str, parsed: &TraceArgs) -> String {
+    let mut url = format!("{base_url}/api/session/trace/{contract}/{func_name}");
+    let mut params: Vec<String> = Vec::new();
+    if let Some(d) = parsed.depth.or(if parsed.interactive { Some(4) } else { None }) {
+        params.push(format!("depth={d}"));
+    }
+    if parsed.reverts {
+        params.push("reverts=true".into());
+    }
+    if !parsed.expand.is_empty() {
+        let csv = parsed.expand.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+        params.push(format!("expand={csv}"));
+    }
+    if !params.is_empty() {
+        url.push('?');
+        url.push_str(&params.join("&"));
+    }
+    url
+}
+
+/// Text after the first word, for commands that take exactly one name.
+fn extra_args(arg: &str) -> Option<&str> {
+    arg.split_once(char::is_whitespace).map(|(_, rest)| rest.trim()).filter(|r| !r.is_empty())
+}
+
+fn parse_step_index(raw: &str) -> Result<usize, String> {
+    raw.parse::<usize>()
+        .map_err(|_| format!("Step index must be a non-negative integer, got '{raw}'"))
+}
+
+fn check_step_index(idx: usize, steps: &[String]) -> Result<(), String> {
+    match steps.len() {
+        0 => Err("No steps yet: add one with `c <function>`".into()),
+        n if idx >= n => Err(format!("Step {idx} does not exist: this scenario has {n} step(s), 0-{}", n - 1)),
+        _ => Ok(()),
+    }
+}
+
+fn unknown_name(kind: &str, name: &str, contract: &str, known: &[String]) -> String {
+    let candidates: Vec<&str> = known.iter().map(String::as_str).collect();
+    let close = crate::analyze::close_matches(name, &candidates);
+    if close.is_empty() {
+        format!("Unknown {kind} '{name}' in {contract}")
+    } else {
+        format!("Unknown {kind} '{name}' in {contract}. Did you mean: {}?", close.join(", "))
+    }
+}
+
+/// `name` (or the base of `name[..]`/`name.field`) is a state variable of the contract.
+/// An empty name list means the contract's names are unknown, so nothing is rejected.
+fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
+    if let Some(extra) = extra_args(name) {
+        return Err(format!("Expected one state variable; unexpected: '{extra}'"));
+    }
+    let base = name.split(['[', '.']).next().unwrap_or(name);
+    if names.state_vars.is_empty() || names.state_vars.iter().any(|v| v == base) {
+        Ok(())
+    } else {
+        Err(unknown_name("state variable", name, contract, &names.state_vars))
+    }
+}
+
+fn check_function(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
+    if names.functions.is_empty() || names.functions.iter().any(|f| f == name) {
+        Ok(())
+    } else {
+        Err(unknown_name("function", name, contract, &names.functions))
+    }
+}
+
+fn sessions_dir() -> PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".ilold").join("sessions"))
+        .unwrap_or_else(|| PathBuf::from(".ilold/sessions"))
+}
+
+/// `~/.ilold/sessions/<name>.json`; the name is a plain file stem, never a path.
+fn session_file(name: &str) -> Result<PathBuf, String> {
+    Ok(sessions_dir().join(format!("{}.json", session_stem(name)?)))
+}
+
+fn session_stem(name: &str) -> Result<&str, String> {
+    let stem = name.strip_suffix(".json").unwrap_or(name);
+    let valid = !stem.is_empty()
+        && stem.len() <= 64
+        && !stem.starts_with('.')
+        && stem.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if valid {
+        Ok(stem)
+    } else {
+        Err(format!(
+            "Invalid session name '{name}': use letters, digits, '-', '_' or '.' (no paths, no leading '.'); \
+             sessions live in {}",
+            sessions_dir().display()
+        ))
+    }
 }
 
 fn normalize_severity(input: &str) -> Option<&'static str> {
@@ -1156,8 +1387,24 @@ fn handle_finding_interactive(
         }
     });
     match send_command(handle, client, base_url, &body) {
-        Ok(result) => print_result(&result, steps),
+        Ok(result) => print_annotation_result(&result, steps),
         Err(e) => eprintln!("  {}", c_danger(&e)),
+    }
+}
+
+/// Notes and findings attach to the current step; with no steps they are
+/// recorded at session level, and the message says so.
+fn print_annotation_result(result: &CommandResult, steps: &[String]) {
+    let scope = match steps.last() {
+        Some(last) => format!("attached to step {} ({last})", steps.len() - 1),
+        None => "session-level: no step yet, not attached to a step".to_string(),
+    };
+    match result {
+        CommandResult::NoteAdded => println!("  {} Note added {}", c_ok("✓"), c_muted(&format!("({scope})"))),
+        CommandResult::FindingAdded { id } => {
+            println!("  {} Finding {} added {}", c_ok("✓"), c_accent(id), c_muted(&format!("({scope})")))
+        }
+        other => print_result(other, steps),
     }
 }
 
@@ -1236,16 +1483,54 @@ fn print_findings_list(
     base_url: &str,
     contract: &str,
 ) {
-    let body = serde_json::json!({ "contract": contract, "command": "Session" });
+    let body = serde_json::json!({ "contract": contract, "command": "SaveSession" });
     match send_command(handle, client, base_url, &body) {
-        Ok(CommandResult::SessionView { findings_count, .. }) => {
-            if findings_count == 0 {
-                println!("  No findings recorded yet.");
-            } else {
-                println!("  {} finding(s) recorded. Use {} to export.", findings_count, c_accent("export"));
-            }
-        }
-        _ => println!("  Could not retrieve findings."),
+        Ok(CommandResult::SessionSaved { json }) => match active_findings(&json) {
+            Some((scenario, findings)) => print!("{}", render_findings(contract, &scenario, &findings)),
+            None => eprintln!("  {}", c_danger("Could not read findings from the session")),
+        },
+        Ok(CommandResult::Error { message }) => eprintln!("  {}", c_danger(&message)),
+        Ok(_) => eprintln!("  {}", c_danger("Could not retrieve findings")),
+        Err(e) => eprintln!("  {}", c_danger(&e)),
+    }
+}
+
+/// Active scenario name and its journal findings from a saved-session JSON.
+fn active_findings(json: &str) -> Option<(String, Vec<ilold_core::journal::types::Finding>)> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    let active = value["active"].as_str()?.to_string();
+    let findings = serde_json::from_value(value["scenarios"][&active]["journal"]["findings"].clone()).ok()?;
+    Some((active, findings))
+}
+
+fn render_findings(contract: &str, scenario: &str, findings: &[ilold_core::journal::types::Finding]) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    if findings.is_empty() {
+        writeln!(out, "  No findings recorded in {contract}/{scenario}. Add one with {}.", c_accent("fi <severity> <title>")).ok();
+        return out;
+    }
+    writeln!(out).ok();
+    writeln!(out, "  {} finding(s) in {contract}/{scenario}:", findings.len()).ok();
+    for f in findings {
+        let target = match (&f.affected_sequence, f.affected_function.is_empty()) {
+            (Some(seq), _) => seq.join(" → "),
+            (None, false) => f.affected_function.clone(),
+            (None, true) => "session-level".to_string(),
+        };
+        writeln!(out, "  {} {} {}  {}", c_accent(&f.id), severity_colored(&f.severity.to_string()), c_bright(&f.title), c_muted(&target)).ok();
+    }
+    writeln!(out, "  {}", c_muted("→ export writes them to a markdown report")).ok();
+    writeln!(out).ok();
+    out
+}
+
+fn severity_colored(sev: &str) -> String {
+    let tag = format!("[{sev}]");
+    match sev {
+        "Critical" | "High" => c_danger(&tag).to_string(),
+        "Medium" => c_warn(&tag).to_string(),
+        _ => c_muted(&tag).to_string(),
     }
 }
 
@@ -1760,56 +2045,95 @@ fn print_sequence_narrative(val: &serde_json::Value) {
     println!();
 }
 
-fn print_help() {
-    let groups: &[(&str, &[(&str, &str, &str)])] = &[
-        ("Session", &[
-            ("c",      "call <func>",      "Add function to sequence"),
-            ("b",      "back",             "Remove last step"),
-            ("cl",     "clear",            "Reset sequence"),
-            ("s",      "state",            "Show accumulated state"),
-            ("seq",    "sequence",         "Sequence narrative with dependencies"),
-            ("st",     "step <index>",     "Re-inspect a specific step"),
-            ("ss",     "session",          "Full session state"),
-        ]),
-        ("Analysis", &[
-            ("w",      "who <var>",        "Who reads/writes a variable"),
-            ("i",      "info <func>",      "Function detail"),
-            ("tr",     "trace <func>",     "Execution flow tree (inlined)"),
-            ("",       "trace <func> -i",  "Interactive trace viewer"),
-            ("",       "trace step <N>",   "Re-render persisted step trace"),
-            ("tl",     "timeline <var>",   "Cross-step variable mutation history"),
-            ("sl",     "slice <fn> <var>", "Dataflow slice for a variable"),
-        ]),
-        ("Contract", &[
-            ("f",      "functions",        "List callable functions"),
-            ("fa",     "funcs-all",        "List all accessible (incl. inherited)"),
-            ("v",      "vars",             "List state variables"),
-            ("va",     "vars-all",         "List all accessible (incl. inherited)"),
-            ("ct",     "contracts",        "List project contracts"),
-            ("",       "deps [contract]",  "What this contract depends on"),
-            ("",       "usedby [contract]","What depends on it (blast radius)"),
-            ("",       "use <contract>",   "Switch active contract"),
-        ]),
-        ("Findings", &[
-            ("fi",     "finding [sev] [t]","Record a finding"),
-            ("n",      "note <text>",      "Add note to current step"),
-            ("sc",     "scenario <name>",  "Name the current sequence"),
-            ("",       "status <f> <s>",   "Change review status"),
-            ("fl",     "findings",         "List recorded findings"),
-            ("ex",     "export",           "Export findings as markdown"),
-        ]),
-        ("Workspace", &[
-            ("",       "save <name>",      "Save session to disk"),
-            ("",       "load <name>",      "Load session from disk"),
-            ("",       "browser",          "Open web UI"),
-            ("q",      "quit/exit",        "Exit"),
-        ]),
-    ];
+/// Help groups: (shortcut, usage, description). Every entry has inline help (`cmd?`).
+const HELP_GROUPS: &[(&str, &[(&str, &str, &str)])] = &[
+    ("Session", &[
+        ("c",      "call <func>",      "Add function to sequence"),
+        ("b",      "back",             "Remove last step"),
+        ("cl",     "clear",            "Reset sequence (asks first)"),
+        ("s",      "state",            "Show accumulated state"),
+        ("seq",    "sequence",         "Sequence narrative with dependencies"),
+        ("st",     "step <index>",     "Re-inspect a specific step"),
+        ("ss",     "session",          "Full session state"),
+        ("sc",     "scenario new|list|switch|fork|delete <name>", "Manage scenarios"),
+    ]),
+    ("Analysis", &[
+        ("w",      "who <var>",        "Who reads/writes a variable"),
+        ("i",      "info <func>",      "Function detail"),
+        ("tr",     "trace <func>",     "Execution flow tree (inlined)"),
+        ("",       "trace <func> -i",  "Interactive trace viewer"),
+        ("",       "trace step <N>",   "Re-render persisted step trace"),
+        ("tl",     "timeline <var>",   "Cross-step variable mutation history"),
+        ("sl",     "slice <fn> <var>", "Dataflow slice for a variable"),
+    ]),
+    ("Contract", &[
+        ("f",      "functions",        "List callable functions"),
+        ("fa",     "funcs-all",        "List all accessible (incl. inherited)"),
+        ("v",      "vars",             "List state variables"),
+        ("va",     "vars-all",         "List all accessible (incl. inherited)"),
+        ("ct",     "contracts",        "List project contracts"),
+        ("",       "deps [contract]",  "What this contract depends on"),
+        ("",       "usedby [contract]","What depends on it (blast radius)"),
+        ("",       "use <contract>",   "Switch active contract (its steps are kept)"),
+    ]),
+    ("Findings", &[
+        ("fi",     "finding [sev] [t]","Record a finding"),
+        ("n",      "note <text>",      "Add note to current step"),
+        ("",       "status <f> <s>",   "Change review status"),
+        ("fl",     "findings",         "List findings (id, severity, title)"),
+        ("ex",     "export",           "Export findings as markdown"),
+    ]),
+    ("Workspace", &[
+        ("",       "save <name>",      "Save session to ~/.ilold/sessions"),
+        ("",       "load <name>",      "Load session from ~/.ilold/sessions"),
+        ("",       "browser",          "Open web UI"),
+        ("?",      "help",             "This help"),
+        ("q",      "quit/exit",        "Exit (also Ctrl-D)"),
+    ]),
+];
 
+/// Inline help: (aliases, usage, description).
+const INLINE_HELP: &[(&[&str], &str, &str)] = &[
+    (&["c", "call"],      "call <func>",                     "Add a public/external function call to the session. Example: c deposit"),
+    (&["b", "back"],      "back",                            "Remove last step from the session sequence."),
+    (&["cl", "clear"],    "clear",                           "Reset the active scenario (all steps removed); asks for confirmation."),
+    (&["s", "state"],     "state",                           "Show accumulated state mutations across all steps."),
+    (&["f", "functions"], "functions",                       "List callable functions in the active contract."),
+    (&["v", "vars"],      "vars",                            "List state variables of the active contract."),
+    (&["w", "who"],       "who <variable>",                  "Show which functions read/write a state variable. Example: who totalStaked"),
+    (&["i", "info"],      "info <func>",                     "Function detail: paths, reads, writes, calls. Example: i deposit"),
+    (&["tr", "trace"],    TRACE_USAGE,                       "Execution flow tree. -i opens the TUI; flags after `trace step N` rebuild that step's function. Example: tr swap --depth 3"),
+    (&["seq", "sequence"],"sequence",                        "Show the narrative of the current call sequence (needs 2+ steps)."),
+    (&["tl", "timeline"], "timeline <variable>",             "Cross-step mutation history of a state variable. Example: tl totalStaked"),
+    (&["sl", "slice"],    "slice <func> <var> [--backward|--forward|--both]", "Dataflow slice. Example: sl deposit totalStaked --backward"),
+    (&["st", "step"],     "step <index>",                    "Re-inspect a session step (0-based). Example: st 0"),
+    (&["ss", "session"],  "session",                         "Full session state with all steps."),
+    (&["fi", "finding"],  "finding [severity] [title]",      "Record a finding on the current step; with no steps it is session-level. No arguments: interactive."),
+    (&["n", "note"],      "note <text>",                     "Attach a note to the current step; with no steps it is session-level."),
+    (&["sc", "scen", "scenario"], "scenario new <name> | list | switch <name> | fork <name> [at N] | delete <name>",
+                                                             "Manage scenarios of the active contract. Example: sc fork attack at 2"),
+    (&["fl", "findings"], "findings",                        "List findings of the active scenario with id, severity and title."),
+    (&["ex", "export"],   "export",                          "Export findings, notes and coverage as ilold-report-<contract>.md."),
+    (&["fa", "funcs-all"],"funcs-all",                       "List all accessible functions including inherited."),
+    (&["va", "vars-all"], "vars-all",                        "List all accessible state variables including inherited."),
+    (&["ct", "contracts"],"contracts",                       "List all contracts in the project."),
+    (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on. Example: deps Vault"),
+    (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it — the blast radius. Example: usedby IPool"),
+    (&["use"],            "use <contract>",                  "Switch the active contract; each contract keeps its own steps. Example: use Staking"),
+    (&["status"],         "status <func> <status>",          "Change review status (reviewed, suspicious, vulnerable, clean, inprogress, notreviewed). Example: status deposit reviewed"),
+    (&["save"],           "save <name>",                     "Save the contract's scenarios to ~/.ilold/sessions/<name>.json. Names are plain (letters, digits, - _ .). Example: save my-audit"),
+    (&["load"],           "load <name>",                     "Load ~/.ilold/sessions/<name>.json; switches to the saved contract. Example: load my-audit"),
+    (&["browser"],        "browser",                         "Open the web UI in a browser."),
+    (&["?", "h", "help"], "help",                            "List commands. Append ? to any command for its inline help (e.g. sl?)."),
+    (&["q", "quit", "exit"], "quit",                         "Exit the REPL (also Ctrl-D). Ctrl-C only clears the current line."),
+];
+
+fn print_help() {
     println!();
     println!("  {}  {}", c_bright("ilold explore"), c_muted("— append ? to any command for inline help (e.g. sl?)"));
+    println!("  {}", c_muted("Tab completes commands and names · Ctrl-C clears the line · Ctrl-D or q exits"));
     println!();
-    for (group_name, cmds) in groups {
+    for (group_name, cmds) in HELP_GROUPS {
         println!("  {}", c_warn(group_name));
         for (shortcut, name, desc) in *cmds {
             let sc = if shortcut.is_empty() {
@@ -1823,46 +2147,17 @@ fn print_help() {
     }
 }
 
-fn print_inline_help(cmd: &str) {
-    let entries: &[(&[&str], &str, &str)] = &[
-        (&["c", "call"],      "call <func>",                     "Add function call to session. Example: c deposit"),
-        (&["b", "back"],      "back",                            "Remove last step from the session sequence."),
-        (&["cl", "clear"],    "clear",                           "Reset the entire session (all steps removed)."),
-        (&["s", "state"],     "state",                           "Show accumulated state mutations across all steps."),
-        (&["f", "functions"], "functions",                       "List callable functions in the active contract."),
-        (&["v", "vars"],      "vars",                            "List state variables of the active contract."),
-        (&["w", "who"],       "who <variable>",                  "Show which functions read/write a variable. Example: who totalStaked"),
-        (&["i", "info"],      "info <func>",                     "Function detail: paths, reads, writes, calls. Example: i deposit"),
-        (&["tr", "trace"],    "trace <func> [--depth N] [-i]",   "Execution flow tree. -i for interactive TUI. Example: tr swap --depth 3"),
-        (&["seq", "sequence"],"sequence",                        "Show the narrative of the current call sequence."),
-        (&["tl", "timeline"], "timeline <variable>",             "Cross-step mutation history. Example: tl totalStaked"),
-        (&["sl", "slice"],    "slice <func> <var> [--backward]", "Dataflow slice. Example: sl deposit totalStaked --backward"),
-        (&["st", "step"],     "step <index>",                    "Re-inspect a specific session step. Example: st 0"),
-        (&["ss", "session"],  "session",                         "Full session state with all steps."),
-        (&["fi", "finding"],  "finding [severity] [text]",       "Record a security finding for the current step."),
-        (&["n", "note"],      "note <text>",                     "Attach a note to the current step."),
-        (&["sc", "scenario"],"scenario <name>",                  "Name the current sequence. Example: sc reentrancy-attack"),
-        (&["fl", "findings"], "findings",                        "List all recorded findings."),
-        (&["ex", "export"],   "export",                          "Export findings as a markdown report."),
-        (&["fa", "funcs-all"],"funcs-all",                       "List all accessible functions including inherited."),
-        (&["va", "vars-all"], "vars-all",                        "List all accessible state variables including inherited."),
-        (&["ct", "contracts"],"contracts",                       "List all contracts in the project."),
-        (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on. Example: deps Vault"),
-        (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it — the blast radius. Example: usedby IPool"),
-        (&["use"],            "use <contract>",                  "Switch the active contract. Example: use Staking"),
-        (&["status"],         "status <func> <status>",          "Change review status. Example: status deposit reviewed"),
-        (&["save"],           "save <name>",                     "Save session to disk. Example: save my-audit"),
-        (&["load"],           "load <name>",                     "Load session from disk. Example: load my-audit"),
-        (&["browser"],        "browser",                         "Open the web UI in a browser."),
-    ];
+fn inline_help(cmd: &str) -> Option<(&'static str, &'static str)> {
+    INLINE_HELP.iter()
+        .find(|(aliases, _, _)| aliases.contains(&cmd))
+        .map(|(_, usage, desc)| (*usage, *desc))
+}
 
-    for (aliases, usage, desc) in entries {
-        if aliases.iter().any(|a| *a == cmd) {
-            println!("  {} {}", c_accent(usage), c_muted(desc));
-            return;
-        }
+fn print_inline_help(cmd: &str) {
+    match inline_help(cmd) {
+        Some((usage, desc)) => println!("  {} {}", c_accent(usage), c_muted(desc)),
+        None => println!("  {} unknown command: {}. Type {} for help.", c_danger("✗"), cmd, c_accent("?")),
     }
-    println!("  {} unknown command: {}", c_danger("✗"), cmd);
 }
 
 
@@ -1916,63 +2211,72 @@ impl Prompt for IloldPrompt {
 
 struct IloldCompleter {
     functions: Vec<String>,
+    state_vars: Vec<String>,
     contracts: Vec<String>,
     scenarios: Vec<String>,
 }
 
+const COMMAND_WORDS: &[&str] = &[
+    "back", "browser", "call", "clear", "contracts", "deps", "exit", "export", "finding", "findings",
+    "funcs-all", "functions", "help", "info", "load", "note", "quit", "save", "scenario", "sequence",
+    "session", "slice", "state", "status", "step", "timeline", "trace", "use", "usedby", "vars",
+    "vars-all", "who",
+];
+const SCENARIO_SUBCOMMANDS: &[&str] = &["new", "list", "switch", "fork", "delete"];
+const SEVERITIES: &[&str] = &["critical", "high", "medium", "low", "info"];
+const STATUSES: &[&str] = &["reviewed", "suspicious", "vulnerable", "clean", "inprogress", "notreviewed"];
+
+impl IloldCompleter {
+    /// Start of the word being completed and the names that fit its position.
+    fn candidates(&self, before: &str) -> (usize, Vec<String>) {
+        let word_start = before.rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
+        let partial = &before[word_start..];
+        let words: Vec<&str> = before[..word_start].split_whitespace().collect();
+        let owned = |list: &[String]| list.to_vec();
+        let fixed = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let pool: Vec<String> = match words.as_slice() {
+            [] => fixed(COMMAND_WORDS),
+            [cmd, rest @ ..] => match (cmd.to_lowercase().as_str(), rest) {
+                ("c" | "call" | "i" | "info", []) => owned(&self.functions),
+                ("status", []) => owned(&self.functions),
+                ("status", [_]) => fixed(STATUSES),
+                ("tr" | "trace", []) => {
+                    let mut v = owned(&self.functions);
+                    v.push("step".into());
+                    v
+                }
+                ("w" | "who" | "tl" | "timeline", []) => owned(&self.state_vars),
+                ("sl" | "slice", []) => owned(&self.functions),
+                ("sl" | "slice", [_]) => owned(&self.state_vars),
+                ("use" | "deps" | "dep" | "usedby" | "rdeps", []) => owned(&self.contracts),
+                ("sc" | "scen" | "scenario", []) => fixed(SCENARIO_SUBCOMMANDS),
+                ("sc" | "scen" | "scenario", [sub]) if matches!(*sub, "switch" | "fork" | "delete" | "rm") => {
+                    owned(&self.scenarios)
+                }
+                ("fi" | "finding", []) => fixed(SEVERITIES),
+                _ => Vec::new(),
+            },
+        };
+        let needle = partial.to_lowercase();
+        let mut out: Vec<String> = pool.into_iter().filter(|c| c.to_lowercase().starts_with(&needle)).collect();
+        out.dedup();
+        (word_start, out)
+    }
+}
+
 impl Completer for IloldCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
-        let line_lower = line[..pos].to_lowercase();
-
-        let needs_func = line_lower.starts_with("c ")
-            || line_lower.starts_with("call ")
-            || line_lower.starts_with("i ")
-            || line_lower.starts_with("info ")
-            || line_lower.starts_with("tr ")
-            || line_lower.starts_with("trace ")
-            || line_lower.starts_with("w ")
-            || line_lower.starts_with("who ")
-            || line_lower.starts_with("status ")
-            || (line_lower.starts_with("sl ") && line[..pos].matches(' ').count() == 1)
-            || (line_lower.starts_with("slice ") && line[..pos].matches(' ').count() == 1);
-
-        let needs_contract = line_lower.starts_with("use ")
-            || line_lower.starts_with("deps ")
-            || line_lower.starts_with("dep ")
-            || line_lower.starts_with("usedby ")
-            || line_lower.starts_with("rdeps ");
-
-        let needs_scenario = line_lower.starts_with("scenario switch ")
-            || line_lower.starts_with("scenario delete ")
-            || line_lower.starts_with("sc switch ")
-            || line_lower.starts_with("sc delete ")
-            || line_lower.starts_with("scen switch ")
-            || line_lower.starts_with("scen delete ");
-
-        if !needs_func && !needs_contract && !needs_scenario {
-            return Vec::new();
-        }
-
-        let arg_start = line[..pos].rfind(' ').map(|i| i + 1).unwrap_or(0);
-        let partial = &line[arg_start..pos];
-
-        let source = if needs_scenario {
-            &self.scenarios
-        } else if needs_contract {
-            &self.contracts
-        } else {
-            &self.functions
-        };
-
-        source.iter()
-            .filter(|f| f.starts_with(partial))
-            .map(|f| Suggestion {
-                value: f.clone(),
+        let (start, values) = self.candidates(&line[..pos]);
+        values
+            .into_iter()
+            .map(|value| Suggestion {
+                value,
                 display_override: None,
                 description: None,
                 style: None,
                 extra: None,
-                span: Span::new(arg_start, pos),
+                span: Span::new(start, pos),
                 append_whitespace: true,
                 match_indices: None,
             })
@@ -2024,7 +2328,10 @@ mod tests {
     fn sync_session_reflects_changes_made_by_other_clients() {
         let (rt, state, url) = server();
         let client = reqwest::Client::new();
-        assert_eq!(sync_session(rt.handle(), &client, &url, "Vault"), Some(("main".into(), vec![])));
+        assert_eq!(
+            sync_session(rt.handle(), &client, &url, "Vault"),
+            Some(SessionSnapshot { active: "main".into(), steps: vec![], scenarios: vec!["main".into()] }),
+        );
 
         // Another client (the browser) adds a step and moves to another contract.
         let call = serde_json::json!({ "contract": "Vault", "command": { "Call": { "func": "depositVia" } } });
@@ -2034,9 +2341,194 @@ mod tests {
 
         assert_eq!(
             sync_session(rt.handle(), &client, &url, "Vault"),
-            Some(("main".into(), vec!["depositVia".to_string()])),
+            Some(SessionSnapshot { active: "main".into(), steps: vec!["depositVia".to_string()], scenarios: vec!["main".into()] }),
         );
         // Syncing is a read: it does not take the session over from the browser.
         assert_eq!(state.scenarios.read().unwrap().current_contract(), "LendingPool");
+    }
+
+    #[test]
+    fn sync_session_follows_scenario_switch_and_fork() {
+        let (rt, _state, url) = server();
+        let client = reqwest::Client::new();
+        let cmd = |command: serde_json::Value| {
+            send_command(rt.handle(), &client, &url, &serde_json::json!({ "contract": "Vault", "command": command })).unwrap()
+        };
+        cmd(serde_json::json!({ "Call": { "func": "depositVia" } }));
+        cmd(serde_json::json!({ "Scenario": { "sub": { "Fork": { "name": "alt" } } } }));
+        cmd(serde_json::json!({ "Scenario": { "sub": { "Switch": { "name": "alt" } } } }));
+        let snap = sync_session(rt.handle(), &client, &url, "Vault").unwrap();
+        assert_eq!(snap.active, "alt");
+        assert_eq!(snap.steps, vec!["depositVia".to_string()]);
+        assert_eq!(snap.scenarios, vec!["main".to_string(), "alt".to_string()]);
+    }
+
+    fn trace(arg: &str) -> Result<TraceArgs, String> {
+        parse_trace_args(arg)
+    }
+
+    #[test]
+    fn parse_trace_args_accepts_valid_forms() {
+        let t = trace("deposit --depth 3 --reverts +4 +7 -i").unwrap();
+        assert_eq!(t, TraceArgs {
+            target: TraceTarget::Function("deposit".into()),
+            depth: Some(3), reverts: true, expand: vec![4, 7], interactive: true,
+        });
+        let t = trace("step 2 -i --depth 5").unwrap();
+        assert_eq!(t.target, TraceTarget::SessionStep(2));
+        assert!(t.interactive);
+        assert_eq!(t.depth, Some(5), "flags after `trace step N` apply");
+        assert!(t.has_render_flags());
+        assert!(!trace("step 0 -i").unwrap().has_render_flags());
+    }
+
+    #[test]
+    fn parse_trace_args_rejects_bad_input() {
+        let err = trace("f --bogus").unwrap_err();
+        assert!(err.contains("Unknown flag '--bogus'"), "{err}");
+        let err = trace("f --depth x").unwrap_err();
+        assert!(err.contains("--depth needs a non-negative integer, got 'x'"), "{err}");
+        assert!(trace("f --depth").unwrap_err().contains("--depth needs a value"));
+        assert!(trace("step").unwrap_err().contains("trace step needs a step index"));
+        assert!(trace("step two").unwrap_err().contains("Step index must be a non-negative integer"));
+        assert!(trace("f g").unwrap_err().contains("Unexpected argument 'g'"));
+        assert!(trace("f +x").unwrap_err().contains("+N"));
+        assert!(trace("--reverts").unwrap_err().contains("trace needs a function"));
+    }
+
+    #[test]
+    fn function_trace_url_encodes_flags() {
+        let t = trace("f --depth 3 --reverts +1 +2").unwrap();
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?depth=3&reverts=true&expand=1,2");
+        let t = trace("f -i").unwrap();
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?depth=4");
+        let t = trace("f").unwrap();
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f");
+    }
+
+    #[test]
+    fn session_names_cannot_escape_the_sessions_dir() {
+        for bad in ["../x", "../../escape-t2", "/etc/passwd", "a/b", "a\\b", "..", ".hidden", "", "a b", "~/x"] {
+            assert!(session_stem(bad).is_err(), "{bad:?} accepted");
+        }
+        assert_eq!(session_stem("my-audit").unwrap(), "my-audit");
+        assert_eq!(session_stem("pool_v3.1").unwrap(), "pool_v3.1");
+        assert_eq!(session_stem("my-audit.json").unwrap(), "my-audit");
+        let path = session_file("my-audit").unwrap();
+        assert_eq!(path.parent().unwrap(), sessions_dir());
+        assert_eq!(path.file_name().unwrap(), "my-audit.json");
+    }
+
+    #[test]
+    fn every_help_entry_and_command_word_has_inline_help() {
+        for (_, cmds) in HELP_GROUPS {
+            for (shortcut, usage, _) in *cmds {
+                if !shortcut.is_empty() {
+                    assert!(inline_help(shortcut).is_some(), "no inline help for {shortcut}");
+                }
+                let first = usage.split_whitespace().next().unwrap();
+                for word in first.split('/') {
+                    assert!(inline_help(word).is_some(), "no inline help for {word} ({usage})");
+                }
+            }
+        }
+        for word in COMMAND_WORDS {
+            assert!(inline_help(word).is_some(), "no inline help for {word}");
+        }
+        assert!(inline_help("q").is_some());
+        assert!(inline_help("nope").is_none());
+        let (usage, _) = inline_help("sc").unwrap();
+        assert!(usage.contains("new <name>") && usage.contains("fork <name> [at N]") && usage.contains("delete <name>"), "{usage}");
+    }
+
+    fn completer() -> IloldCompleter {
+        IloldCompleter {
+            functions: vec!["deposit".into(), "depositVia".into(), "_accrue".into(), "withdraw".into()],
+            state_vars: vec!["totalSupplied".into(), "balances".into()],
+            contracts: vec!["Vault".into(), "LendingPool".into()],
+            scenarios: vec!["main".into(), "attack".into()],
+        }
+    }
+
+    fn values(before: &str) -> Vec<String> {
+        completer().candidates(before).1
+    }
+
+    #[test]
+    fn completer_offers_names_by_argument_position() {
+        assert_eq!(values("dep"), vec!["deps".to_string()]);
+        assert_eq!(values("c dep"), vec!["deposit".to_string(), "depositVia".to_string()]);
+        assert_eq!(values("tr _"), vec!["_accrue".to_string()], "inherited functions complete");
+        assert!(values("tr ").contains(&"step".to_string()));
+        assert_eq!(values("who tot"), vec!["totalSupplied".to_string()]);
+        assert_eq!(values("tl b"), vec!["balances".to_string()]);
+        assert_eq!(values("w d"), Vec::<String>::new(), "who completes state variables, not functions");
+        assert_eq!(values("sl w"), vec!["withdraw".to_string()]);
+        assert_eq!(values("sl withdraw bal"), vec!["balances".to_string()]);
+        assert_eq!(values("use L"), vec!["LendingPool".to_string()]);
+        assert_eq!(values("sc s"), vec!["switch".to_string()]);
+        assert_eq!(values("sc switch a"), vec!["attack".to_string()]);
+        assert_eq!(values("scenario delete "), vec!["main".to_string(), "attack".to_string()]);
+        assert_eq!(values("sc fork m"), vec!["main".to_string()]);
+        assert_eq!(values("sc new a"), Vec::<String>::new());
+        assert_eq!(values("status deposit re"), vec!["reviewed".to_string()]);
+        assert_eq!(values("C DEP").len(), 2, "case-insensitive");
+        assert_eq!(completer().candidates("c dep").0, 2);
+    }
+
+    #[test]
+    fn argument_checks_name_close_matches() {
+        let names = ContractNames { functions: vec!["supply".into()], state_vars: vec!["balances".into()] };
+        assert!(check_state_var("balances", "C", &names).is_ok());
+        assert!(check_state_var("balances[msg.sender]", "C", &names).is_ok());
+        let err = check_state_var("balance", "C", &names).unwrap_err();
+        assert!(err.contains("Unknown state variable 'balance' in C. Did you mean: balances?"), "{err}");
+        assert!(check_state_var("nope", "C", &names).unwrap_err().contains("Unknown state variable 'nope'"));
+        assert!(check_state_var("balances extra", "C", &names).unwrap_err().contains("unexpected: 'extra'"));
+        assert!(check_function("supply", "C", &names).is_ok());
+        assert!(check_function("suply", "C", &names).unwrap_err().contains("Did you mean: supply?"));
+        assert!(check_state_var("anything", "C", &ContractNames::default()).is_ok());
+        assert_eq!(extra_args("supply extra args"), Some("extra args"));
+        assert_eq!(extra_args("supply"), None);
+    }
+
+    #[test]
+    fn step_index_errors_are_friendly() {
+        let steps = vec!["a".to_string(), "b".to_string()];
+        assert!(parse_step_index("abc").unwrap_err().contains("non-negative integer, got 'abc'"));
+        assert!(check_step_index(1, &steps).is_ok());
+        assert!(check_step_index(5, &steps).unwrap_err().contains("has 2 step(s), 0-1"));
+        assert!(check_step_index(0, &[]).unwrap_err().contains("No steps yet"));
+    }
+
+    #[test]
+    fn local_and_attached_names_include_inherited_members() {
+        let (rt, state, url) = server();
+        let client = reqwest::Client::new();
+        let local = local_names(&state.project);
+        let detail = send_get(rt.handle(), &client, &format!("{url}/api/contract/LendingPool")).unwrap();
+        let attached = ContractNames::from_detail(&detail);
+        for names in [&local["LendingPool"], &attached] {
+            assert!(names.functions.contains(&"supply".to_string()), "{names:?}");
+            assert!(names.state_vars.contains(&"balances".to_string()), "{names:?}");
+            assert!(names.state_vars.contains(&"totalSupplied".to_string()), "inherited var: {names:?}");
+        }
+    }
+
+    #[test]
+    fn findings_list_shows_severity_and_title() {
+        let (rt, _state, url) = server();
+        let client = reqwest::Client::new();
+        let finding = serde_json::json!({ "contract": "Vault", "command": {
+            "Finding": { "severity": "High", "title": "Unchecked pool return", "description": "" } } });
+        send_command(rt.handle(), &client, &url, &finding).unwrap();
+        let saved = send_command(rt.handle(), &client, &url, &serde_json::json!({ "contract": "Vault", "command": "SaveSession" })).unwrap();
+        let CommandResult::SessionSaved { json } = saved else { panic!("{saved:?}") };
+        let (scenario, findings) = active_findings(&json).unwrap();
+        assert_eq!(scenario, "main");
+        colored::control::set_override(false);
+        let out = render_findings("Vault", &scenario, &findings);
+        assert!(out.contains("1 finding(s) in Vault/main"), "{out}");
+        assert!(out.contains("F-01 [High] Unchecked pool return  session-level"), "{out}");
     }
 }

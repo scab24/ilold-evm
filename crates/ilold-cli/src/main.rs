@@ -12,7 +12,12 @@ mod fmt;
 mod interactive;
 
 #[derive(Parser)]
-#[command(name = "ilold", version, about = "Smart contract execution path analyzer")]
+#[command(
+    name = "ilold",
+    version,
+    about = "Smart contract execution path analyzer",
+    after_help = "Exit codes:\n  0  success\n  1  error: unknown --contract (with close matches), not a Foundry project, compile or server failure\n  2  invalid command-line usage"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

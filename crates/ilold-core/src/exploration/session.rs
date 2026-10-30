@@ -79,12 +79,19 @@ impl Default for TraceConfig {
 
 fn default_trace_depth() -> usize { 2 }
 
+fn unix_now() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default()
+}
+
 impl ExplorationSession {
     pub fn new(contract: &str, project: &str) -> Self {
         ExplorationSession {
             contract: contract.into(),
             steps: Vec::new(),
-            journal: AuditJournal::new(project, contract, ""),
+            journal: AuditJournal::new(project, contract, &unix_now()),
             forked_from: None,
         }
     }

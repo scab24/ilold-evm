@@ -108,7 +108,7 @@ ilold[→ deposit → withdraw]> seq
 
 `st <index>` or `step <index>`
 
-Re-inspects a specific session step, showing its full function narrative (same output as [info](./analysis.md#info)). You can also write `st0`, `st1` without a space.
+Re-inspects a specific session step, showing its full function narrative (same output as [info](./analysis.md#info)). You can also write `st0`, `st1` without a space. The index is 0-based; a non-numeric or out-of-range index says how many steps the scenario has.
 
 ```
 ilold[→ deposit → withdraw]> st 0

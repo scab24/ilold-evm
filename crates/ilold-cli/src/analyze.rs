@@ -39,6 +39,12 @@ pub fn run(
     println!("Parsed {} file(s), {} contract(s)\n",
         project.source_files.len(), project.contracts.len());
 
+    if let Some(name) = contract_filter {
+        if !project.contracts.iter().any(|c| c.name == name) {
+            return Err(contract_not_found(name, project.contracts.iter().map(|c| c.name.as_str())));
+        }
+    }
+
     let params = AnalysisParams::new(max_seq_depth);
     let all_analyses = ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;
 
@@ -80,7 +86,7 @@ pub fn run_deps(path: &PathBuf, contract: Option<&str>) -> Result<()> {
 
     if let Some(name) = contract {
         if deps.node(name).is_none() {
-            anyhow::bail!("Contract '{name}' not found");
+            return Err(contract_not_found(name, project.contracts.iter().map(|c| c.name.as_str())));
         }
         crate::deps_view::print_direction(name, false, crate::deps_view::dep_rows(&deps, name, false));
         crate::deps_view::print_direction(name, true, crate::deps_view::dep_rows(&deps, name, true));
@@ -136,6 +142,49 @@ pub fn run_deps(path: &PathBuf, contract: Option<&str>) -> Result<()> {
         c_muted("holds→")
     );
     Ok(())
+}
+
+/// Unknown `--contract`: names the closest project contracts, or lists them all.
+pub fn contract_not_found<'a>(name: &str, available: impl Iterator<Item = &'a str>) -> anyhow::Error {
+    let mut names: Vec<&str> = available.filter(|n| !n.is_empty()).collect();
+    names.sort_unstable();
+    names.dedup();
+    let close = close_matches(name, &names);
+    if close.is_empty() {
+        anyhow::anyhow!("Contract '{name}' not found. Available: {}", names.join(", "))
+    } else {
+        anyhow::anyhow!("Contract '{name}' not found. Did you mean: {}?", close.join(", "))
+    }
+}
+
+/// Candidates equal ignoring case, containing each other, or within a small edit distance.
+pub fn close_matches<'a>(name: &str, candidates: &[&'a str]) -> Vec<&'a str> {
+    let needle = name.to_lowercase();
+    let limit = (needle.chars().count() / 3).max(1);
+    candidates
+        .iter()
+        .copied()
+        .filter(|c| {
+            let cand = c.to_lowercase();
+            cand == needle
+                || (needle.len() >= 3 && (cand.contains(&needle) || needle.contains(&cand)))
+                || edit_distance(&cand, &needle) <= limit
+        })
+        .collect()
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != *cb);
+            cur[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
 }
 
 fn print_dep_line(deps: &ContractDeps, name: &str, kind: ContractKind, name_w: usize) {
@@ -368,4 +417,18 @@ fn print_contract(
     }
 
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_matches_cover_case_typos_and_substrings() {
+        let names = ["Vault", "LendingPool", "IPool", "BasePool"];
+        assert_eq!(close_matches("vault", &names), vec!["Vault"]);
+        assert_eq!(close_matches("LendingPol", &names), vec!["LendingPool"]);
+        assert_eq!(close_matches("Pool", &names), vec!["LendingPool", "IPool", "BasePool"]);
+        assert!(close_matches("Nope", &names).is_empty());
+    }
 }

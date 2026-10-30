@@ -296,7 +296,13 @@ pub fn execute_command(
         },
         SessionCommand::Who { variable } => execute_who(data, &variable),
         SessionCommand::Export => {
-            let md = export_markdown(&session.journal, data.contract.functions.len());
+            let mut journal = session.journal.clone();
+            if let Some(name) = data.project.source_files.get(data.contract.span.file_index)
+                .and_then(|f| project_root_name(&f.path))
+            {
+                journal.project = name;
+            }
+            let md = export_markdown(&journal, data.contract.functions.len());
             CommandResult::Exported { markdown: md }
         }
         SessionCommand::SaveSession | SessionCommand::LoadSession { .. } => CommandResult::Error {
@@ -308,6 +314,16 @@ pub fn execute_command(
             message: "Scenario commands must be dispatched at the store level, not through execute_command".into(),
         },
     }
+}
+
+/// Directory name of the Foundry root (nearest ancestor with foundry.toml) of a source file.
+pub fn project_root_name(source_path: &str) -> Option<String> {
+    std::path::Path::new(source_path)
+        .ancestors()
+        .skip(1)
+        .find(|dir| dir.join("foundry.toml").is_file())
+        .and_then(|dir| dir.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
 }
 
 fn execute_state_vars_all(data: &AnalysisData) -> CommandResult {
@@ -722,4 +738,22 @@ pub fn get_sequence_narrative(
 
 pub fn get_session_state(session: &ExplorationSession) -> Vec<VariableSummary> {
     session.variable_summary()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_root_name_is_the_foundry_root_directory() {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/solc/cross/src/Vault.sol");
+        assert_eq!(project_root_name(file).as_deref(), Some("cross"));
+        assert_eq!(project_root_name("/no/such/dir/src/A.sol"), None);
+    }
+
+    #[test]
+    fn new_session_records_its_start_time() {
+        let s = ExplorationSession::new("Vault", "p");
+        assert!(s.journal.started_at.parse::<u64>().is_ok_and(|t| t > 1_700_000_000), "{}", s.journal.started_at);
+    }
 }
