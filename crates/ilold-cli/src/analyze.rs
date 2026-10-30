@@ -6,7 +6,6 @@ use colored::Colorize;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::callgraph::builder::build_call_graph;
-use ilold_core::callgraph::types::CallKind;
 use ilold_core::cfg::builder::CfgBuilder;
 use ilold_core::classify::entry_points::classify_function;
 use ilold_core::depgraph::ContractDeps;
@@ -231,10 +230,10 @@ fn print_contract(
             Visibility::Private => "private",
         };
 
-        match CfgBuilder::build(func, contract) {
+        match CfgBuilder::build_with_project(func, contract, Some(project)) {
             Ok(cfg) => {
                 let pt = build_path_tree(
-                    &cfg, &contract.name, &func.name, &combined_state_vars, &config,
+                    &cfg, &contract.name, &func.key, &combined_state_vars, &config,
                 );
 
                 println!("  {} {} {} — {} blocks, {} edges, {} paths ({} happy, {} revert)",
@@ -277,14 +276,11 @@ fn print_contract(
             for edge_idx in edges {
                 let (src, dst) = cg.edge_endpoints(edge_idx).unwrap();
                 let edge = &cg[edge_idx];
-                let kind_color = match edge.kind {
-                    CallKind::Internal => c_muted("internal"),
-                    CallKind::External => c_danger("external"),
-                    CallKind::Inherited => c_muted("inherited"),
-                };
+                let kind = edge.kind.label();
+                let kind_color = if edge.kind.is_internal() { c_muted(kind) } else { c_danger(kind) };
                 println!("    {} {} {} {}",
-                    c_bright(&cg[src].function), c_muted("→"),
-                    c_accent(&format!("{}.{}", cg[dst].contract, cg[dst].function)),
+                    c_bright(&cg[src].id()), c_muted("→"),
+                    c_accent(&cg[dst].id()),
                     kind_color);
             }
             println!();

@@ -24,6 +24,20 @@ fn is_user_type_name(head: &str) -> bool {
         && head.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
+// Global functions that run no contract code (fallback when solc types are absent).
+pub fn is_builtin_function(name: &str) -> bool {
+    matches!(
+        name,
+        "keccak256" | "sha256" | "ripemd160" | "ecrecover" | "addmod" | "mulmod" | "gasleft"
+            | "blockhash" | "blobhash" | "selfdestruct" | "require" | "assert" | "revert" | "type"
+    )
+}
+
+// `abi.encode(...)`, `bytes.concat(...)`, `string.concat(...)`, `block.*`, `msg.*`, `tx.*`
+pub fn is_builtin_namespace(name: &str) -> bool {
+    matches!(name, "abi" | "bytes" | "string" | "block" | "msg" | "tx")
+}
+
 pub fn target_base_name(target: &str) -> &str {
     let base = target.split('[').next().unwrap_or(target);
     base.split('.').next().unwrap_or(base)

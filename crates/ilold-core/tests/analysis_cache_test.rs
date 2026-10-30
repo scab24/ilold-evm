@@ -49,13 +49,15 @@ fn canonical(analysis: &ProjectAnalysis) -> String {
 
 fn small_project() -> Project {
     let span = SourceSpan { file_index: 0, start_line: 1, start_col: 1, end_line: 1, end_col: 1 };
-    let function = |name: &str| FunctionDef { name: name.into(), kind: FunctionKind::Function,
+    let function = |name: &str| FunctionDef { name: name.into(), key: name.into(),
+        signature: format!("{name}()"), selector: None, id: None, kind: FunctionKind::Function,
         visibility: Visibility::Public, mutability: Mutability::NonPayable, modifiers: vec![],
         base_constructor_calls: vec![],
         params: vec![], returns: vec![], body: Some(vec![]), is_virtual: false, is_override: false, span };
     let base = ContractDef { name: "Base".into(), kind: ContractKind::Contract,
         functions: vec![function("ping"), function("pong")], modifiers: vec![], state_vars: vec![],
-        structs: vec![], enums: vec![], events: vec![], errors: vec![], inherits: vec![], span };
+        structs: vec![], enums: vec![], events: vec![], errors: vec![], inherits: vec![],
+        id: None, linearized_bases: vec![], span };
     let child = ContractDef { name: "Child".into(), inherits: vec!["Base".into()],
         functions: vec![function("run")], ..base.clone() };
     let mut project = Project { source_files: vec![SourceFile { path: "src/C.sol".into(), content: String::new() }],

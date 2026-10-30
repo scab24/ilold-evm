@@ -53,7 +53,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 | `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. |
 | `ilold_function_paths` | `contract`, `function` | Enumerated execution paths with per-path annotations and terminal kind (return/revert). |
 | `ilold_trace` | `contract`, `function`, `depth` (optional), `reverts` (optional), `expand` (optional) | Execution tree with modifier bodies inlined and external calls resolved to their real target. |
-| `ilold_callgraph` | `contract` | Function call edges within and out of the contract (internal, external, inherited) with call counts. |
+| `ilold_callgraph` | `contract` | Function call edges of the contract as the most derived contract (own and inherited functions, `super` and virtual dispatch resolved), with call kinds (internal, library internal/delegatecall, external, `this`, low-level, transfer/send, creation) and call counts. |
 | `ilold_cfg` | `contract`, `function` | Control flow graph: basic blocks and branch edges. |
 | `ilold_source` | `contract`, `function` | Source code of the function with its file path and line span. |
 

@@ -201,6 +201,8 @@ mod tests {
                             kind: ExpressionKind::Identifier { name: name.into(), resolved: None },
                             span: span(),
                         }],
+                        options: vec![],
+                        call: Default::default(),
                     },
                     span: span(),
                 },

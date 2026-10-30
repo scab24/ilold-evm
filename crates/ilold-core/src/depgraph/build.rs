@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use petgraph::graph::NodeIndex;
 
 use crate::callgraph::builder::build_call_graph;
-use crate::callgraph::types::{CallGraph, CallKind};
+use crate::callgraph::types::CallGraph;
 use crate::model::project::Project;
 
 use super::{ContractDeps, DepEdge, DepGraph, DepNode};
@@ -16,7 +16,7 @@ pub fn build(project: &Project) -> ContractDeps {
     for c in &project.contracts {
         if let Some(&from) = index.get(&c.name) {
             let cg = build_call_graph(project, c);
-            call_edges(&mut graph, &index, from, &cg);
+            call_edges(&mut graph, &index, from, &c.name, &cg);
         }
     }
     ContractDeps { graph, index }
@@ -27,7 +27,7 @@ pub fn from_call_graphs(project: &Project, call_graphs: &HashMap<String, CallGra
     static_edges(project, &mut graph, &index);
     for c in &project.contracts {
         if let (Some(&from), Some(cg)) = (index.get(&c.name), call_graphs.get(&c.name)) {
-            call_edges(&mut graph, &index, from, cg);
+            call_edges(&mut graph, &index, from, &c.name, cg);
         }
     }
     ContractDeps { graph, index }
@@ -76,12 +76,14 @@ fn static_edges(project: &Project, graph: &mut DepGraph, index: &Index) {
     }
 }
 
-fn call_edges(graph: &mut DepGraph, index: &Index, from: NodeIndex, cg: &CallGraph) {
+fn call_edges(graph: &mut DepGraph, index: &Index, from: NodeIndex, name: &str, cg: &CallGraph) {
     for eidx in cg.edge_indices() {
-        if cg[eidx].kind != CallKind::External {
+        let (s, t) = cg.edge_endpoints(eidx).unwrap();
+        // calls written in this contract; inherited bodies count for their own contract and
+        // calls into the own hierarchy are inheritance, not a dependency
+        if cg[s].contract != name || !cg[t].is_external {
             continue;
         }
-        let (_, t) = cg.edge_endpoints(eidx).unwrap();
         let Some(&to) = index.get(&cg[t].contract) else {
             continue;
         };

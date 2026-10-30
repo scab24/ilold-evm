@@ -143,7 +143,7 @@ fn check_statement_for_access(stmt: &Statement) -> Option<String> {
 }
 
 fn is_require_with_sender_comparison(expr: &Expression) -> bool {
-    if let ExpressionKind::FunctionCall { callee, arguments } = &expr.kind {
+    if let ExpressionKind::FunctionCall { callee, arguments, .. } = &expr.kind {
         let is_require = matches!(&callee.kind,
             ExpressionKind::Identifier { name, .. } if name == "require" || name == "assert"
         );
@@ -199,6 +199,10 @@ mod tests {
     fn make_func(name: &str, vis: Visibility, kind: FunctionKind, modifiers: Vec<&str>, body: Option<Vec<Statement>>) -> FunctionDef {
         FunctionDef {
             name: name.into(),
+            key: name.into(),
+            signature: format!("{name}()"),
+            selector: None,
+            id: None,
             kind,
             visibility: vis,
             mutability: Mutability::NonPayable,
@@ -222,7 +226,7 @@ mod tests {
             kind: crate::model::contract::ContractKind::Contract,
             functions: vec![], modifiers: vec![], state_vars: vec![],
             structs: vec![], enums: vec![], events: vec![], errors: vec![],
-            inherits: vec![], span: span(),
+            inherits: vec![], id: None, linearized_bases: vec![], span: span(),
         }
     }
 
@@ -235,6 +239,7 @@ mod tests {
                 }),
                 member: "sender".into(),
                 resolved: None,
+                object_type: None,
             },
             span: span(),
         }
@@ -266,6 +271,8 @@ mod tests {
                                 span: span(),
                             },
                         ],
+                        options: vec![],
+                        call: Default::default(),
                     },
                     span: span(),
                 },
@@ -362,6 +369,7 @@ mod tests {
                 }),
                 member: "sender".into(),
                 resolved: None,
+                object_type: None,
             },
             span: span(),
         };

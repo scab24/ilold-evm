@@ -24,6 +24,9 @@ export interface ContractDetail {
 
 export interface FunctionSummary {
   name: string;
+  /** Route segment for /api/contract/{c}/{key}/...: the name, or the signature when overloaded. */
+  key: string;
+  signature: string;
   kind: string;
   visibility: string;
   mutability: string;
@@ -62,6 +65,10 @@ export interface CytoscapeEdgeData {
   target: string;
   kind: string;
   call_count: number;
+  /** Call-graph edges only: human label of the call kind (e.g. "library delegatecall"). */
+  kind_label?: string;
+  /** Call-graph edges only: declaration named in source when virtual dispatch moved the target. */
+  static_target?: string;
 }
 
 

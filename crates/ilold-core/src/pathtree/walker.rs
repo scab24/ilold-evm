@@ -330,15 +330,24 @@ fn collect_annotations(
 ) {
     for stmt in statements {
         match stmt {
-            CfgStatement::ExternalCall { target, function, arguments, .. } => {
+            CfgStatement::ExternalCall { target, function, arguments, kind, .. } => {
                 annotations.external_calls.push(ExternalCallInfo {
                     target: target.clone(),
                     function: function.clone(),
+                    kind: *kind,
                 });
                 scan_reads(arguments, state_vars, annotations);
             }
-            CfgStatement::InternalCall { function, arguments, .. } => {
-                annotations.internal_calls.push(function.clone());
+            CfgStatement::InternalCall { function, arguments, target, declaration, .. } => {
+                let call = match target {
+                    Some(target) => format!("{target}.{function}"),
+                    None => function.clone(),
+                };
+                annotations.internal_call_targets.push(InternalCallTarget {
+                    call: call.clone(),
+                    declaration: declaration.clone(),
+                });
+                annotations.internal_calls.push(call);
                 scan_reads(arguments, state_vars, annotations);
             }
             CfgStatement::EmitEvent { event, arguments, .. } => {

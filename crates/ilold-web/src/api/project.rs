@@ -97,7 +97,7 @@ pub async fn get_project_map(State(state): State<Arc<AppState>>) -> Json<Project
             .iter()
             .filter(|f| !f.name.is_empty())
             .map(|f| {
-                let key = (contract.name.clone(), f.name.clone());
+                let key = (contract.name.clone(), f.key.clone());
                 let pt = state.path_trees.get(&key);
                 let has_ext = pt
                     .map(|p| p.paths.iter().any(|path| !path.annotations.external_calls.is_empty()))
@@ -140,6 +140,10 @@ pub async fn get_project_map(State(state): State<Arc<AppState>>) -> Json<Project
                 let dst_node = &cg[dst];
                 let edge = &cg[edge_idx];
 
+                // the graph also holds inherited bodies; keep this contract's own calls
+                if src_node.contract != contract.name {
+                    continue;
+                }
                 if dst_node.is_external || src_node.contract != dst_node.contract {
                     relationships.push(MapRelationship {
                         from_contract: src_node.contract.clone(),

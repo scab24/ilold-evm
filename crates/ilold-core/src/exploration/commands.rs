@@ -382,7 +382,10 @@ fn execute_call(
     timestamp: &str,
 ) -> CommandResult {
     let accessible = data.project.accessible_functions(data.contract);
-    let resolved = match accessible.iter().find(|a| a.function.name == func) {
+    // a bare name, a key or a signature; ambiguous names take the first overload
+    let resolved = match accessible.iter().find(|a| {
+        a.function.name == func || a.function.key == func || a.function.match_signature() == func
+    }) {
         Some(af) => af,
         None => return CommandResult::Error {
             message: format!("Function '{}' not found. Use 'functions' or 'funcs-all' to see available.", func),
@@ -400,7 +403,7 @@ fn execute_call(
         data.contract
     };
 
-    let key = (owning_contract.name.clone(), func.to_string());
+    let key = (owning_contract.name.clone(), resolved.function.key.clone());
     let cfg = match data.cfgs.get(&key) {
         Some(c) => c,
         None => return CommandResult::Error {
@@ -632,7 +635,7 @@ pub fn get_step_narrative(
         .resolve_function(data.contract, &step.function)
         .ok_or_else(|| format!("Function '{}' not found", step.function))?;
 
-    let key = (owning.name.clone(), step.function.clone());
+    let key = (owning.name.clone(), func.key.clone());
     let cfg = data.cfgs.get(&key).ok_or("No CFG")?;
     let pt = data.path_trees.get(&key).ok_or("No paths")?;
 
@@ -655,7 +658,7 @@ pub fn get_function_info(
         .resolve_function(data.contract, func_name)
         .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
-    let key = (owning.name.clone(), func_name.to_string());
+    let key = (owning.name.clone(), func.key.clone());
     let cfg = data.cfgs.get(&key).ok_or_else(|| format!("No CFG for {}::{}", owning.name, func_name))?;
     let pt = data.path_trees.get(&key).ok_or("No paths")?;
 
@@ -681,7 +684,7 @@ pub fn get_flow_tree(
         .resolve_function(data.contract, func_name)
         .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
-    let key = (owning.name.clone(), func_name.to_string());
+    let key = (owning.name.clone(), func.key.clone());
     let cfg = data.cfgs.get(&key)
         .ok_or_else(|| format!("No CFG for {}::{}", owning.name, func_name))?;
 

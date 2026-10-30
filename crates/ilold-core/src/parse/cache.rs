@@ -15,7 +15,7 @@ use crate::model::contract::ContractDef;
 use crate::model::decl_id::DeclTable;
 use crate::model::project::{Project, SourceFile};
 
-const VERSION: &str = "ilold-project-v3-foundry-0.21-sha256";
+const VERSION: &str = "ilold-project-v5-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
 const MAX_SOURCES: usize = 20_000;
@@ -370,12 +370,14 @@ mod tests {
         use crate::model::function::{FunctionDef, FunctionKind, Mutability, Visibility};
         let span = SourceSpan { file_index: 0, start_line: 1, start_col: 1, end_line: 1, end_col: 1 };
         let parent = ContractDef { name: "Parent".into(), kind: ContractKind::Contract,
-            functions: vec![FunctionDef { name: "f".into(), kind: FunctionKind::Function,
+            functions: vec![FunctionDef { name: "f".into(), key: "f".into(), signature: "f()".into(),
+                selector: None, id: None, kind: FunctionKind::Function,
                 visibility: Visibility::Public, mutability: Mutability::Pure, modifiers: vec![],
                 base_constructor_calls: vec![],
                 params: vec![], returns: vec![], body: None, is_virtual: false,
                 is_override: false, span }], modifiers: vec![], state_vars: vec![],
-            structs: vec![], enums: vec![], events: vec![], errors: vec![], inherits: vec![], span };
+            structs: vec![], enums: vec![], events: vec![], errors: vec![], inherits: vec![],
+            id: None, linearized_bases: vec![], span };
         let child = ContractDef { name: "Child".into(), inherits: vec!["Parent".into()],
             functions: vec![], ..parent.clone() };
         let mut project = Project { source_files: vec![SourceFile { path: "src/C.sol".into(), content: "contract C {}".into() }],

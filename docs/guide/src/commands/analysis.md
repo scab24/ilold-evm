@@ -123,8 +123,12 @@ External calls (`→`) to a typed contract are resolved to the real target. When
 address with `IPool(addr).supply(...)`, the solc frontend resolves both to
 `IPool.supply` rather than an unnamed placeholder. The resolved target is what
 `info`, `trace`, the call graph, and `deps`/`usedby` report. Low-level calls
-with no typed target (`addr.call(...)`, assembly) cannot be resolved and stay
-anonymous.
+(`addr.call{value: v}(...)`, `delegatecall`, `staticcall`) and value transfers
+(`transfer`, `send`) have no typed target: they are reported by kind against the
+address expression, with their call options. Inline assembly is not resolved.
+Internal library calls (`x.f()` through `using for`, or `L.f()` for an internal
+`f`) are internal calls written `L.f`; public and external library functions are
+delegatecalls and count as external.
 
 ## timeline
 

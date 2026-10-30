@@ -550,13 +550,7 @@ fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> O
 
     for child in &node.nodes {
         match child.node_type {
-            NodeType::FunctionDefinition => {
-                let func = map_function(child, index);
-                if let Some(id) = child.id {
-                    decl_table.insert(DeclId(id as isize), name.clone(), func.name.clone());
-                }
-                functions.push(func);
-            }
+            NodeType::FunctionDefinition => functions.push(map_function(child, index)),
             NodeType::ModifierDefinition => modifiers.push(map_modifier(child, index)),
             NodeType::VariableDeclaration => {
                 if child.attribute::<bool>("stateVariable").unwrap_or(false) {
@@ -571,7 +565,21 @@ fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> O
         }
     }
 
+    assign_function_keys(&mut functions);
+    for func in &functions {
+        if let Some(id) = func.id {
+            decl_table.insert(id, name.clone(), func.key.clone());
+        }
+    }
+
     Some(ContractDef {
+        id: node.id.map(|id| DeclId(id as isize)),
+        linearized_bases: node
+            .attribute::<Vec<isize>>("linearizedBaseContracts")
+            .unwrap_or_default()
+            .into_iter()
+            .map(DeclId)
+            .collect(),
         name,
         kind: contract_kind(node),
         functions,
@@ -586,20 +594,74 @@ fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> O
     })
 }
 
+// overloads are keyed by signature so they never collide
+// Constructor, receive and fallback keep their bare name as key; a regular function that
+// shares one of those names is always keyed by its signature (`fallback()`).
+fn assign_function_keys(functions: &mut [FunctionDef]) {
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for f in functions.iter().filter(|f| f.kind == FunctionKind::Function) {
+        *counts.entry(f.name.clone()).or_default() += 1;
+    }
+    for f in functions.iter_mut() {
+        let special_name = matches!(f.name.as_str(), "constructor" | "receive" | "fallback");
+        f.key = if f.kind != FunctionKind::Function {
+            f.name.clone()
+        } else if counts[&f.name] > 1 || special_name {
+            f.signature.clone()
+        } else {
+            f.name.clone()
+        };
+    }
+}
+
+// `name(type,...)`. External and public functions use the ABI form (no data locations);
+// internal and private ones keep each parameter's location, because overloads may differ
+// only by it. Receive and fallback have no parameter list in their signature.
+fn function_signature(node: &Node, kind: FunctionKind, name: &str, vis: Visibility) -> String {
+    if matches!(kind, FunctionKind::Receive | FunctionKind::Fallback) {
+        return name.to_string();
+    }
+    let with_location = matches!(vis, Visibility::Internal | Visibility::Private);
+    let types: Vec<String> = node
+        .attribute::<Node>("parameters")
+        .and_then(|list| list.attribute::<Vec<Node>>("parameters"))
+        .unwrap_or_default()
+        .iter()
+        .map(|p| {
+            let ty = canonical_type(&type_string(p));
+            match p.attribute::<String>("storageLocation").as_deref() {
+                Some(loc @ ("memory" | "calldata" | "storage")) if with_location => format!("{ty} {loc}"),
+                _ => ty,
+            }
+        })
+        .collect();
+    format!("{name}({})", types.join(","))
+}
+
 fn map_function(node: &Node, index: &LineIndex) -> FunctionDef {
     let kind = function_kind(node);
+    let name = function_name(node, kind);
+    let params = param_list(node, "parameters");
+    let vis = visibility(node);
     FunctionDef {
-        name: function_name(node, kind),
+        key: name.clone(),
+        signature: function_signature(node, kind, &name, vis),
+        selector: node.attribute::<String>("functionSelector"),
+        id: node.id.map(|id| DeclId(id as isize)),
+        name,
         kind,
-        visibility: visibility(node),
+        visibility: vis,
         mutability: mutability(node),
         modifiers: modifier_refs(node, false),
         base_constructor_calls: modifier_refs(node, true),
-        params: param_list(node, "parameters"),
+        params,
         returns: param_list(node, "returnParameters"),
         body: node.body.as_deref().map(|b| map_body(b, index)),
         is_virtual: node.attribute::<bool>("virtual").unwrap_or(false),
-        is_override: node.attribute::<serde_json::Value>("overrides").is_some(),
+        // solc emits `"overrides": null` for functions without an override specifier
+        is_override: node
+            .attribute::<serde_json::Value>("overrides")
+            .is_some_and(|v| !v.is_null()),
         span: span_of(node, index),
     }
 }
@@ -882,6 +944,10 @@ fn map_expression(node: &Node, index: &LineIndex) -> Expression {
             object: Box::new(child_expr(node, "expression", index)),
             member: node.attribute::<String>("memberName").unwrap_or_default(),
             resolved: referenced_decl(node),
+            object_type: node
+                .attribute::<Node>("expression")
+                .map(|o| type_string(&o))
+                .filter(|t| !t.is_empty()),
         },
         NodeType::Identifier => ExpressionKind::Identifier {
             name: node.attribute::<String>("name").unwrap_or_default(),
@@ -963,9 +1029,24 @@ fn map_call(node: &Node, index: &LineIndex) -> ExpressionKind {
         };
     }
 
+    // `f{value: v}(...)` and `new C{salt: s}(...)` wrap the callee in FunctionCallOptions
+    let (callee, options) = match callee {
+        Some(c) if c.node_type == NodeType::FunctionCallOptions => {
+            let options = call_options(&c, index);
+            (c.attribute::<Node>("expression"), options)
+        }
+        other => (other, Vec::new()),
+    };
+    let call = callee.as_ref().map(call_type).unwrap_or_default();
+
     if let Some(callee) = &callee {
         if callee.node_type == NodeType::NewExpression {
-            return ExpressionKind::New { type_name: type_expr_name(callee), arguments };
+            return ExpressionKind::New {
+                type_name: new_type_name(callee),
+                arguments,
+                options,
+                creates_contract: call == CallType::Call(CallKind::Creation),
+            };
         }
     }
 
@@ -976,7 +1057,109 @@ fn map_call(node: &Node, index: &LineIndex) -> ExpressionKind {
                 .unwrap_or_else(|| empty_expr(node, index)),
         ),
         arguments,
+        options,
+        call,
     }
+}
+
+// `new Child(...)` -> `Child`, `new uint256[](n)` -> `uint256[]`
+fn new_type_name(node: &Node) -> String {
+    node.attribute::<Node>("typeName")
+        .map(|t| canonical_type(&type_string(&t)))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| type_expr_name(node))
+}
+
+fn call_options(node: &Node, index: &LineIndex) -> Vec<CallOption> {
+    let names = node.attribute::<Vec<String>>("names").unwrap_or_default();
+    let values = node.attribute::<Vec<Node>>("options").unwrap_or_default();
+    names
+        .into_iter()
+        .zip(values.iter())
+        .map(|(name, value)| CallOption { name, value: map_expression(value, index) })
+        .collect()
+}
+
+// The callee's solc function type says how control reaches it (`t_function_<kind>_...`).
+fn call_type(callee: &Node) -> CallType {
+    let Some(identifier) = callee
+        .attribute::<serde_json::Value>("typeDescriptions")
+        .and_then(|t| t.get("typeIdentifier").and_then(|s| s.as_str().map(str::to_string)))
+    else {
+        return CallType::Unknown;
+    };
+    let Some(rest) = identifier.strip_prefix("t_function_") else {
+        return CallType::Unknown;
+    };
+    let solc_kind = rest.split(['_', '$']).next().unwrap_or_default();
+    let Some(kind) = CallKind::from_solc_function_kind(solc_kind) else {
+        return CallType::Builtin;
+    };
+    let object = (callee.node_type == NodeType::MemberAccess)
+        .then(|| callee.attribute::<Node>("expression"))
+        .flatten();
+    let kind = match (kind, &object) {
+        // a library function, named (`L.f()`) or attached through `using for`; `super.f()`,
+        // `Base.f()` and function-pointer fields (`s.op()`) stay internal
+        (CallKind::Internal, Some(object)) => {
+            let attached = identifier.contains("$attached_to$") || identifier.contains("$bound_to$");
+            if attached || type_string(object).starts_with("type(library ") {
+                CallKind::InternalLibrary
+            } else {
+                CallKind::Internal
+            }
+        }
+        (CallKind::External, Some(object))
+            if object.node_type == NodeType::Identifier
+                && object.attribute::<String>("name").as_deref() == Some("this") =>
+        {
+            CallKind::ExternalSelf
+        }
+        (kind, _) => kind,
+    };
+    CallType::Call(kind)
+}
+
+// Parameter type without data locations or `struct`/`enum`/`contract` prefixes.
+// Function types stay readable: `function(uint256) external returns (bool)`.
+fn canonical_type(type_string: &str) -> String {
+    const DROP: [&str; 9] =
+        ["memory", "calldata", "storage", "ref", "pointer", "struct", "enum", "contract", "payable"];
+    let mut tokens: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, tokens: &mut Vec<String>| {
+        if !word.is_empty() && !DROP.contains(&word.as_str()) {
+            tokens.push(std::mem::take(word));
+        }
+        word.clear();
+    };
+    for ch in type_string.chars() {
+        if ch.is_alphanumeric() || ch == '_' || ch == '.' || ch == '$' {
+            word.push(ch);
+        } else {
+            flush(&mut word, &mut tokens);
+            if !ch.is_whitespace() {
+                tokens.push(ch.to_string());
+            }
+        }
+    }
+    flush(&mut word, &mut tokens);
+
+    let is_word = |t: &str| t.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let mut out = String::new();
+    let mut prev: Option<&str> = None;
+    for token in &tokens {
+        let spaced = match prev {
+            Some(p) => (is_word(token) && (is_word(p) || p == ")")) || (token == "(" && p == "returns"),
+            None => false,
+        };
+        if spaced {
+            out.push(' ');
+        }
+        out.push_str(token);
+        prev = Some(token);
+    }
+    out
 }
 
 fn child_expr(node: &Node, key: &str, index: &LineIndex) -> Expression {
@@ -1282,7 +1465,7 @@ mod tests {
                 }
                 count_expr(object, calls, placeholders, resolved_members);
             }
-            ExpressionKind::FunctionCall { callee, arguments } => {
+            ExpressionKind::FunctionCall { callee, arguments, .. } => {
                 *calls += 1;
                 count_expr(callee, calls, placeholders, resolved_members);
                 for a in arguments {
@@ -1574,6 +1757,23 @@ mod tests {
         assert!(project.contracts.iter().all(|c| c.name != "AutoLib"));
         assert!(project.source_files.iter().any(|f| f.path.ends_with("lib/manual/src/ManualLib.sol")));
         assert!(project.source_files.iter().all(|f| !f.path.ends_with("lib/auto/src/AutoLib.sol")));
+    }
+
+    #[test]
+    fn canonical_type_drops_locations_and_type_keywords() {
+        assert_eq!(canonical_type("uint256[] memory"), "uint256[]");
+        assert_eq!(canonical_type("address payable"), "address");
+        assert_eq!(canonical_type("struct DataTypes.ReserveData storage pointer"), "DataTypes.ReserveData");
+        assert_eq!(
+            canonical_type("mapping(address => struct DataTypes.ReserveData storage ref)"),
+            "mapping(address=>DataTypes.ReserveData)"
+        );
+        assert_eq!(canonical_type("contract IPool"), "IPool");
+        assert_eq!(
+            canonical_type("function (uint256) external returns (bool)"),
+            "function(uint256) external returns (bool)"
+        );
+        assert_eq!(canonical_type("function (uint256) pure returns (uint256)"), "function(uint256) pure returns (uint256)");
     }
 
     #[test]

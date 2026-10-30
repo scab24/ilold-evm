@@ -52,7 +52,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_callgraph",
-            "Call graph of a contract: function call edges (internal, external, inherited) with call counts.",
+            "Call graph of a contract as the most derived contract: own and inherited functions with super and virtual dispatch resolved. Edge kinds: Internal, InternalLibrary, LibraryDelegatecall, External, ExternalSelf (this.f), LowLevelCall, LowLevelDelegatecall, LowLevelStaticcall, Transfer, Send, Creation; node ids are Contract::name, or Contract::name(types) for overloads.",
             contract_schema(),
         ),
         tool(
@@ -172,7 +172,10 @@ fn contract_function_schema() -> Value {
         "type": "object",
         "properties": {
             "contract": { "type": "string", "description": "Contract name" },
-            "function": { "type": "string", "description": "Function name" }
+            "function": {
+                "type": "string",
+                "description": "Function name, or its signature such as setPoolPause(bool,uint40) when the name is overloaded (an ambiguous name returns 409 with the candidate signatures)"
+            }
         },
         "required": ["contract", "function"],
         "additionalProperties": false

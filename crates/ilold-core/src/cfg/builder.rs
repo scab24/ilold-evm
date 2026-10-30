@@ -3,7 +3,10 @@ use petgraph::stable_graph::NodeIndex;
 use std::collections::HashSet;
 
 use crate::model::contract::ContractDef;
-use crate::model::expression::{AssignOperator, Expression, ExpressionKind, UnaryOperator};
+use crate::model::decl_id::DeclTable;
+use crate::model::expression::{
+    AssignOperator, CallKind, CallOption, CallType, Expression, ExpressionKind, UnaryOperator,
+};
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::model::statement::{Statement, StatementKind};
@@ -12,8 +15,10 @@ use super::error::CfgError;
 use super::modifier::inline_modifiers;
 use super::types::*;
 
-pub struct CfgBuilder {
+pub struct CfgBuilder<'p> {
     graph: CfgGraph,
+    // names the library behind `using for` calls
+    decls: Option<&'p DeclTable>,
     next_block_id: usize,
     current_block: NodeIndex,
     // provenance is tagged on top-level statements
@@ -34,7 +39,7 @@ struct LoopFrame {
     exit_block: Option<NodeIndex>,
 }
 
-impl CfgBuilder {
+impl CfgBuilder<'_> {
     pub fn build(function: &FunctionDef, contract: &ContractDef) -> Result<CfgGraph, CfgError> {
         Self::build_with_project(function, contract, None)
     }
@@ -46,6 +51,7 @@ impl CfgBuilder {
     ) -> Result<CfgGraph, CfgError> {
         let mut builder = CfgBuilder {
             graph: CfgGraph::new(),
+            decls: project.map(|p| &p.decl_table),
             next_block_id: 0,
             current_block: NodeIndex::new(0),
             current_modifier: None,
@@ -302,7 +308,7 @@ impl CfgBuilder {
     fn add_effects(&mut self, expr: &Expression) {
         let from_modifier = self.current_modifier.clone();
         let mut stmts = Vec::new();
-        collect_calls(expr, &mut stmts, &from_modifier);
+        collect_calls(expr, &mut stmts, &from_modifier, self.decls);
         self.collect_mutations(expr, &mut stmts, &from_modifier);
         for s in stmts {
             self.add_stmt_to_current(s);
@@ -579,7 +585,7 @@ impl CfgBuilder {
     }
 
     fn process_expression_stmt(&mut self, expr: &Expression) {
-        if let ExpressionKind::FunctionCall { callee, arguments } = &expr.kind {
+        if let ExpressionKind::FunctionCall { callee, arguments, .. } = &expr.kind {
             if let ExpressionKind::Identifier { name, .. } = &callee.kind {
                 match name.as_str() {
                     "require" => {
@@ -690,7 +696,7 @@ impl CfgBuilder {
     fn classify_expression(&self, expr: &Expression) -> Vec<CfgStatement> {
         let from_modifier = &self.current_modifier;
         let mut stmts = Vec::new();
-        collect_calls(expr, &mut stmts, from_modifier);
+        collect_calls(expr, &mut stmts, from_modifier, self.decls);
 
         if let ExpressionKind::Assignment { target, operator, value } = &expr.kind {
             stmts.push(CfgStatement::Assignment {
@@ -747,128 +753,253 @@ impl CfgBuilder {
     }
 }
 
-fn collect_calls(expr: &Expression, stmts: &mut Vec<CfgStatement>, from_modifier: &Option<String>) {
+fn collect_calls(
+    expr: &Expression,
+    stmts: &mut Vec<CfgStatement>,
+    from_modifier: &Option<String>,
+    decls: Option<&DeclTable>,
+) {
+    let recurse = |e: &Expression, stmts: &mut Vec<CfgStatement>| collect_calls(e, stmts, from_modifier, decls);
     match &expr.kind {
-        ExpressionKind::FunctionCall { callee, arguments } => {
-            // evaluation order: callee object, arguments, then the call itself
+        ExpressionKind::FunctionCall { callee, arguments, options, call } => {
+            // evaluation order: callee object, options, arguments, then the call itself
             match &callee.kind {
                 ExpressionKind::Identifier { .. } | ExpressionKind::TypeMeta { .. } => {}
-                ExpressionKind::MemberAccess { object, .. } => collect_calls(object, stmts, from_modifier),
-                _ => collect_calls(callee, stmts, from_modifier),
+                ExpressionKind::MemberAccess { object, .. } => recurse(object, stmts),
+                _ => recurse(callee, stmts),
+            }
+            for option in options {
+                recurse(&option.value, stmts);
             }
             for arg in arguments {
-                collect_calls(arg, stmts, from_modifier);
+                recurse(arg, stmts);
             }
-            let args = arguments.iter().map(|a| expr_to_string(a)).collect::<Vec<_>>().join(", ");
-            match &callee.kind {
-                ExpressionKind::TypeMeta { .. } => {}
-                ExpressionKind::Identifier { name, .. } => {
-                    if !crate::util::is_type_cast(name) {
-                        stmts.push(CfgStatement::InternalCall {
-                            function: name.clone(),
-                            span: None,
-                            from_modifier: from_modifier.clone(),
-                            arguments: args.clone(),
-                        });
-                    }
+            let args = arguments.iter().map(expr_to_string).collect::<Vec<_>>().join(", ");
+            match call {
+                CallType::Call(kind) => {
+                    stmts.push(typed_call(callee, *kind, args, options, from_modifier, decls));
                 }
-                ExpressionKind::MemberAccess { object, member, resolved }
-                    if (member != "push" && member != "pop") || resolved.is_some() =>
-                {
-                    if let ExpressionKind::Identifier { name, .. } = &object.kind {
-                        if name == "this" || name == "super" {
-                            stmts.push(CfgStatement::InternalCall {
-                                function: member.clone(),
+                CallType::Builtin => {
+                    if let ExpressionKind::MemberAccess { object, member, .. } = &callee.kind {
+                        if member == "push" || member == "pop" {
+                            stmts.push(CfgStatement::StateWrite {
+                                variable: expr_to_string(object),
                                 span: None,
                                 from_modifier: from_modifier.clone(),
-                                arguments: args.clone(),
-                            });
-                        } else {
-                            stmts.push(CfgStatement::ExternalCall {
-                                target: name.clone(),
-                                function: member.clone(),
-                                span: None,
-                                from_modifier: from_modifier.clone(),
-                                resolved: *resolved,
-                                arguments: args.clone(),
                             });
                         }
-                    } else {
-                        stmts.push(CfgStatement::ExternalCall {
-                            target: expr_to_string(object),
-                            function: member.clone(),
-                            span: None,
-                            from_modifier: from_modifier.clone(),
-                            resolved: *resolved,
-                            arguments: args.clone(),
-                        });
                     }
                 }
-                ExpressionKind::MemberAccess { object, .. } => {
-                    stmts.push(CfgStatement::StateWrite {
-                        variable: expr_to_string(object),
-                        span: None,
-                        from_modifier: from_modifier.clone(),
-                    });
-                }
-                _ => {
-                    stmts.push(CfgStatement::InternalCall {
-                        function: expr_to_string(callee),
-                        span: None,
-                        from_modifier: from_modifier.clone(),
-                        arguments: args.clone(),
-                    });
-                }
+                CallType::Unknown => untyped_call(callee, args, stmts, from_modifier),
             }
         }
         ExpressionKind::Assignment { target, value, .. } => {
-            collect_calls(target, stmts, from_modifier);
-            collect_calls(value, stmts, from_modifier);
+            recurse(target, stmts);
+            recurse(value, stmts);
         }
         ExpressionKind::BinaryOp { left, right, .. } => {
-            collect_calls(left, stmts, from_modifier);
-            collect_calls(right, stmts, from_modifier);
+            recurse(left, stmts);
+            recurse(right, stmts);
         }
         ExpressionKind::UnaryOp { operand, .. } => {
-            collect_calls(operand, stmts, from_modifier);
+            recurse(operand, stmts);
         }
         ExpressionKind::MemberAccess { object, .. } => {
-            collect_calls(object, stmts, from_modifier);
+            recurse(object, stmts);
         }
         ExpressionKind::IndexAccess { base, index } => {
-            collect_calls(base, stmts, from_modifier);
+            recurse(base, stmts);
             if let Some(idx) = index {
-                collect_calls(idx, stmts, from_modifier);
+                recurse(idx, stmts);
             }
         }
         ExpressionKind::Ternary { condition, true_expr, false_expr } => {
-            collect_calls(condition, stmts, from_modifier);
-            collect_calls(true_expr, stmts, from_modifier);
-            collect_calls(false_expr, stmts, from_modifier);
+            recurse(condition, stmts);
+            recurse(true_expr, stmts);
+            recurse(false_expr, stmts);
         }
         ExpressionKind::Tuple { elements } => {
             for e in elements.iter().flatten() {
-                collect_calls(e, stmts, from_modifier);
+                recurse(e, stmts);
             }
         }
         ExpressionKind::TypeCast { expression, .. } => {
-            collect_calls(expression, stmts, from_modifier);
+            recurse(expression, stmts);
         }
-        ExpressionKind::New { arguments, .. } => {
+        ExpressionKind::New { type_name, arguments, options, creates_contract } => {
+            for option in options {
+                recurse(&option.value, stmts);
+            }
             for arg in arguments {
-                collect_calls(arg, stmts, from_modifier);
+                recurse(arg, stmts);
+            }
+            if *creates_contract {
+                stmts.push(CfgStatement::ExternalCall {
+                    target: type_name.clone(),
+                    function: "constructor".into(),
+                    span: None,
+                    from_modifier: from_modifier.clone(),
+                    resolved: None,
+                    arguments: arguments.iter().map(expr_to_string).collect::<Vec<_>>().join(", "),
+                    kind: CallKind::Creation,
+                    contract: Some(type_name.clone()),
+                    options: option_strings(options),
+                });
             }
         }
         ExpressionKind::IndexRange { base, start, end } => {
-            collect_calls(base, stmts, from_modifier);
+            recurse(base, stmts);
             if let Some(s) = start {
-                collect_calls(s, stmts, from_modifier);
+                recurse(s, stmts);
             }
             if let Some(e) = end {
-                collect_calls(e, stmts, from_modifier);
+                recurse(e, stmts);
             }
         }
         _ => {}
+    }
+}
+
+fn option_strings(options: &[CallOption]) -> Vec<(String, String)> {
+    options.iter().map(|o| (o.name.clone(), expr_to_string(&o.value))).collect()
+}
+
+// `type(library L)` / `type(contract C)` / `contract C` -> `L` / `C`
+fn type_contract_name(object_type: &str) -> Option<String> {
+    let inner = object_type
+        .strip_prefix("type(")
+        .and_then(|t| t.strip_suffix(')'))
+        .unwrap_or(object_type);
+    inner
+        .strip_prefix("library ")
+        .or_else(|| inner.strip_prefix("contract "))
+        .or_else(|| inner.strip_prefix("interface "))
+        .map(|name| name.strip_prefix("super ").unwrap_or(name).to_string())
+}
+
+// A call whose kind solc fixed through the callee's function type.
+fn typed_call(
+    callee: &Expression,
+    kind: CallKind,
+    arguments: String,
+    options: &[CallOption],
+    from_modifier: &Option<String>,
+    decls: Option<&DeclTable>,
+) -> CfgStatement {
+    let from_modifier = from_modifier.clone();
+    let declared_in = |resolved: &Option<_>| {
+        resolved.and_then(|id| decls?.lookup(id)).map(|t| t.contract.clone())
+    };
+    let mut contract = None;
+    let (target, function, resolved) = match &callee.kind {
+        ExpressionKind::Identifier { name, resolved } => (None, name.clone(), *resolved),
+        ExpressionKind::MemberAccess { object, member, resolved, object_type } => {
+            contract = object_type.as_deref().and_then(type_contract_name);
+            let target = match &object.kind {
+                ExpressionKind::Identifier { name, .. } if name == "super" || name == "this" => name.clone(),
+                // a library function, named or bound through `using for`
+                _ if matches!(kind, CallKind::InternalLibrary | CallKind::LibraryDelegatecall) => {
+                    object_type
+                        .as_deref()
+                        .filter(|t| t.starts_with("type("))
+                        .and_then(type_contract_name)
+                        .or_else(|| declared_in(resolved))
+                        .unwrap_or_else(|| expr_to_string(object))
+                }
+                _ => expr_to_string(object),
+            };
+            (Some(target), member.clone(), *resolved)
+        }
+        _ => (None, expr_to_string(callee), None),
+    };
+    if kind.is_internal() {
+        let declaration = resolved
+            .and_then(|id| decls?.lookup(id))
+            .filter(|t| !t.function.is_empty())
+            .map(|t| (t.contract.clone(), t.function.clone()));
+        CfgStatement::InternalCall {
+            function,
+            span: None,
+            from_modifier,
+            arguments,
+            kind,
+            target,
+            resolved,
+            declaration,
+        }
+    } else {
+        CfgStatement::ExternalCall {
+            target: target.unwrap_or_default(),
+            function,
+            span: None,
+            from_modifier,
+            resolved,
+            arguments,
+            kind,
+            contract,
+            options: option_strings(options),
+        }
+    }
+}
+
+// Models without solc function types: classify by syntax and names.
+fn untyped_call(
+    callee: &Expression,
+    args: String,
+    stmts: &mut Vec<CfgStatement>,
+    from_modifier: &Option<String>,
+) {
+    let internal = |function: String, target: Option<String>| CfgStatement::InternalCall {
+        function,
+        span: None,
+        from_modifier: from_modifier.clone(),
+        arguments: args.clone(),
+        kind: CallKind::Internal,
+        target,
+        resolved: None,
+        declaration: None,
+    };
+    let external = |target: String, function: String, resolved, kind| CfgStatement::ExternalCall {
+        target,
+        function,
+        span: None,
+        from_modifier: from_modifier.clone(),
+        resolved,
+        arguments: args.clone(),
+        kind,
+        contract: None,
+        options: Vec::new(),
+    };
+    match &callee.kind {
+        ExpressionKind::TypeMeta { .. } => {}
+        ExpressionKind::Identifier { name, .. } => {
+            if !crate::util::is_type_cast(name) && !crate::util::is_builtin_function(name) {
+                stmts.push(internal(name.clone(), None));
+            }
+        }
+        ExpressionKind::MemberAccess { object, member, resolved, .. }
+            if (member != "push" && member != "pop") || resolved.is_some() =>
+        {
+            match &object.kind {
+                ExpressionKind::Identifier { name, .. } if name == "super" => {
+                    stmts.push(internal(member.clone(), Some("super".into())));
+                }
+                ExpressionKind::Identifier { name, .. } if name == "this" => {
+                    stmts.push(external(name.clone(), member.clone(), *resolved, CallKind::ExternalSelf));
+                }
+                ExpressionKind::Identifier { name, .. }
+                    if resolved.is_none() && crate::util::is_builtin_namespace(name) => {}
+                _ => stmts.push(external(expr_to_string(object), member.clone(), *resolved, CallKind::External)),
+            }
+        }
+        ExpressionKind::MemberAccess { object, .. } => {
+            stmts.push(CfgStatement::StateWrite {
+                variable: expr_to_string(object),
+                span: None,
+                from_modifier: from_modifier.clone(),
+            });
+        }
+        _ => stmts.push(internal(expr_to_string(callee), None)),
     }
 }
 
@@ -879,13 +1010,12 @@ fn expr_to_string(expr: &Expression) -> String {
         ExpressionKind::MemberAccess { object, member, .. } => {
             format!("{}.{}", expr_to_string(object), member)
         }
-        ExpressionKind::FunctionCall { callee, arguments } => {
+        ExpressionKind::FunctionCall { callee, arguments, options, .. } => {
+            let args: Vec<String> = arguments.iter().map(expr_to_string).collect();
             if let ExpressionKind::TypeMeta { type_name } = &callee.kind {
-                let args: Vec<String> = arguments.iter().map(expr_to_string).collect();
                 return format!("{type_name}({})", args.join(", "));
             }
-            let args: Vec<String> = arguments.iter().map(expr_to_string).collect();
-            format!("{}({})", expr_to_string(callee), args.join(", "))
+            format!("{}{}({})", expr_to_string(callee), options_to_string(options), args.join(", "))
         }
         ExpressionKind::BinaryOp { left, operator, right } => {
             format!("{} {} {}", expr_to_string(left), operator.as_str(), expr_to_string(right))
@@ -911,9 +1041,9 @@ fn expr_to_string(expr: &Expression) -> String {
         ExpressionKind::TypeMeta { type_name } => {
             format!("type({type_name})")
         }
-        ExpressionKind::New { type_name, arguments } => {
+        ExpressionKind::New { type_name, arguments, options, .. } => {
             let args: Vec<String> = arguments.iter().map(expr_to_string).collect();
-            format!("new {type_name}({})", args.join(", "))
+            format!("new {type_name}{}({})", options_to_string(options), args.join(", "))
         }
         ExpressionKind::Tuple { elements } => {
             let parts: Vec<String> = elements
@@ -930,3 +1060,11 @@ fn expr_to_string(expr: &Expression) -> String {
     }
 }
 
+fn options_to_string(options: &[CallOption]) -> String {
+    if options.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> =
+        options.iter().map(|o| format!("{}: {}", o.name, expr_to_string(&o.value))).collect();
+    format!("{{{}}}", parts.join(", "))
+}

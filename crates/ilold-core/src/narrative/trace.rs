@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph, CfgStatement};
 use crate::model::contract::ContractDef;
+use crate::model::decl_id::DeclId;
 use crate::model::expression::AssignOperator;
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
@@ -160,7 +161,8 @@ fn build_canonical_tree(
     };
 
     let mut visited_calls: HashSet<(String, String)> = HashSet::new();
-    visited_calls.insert((contract.name.clone(), function.name.clone()));
+    let own_key = if function.key.is_empty() { &function.name } else { &function.key };
+    visited_calls.insert((contract.name.clone(), own_key.clone()));
 
     walk_cfg(
         cfg,
@@ -590,9 +592,10 @@ fn stmt_to_flow_node(
                 children: Vec::new(),
             })
         }
-        CfgStatement::InternalCall { function, from_modifier, .. } => {
+        CfgStatement::InternalCall { function, from_modifier, resolved, .. } => {
             Some(build_internal_call_node(
                 function,
+                *resolved,
                 from_modifier.clone(),
                 depth,
                 counter,
@@ -666,6 +669,7 @@ fn stmt_to_flow_node(
 #[allow(clippy::too_many_arguments)]
 fn build_internal_call_node(
     callee_name: &str,
+    resolved_decl: Option<DeclId>,
     from_modifier: Option<String>,
     depth: usize,
     counter: &mut usize,
@@ -675,7 +679,21 @@ fn build_internal_call_node(
     config: &FlowConfig,
     visited_calls: &mut HashSet<(String, String)>,
 ) -> FlowNode {
-    let resolved = resolve_callee_cfg(callee_name, contract, project, all_cfgs);
+    // the declaration solc resolved (super, library, base) wins over a lookup by name
+    let declared = resolved_decl
+        .and_then(|id| project.decl_table.lookup(id))
+        .filter(|t| !t.function.is_empty())
+        .and_then(|t| {
+            let key = (t.contract.clone(), t.function.clone());
+            all_cfgs.get(&key).map(|cfg| (key, cfg))
+        });
+    let (callee_key, resolved) = match declared {
+        Some(((owner, key), cfg)) => (key, Some((owner, cfg))),
+        None => (
+            callee_name.to_string(),
+            resolve_callee_cfg(callee_name, contract, project, all_cfgs),
+        ),
+    };
 
     let (owning_name, callee_cfg) = match resolved {
         Some(x) => x,
@@ -695,7 +713,7 @@ fn build_internal_call_node(
         }
     };
 
-    let call_key = (owning_name.clone(), callee_name.to_string());
+    let call_key = (owning_name.clone(), callee_key);
     let already_visited = visited_calls.contains(&call_key);
     let depth_exhausted = depth + 1 > CANONICAL_WALK_SAFETY_CAP;
 

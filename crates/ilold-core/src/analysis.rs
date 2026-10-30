@@ -58,13 +58,14 @@ impl ProjectAnalysis {
             let combined_state_vars = project.inherited_state_vars(contract);
 
             for func in &contract.functions {
-                let key = (contract.name.clone(), func.name.clone());
+                // overloads have distinct keys, so they never overwrite each other
+                let key = (contract.name.clone(), func.key.clone());
 
                 if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(project)) {
                     let pt = build_path_tree(
                         &cfg,
                         &contract.name,
-                        &func.name,
+                        &func.key,
                         &combined_state_vars,
                         config,
                     );

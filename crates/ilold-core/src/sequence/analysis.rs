@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::contract::ContractDef;
 use crate::model::project::Project;
-use crate::pathtree::types::{PathTree, TerminalKind};
+use crate::pathtree::types::{InternalCallTarget, PathTree, TerminalKind};
 use crate::util::is_type_cast;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +20,9 @@ pub struct FunctionBehavior {
     pub external_calls: Vec<String>,
     #[serde(default)]
     pub internal_calls: Vec<String>,
+    /// Internal callees with the declaration solc resolved; used for transitive effects.
+    #[serde(default)]
+    pub internal_call_targets: Vec<InternalCallTarget>,
     pub events: Vec<String>,
     pub can_revert: bool,
     pub always_reverts: bool,
@@ -120,6 +123,7 @@ pub fn analyze_sequences(
         let mut state_read_paths = HashSet::new();
         let mut external_calls = HashSet::new();
         let mut internal_calls = HashSet::new();
+        let mut internal_call_targets = HashSet::new();
         let mut events = HashSet::new();
         let mut has_return = false;
         let mut has_revert = false;
@@ -156,6 +160,9 @@ pub fn analyze_sequences(
             for ic in &path.annotations.internal_calls {
                 internal_calls.insert(ic.clone());
             }
+            for target in &path.annotations.internal_call_targets {
+                internal_call_targets.insert(target.clone());
+            }
             for event in &path.annotations.events_emitted {
                 events.insert(event.clone());
             }
@@ -180,6 +187,8 @@ pub fn analyze_sequences(
         external_calls.sort();
         let mut internal_calls: Vec<String> = internal_calls.into_iter().collect();
         internal_calls.sort();
+        let mut internal_call_targets: Vec<InternalCallTarget> = internal_call_targets.into_iter().collect();
+        internal_call_targets.sort();
         let mut preconditions: Vec<String> = preconditions.into_iter().collect();
         preconditions.sort();
         let mut events: Vec<String> = events.into_iter().collect();
@@ -194,6 +203,7 @@ pub fn analyze_sequences(
             state_read_paths,
             external_calls,
             internal_calls,
+            internal_call_targets,
             events,
             can_revert: has_revert,
             always_reverts: !has_return && has_revert,
@@ -319,25 +329,25 @@ fn collect_transitive_for_function(
     let mut internal: HashSet<String> = HashSet::new();
 
     let mut visited: HashSet<(String, String)> = HashSet::new();
-    let mut stack: Vec<(String, String)> = root
-        .internal_calls
-        .iter()
-        .filter(|c| !is_type_cast(c))
-        .map(|c| (root_contract.name.clone(), c.clone()))
+    let mut stack: Vec<(String, InternalCallTarget)> = call_targets(root)
+        .into_iter()
+        .map(|t| (root_contract.name.clone(), t))
         .collect();
 
-    while let Some((ctx_name, callee_name)) = stack.pop() {
-        let ctx = match project.contract_index.get(&ctx_name) {
+    while let Some((owner_name, target)) = stack.pop() {
+        let callee_name = target.call.clone();
+        let owner = match project.contract_index.get(&owner_name) {
             Some(&i) => &project.contracts[i],
             None => continue,
         };
 
-        let (callee_behavior, owning) = match resolve_internal_callee(&callee_name, ctx, project, all) {
-            Some(x) => x,
-            None => continue,
-        };
+        let (callee_behavior, owning) =
+            match resolve_call_target(&target, owner, root_contract, project, all) {
+                Some(x) => x,
+                None => continue,
+            };
 
-        let key = (owning.clone(), callee_name.clone());
+        let key = (owning.clone(), callee_behavior.name.clone());
         if !visited.insert(key) {
             continue;
         }
@@ -374,11 +384,8 @@ fn collect_transitive_for_function(
         }
         internal.insert(callee_name.clone());
 
-        for ic in &callee_behavior.internal_calls {
-            if is_type_cast(ic) {
-                continue;
-            }
-            stack.push((owning.clone(), ic.clone()));
+        for next in call_targets(callee_behavior) {
+            stack.push((owning.clone(), next));
         }
     }
 
@@ -399,12 +406,98 @@ fn collect_transitive_for_function(
     }
 }
 
+// Behaviors from older snapshots or hand-built models only carry the call names.
+fn call_targets(behavior: &FunctionBehavior) -> Vec<InternalCallTarget> {
+    if !behavior.internal_call_targets.is_empty() {
+        return behavior.internal_call_targets.clone();
+    }
+    behavior
+        .internal_calls
+        .iter()
+        .filter(|c| !is_type_cast(c))
+        .map(|call| InternalCallTarget { call: call.clone(), declaration: None })
+        .collect()
+}
+
+/// Behavior of the implementation an internal call reaches when `root` is the most derived
+/// contract: `super.f` continues after `owner` in root's C3 order, an unqualified call to a
+/// virtual function reaches the visible override, anything else is the declaration solc
+/// resolved. Without a declaration, falls back to a lookup by name.
+fn resolve_call_target<'a>(
+    target: &InternalCallTarget,
+    owner: &'a ContractDef,
+    root: &'a ContractDef,
+    project: &'a Project,
+    all: &'a HashMap<String, SequenceAnalysis>,
+) -> Option<(&'a FunctionBehavior, String)> {
+    let behavior = |contract: &str, key: &str| {
+        all.get(contract)?
+            .functions
+            .iter()
+            .find(|b| b.name == key)
+            .map(|b| (b, contract.to_string()))
+    };
+    let linearization = project.linearization(root);
+    let in_root = linearization.iter().any(|c| c.name == owner.name);
+    let is_super = target.call.starts_with("super.");
+
+    let Some((contract, key)) = &target.declaration else {
+        if is_super {
+            let name = &target.call["super.".len()..];
+            let order = if in_root { linearization } else { project.linearization(owner) };
+            let start = order.iter().position(|c| c.name == owner.name)? + 1;
+            return order[start..].iter().find_map(|c| behavior(&c.name, name));
+        }
+        return resolve_internal_callee(&target.call, owner, project, all);
+    };
+    let declared = project
+        .contract_index
+        .get(contract)
+        .map(|&i| &project.contracts[i])
+        .and_then(|c| c.functions.iter().find(|f| &f.key == key).map(|f| (c, f)));
+    let Some((declared_in, def)) = declared else {
+        return behavior(contract, key);
+    };
+    let signature = def.match_signature();
+
+    let implementation = if is_super {
+        let order = if in_root { linearization } else { project.linearization(owner) };
+        project.implementation(&order, signature, Some(&owner.name))
+    } else if !target.call.contains('.')
+        && def.is_virtual
+        && linearization.iter().any(|c| c.name == declared_in.name)
+    {
+        project.implementation(&linearization, signature, None)
+    } else {
+        None
+    };
+    match implementation {
+        Some((c, f)) => behavior(&c.name, &f.key),
+        None => behavior(contract, key),
+    }
+}
+
 pub fn resolve_internal_callee<'a>(
     callee: &str,
     starting_contract: &'a ContractDef,
     project: &'a Project,
     all: &'a HashMap<String, SequenceAnalysis>,
 ) -> Option<(&'a FunctionBehavior, String)> {
+    // `super.f` continues after the caller; `Library.f` and `Base.f` name their contract
+    if let Some((qualifier, name)) = callee.split_once('.') {
+        let find = |contract: &str| {
+            all.get(contract)?.functions.iter().find(|b| b.name == name).map(|b| (b, contract.to_string()))
+        };
+        if qualifier != "super" {
+            return find(qualifier);
+        }
+        return project
+            .linearization(starting_contract)
+            .iter()
+            .skip(1)
+            .find_map(|c| find(&c.name));
+    }
+
     if let Some(sa) = all.get(&starting_contract.name) {
         if let Some(b) = sa.functions.iter().find(|b| b.name == callee) {
             return Some((b, starting_contract.name.clone()));

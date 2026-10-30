@@ -162,6 +162,8 @@ mod tests {
             events: vec![],
             errors: vec![],
             inherits: inherits.iter().map(|s| s.to_string()).collect(),
+            id: None,
+            linearized_bases: vec![],
             span: span(),
         }
     }

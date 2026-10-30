@@ -49,8 +49,8 @@ pub fn run(
     let combined_state_vars = project.inherited_state_vars(contract);
     for func in &contract.functions {
         if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(&project)) {
-            let pt = build_path_tree(&cfg, &contract.name, &func.name, &combined_state_vars, &config);
-            let key = (contract.name.clone(), func.name.clone());
+            let pt = build_path_tree(&cfg, &contract.name, &func.key, &combined_state_vars, &config);
+            let key = (contract.name.clone(), func.key.clone());
             cfgs.insert(key.clone(), cfg);
             pt_map.insert(key, pt);
         }
@@ -74,9 +74,10 @@ pub fn run(
     }
 
     if let Some(func_name) = function_filter {
-        let func = contract.functions.iter().find(|f| f.name == func_name)
+        let func = contract.functions.iter()
+            .find(|f| f.name == func_name || f.key == func_name || f.match_signature() == func_name)
             .ok_or_else(|| anyhow::anyhow!("Function '{}' not found. Use --list to see available functions.", func_name))?;
-        let key = (contract.name.clone(), func_name.to_string());
+        let key = (contract.name.clone(), func.key.clone());
         let cfg = cfgs.get(&key).ok_or_else(|| anyhow::anyhow!("No CFG for {}", func_name))?;
         let pt = pt_map.get(&key).ok_or_else(|| anyhow::anyhow!("No paths for {}", func_name))?;
         let narrative = build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses);
@@ -85,7 +86,7 @@ pub fn run(
     }
 
     let narratives: Vec<_> = contract.functions.iter().filter_map(|func| {
-        let key = (contract.name.clone(), func.name.clone());
+        let key = (contract.name.clone(), func.key.clone());
         let cfg = cfgs.get(&key)?;
         let pt = pt_map.get(&key)?;
         Some(build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses))

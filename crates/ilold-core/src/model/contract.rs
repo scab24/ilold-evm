@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::common::{EnumDef, ErrorDef, EventDef, SourceSpan, StateVar, StructDef};
+use super::decl_id::DeclId;
 use super::function::FunctionDef;
 use super::modifier::ModifierDef;
 
@@ -16,6 +17,11 @@ pub struct ContractDef {
     pub events: Vec<EventDef>,
     pub errors: Vec<ErrorDef>,
     pub inherits: Vec<String>,
+    #[serde(default)]
+    pub id: Option<DeclId>,
+    /// solc `linearizedBaseContracts`: C3 order, the contract itself first.
+    #[serde(default)]
+    pub linearized_bases: Vec<DeclId>,
     pub span: SourceSpan,
 }
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::common::SourceSpan;
 use crate::model::decl_id::DeclId;
-use crate::model::expression::AssignOperator;
+use crate::model::expression::{AssignOperator, CallKind};
 
 pub type CfgGraph = StableDiGraph<BasicBlock, BranchEdge>;
 
@@ -55,6 +55,9 @@ impl BranchEdge {
     }
 }
 
+fn external_kind() -> CallKind { CallKind::External }
+fn internal_kind() -> CallKind { CallKind::Internal }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CfgStatement {
     Assignment {
@@ -75,6 +78,14 @@ pub enum CfgStatement {
         resolved: Option<DeclId>,
         #[serde(default)]
         arguments: String,
+        #[serde(default = "external_kind")]
+        kind: CallKind,
+        // contract named by the callee's static type (`contract IPool` -> IPool)
+        #[serde(default)]
+        contract: Option<String>,
+        // call options as (name, value), e.g. ("value", "msg.value") or ("salt", "s")
+        #[serde(default)]
+        options: Vec<(String, String)>,
     },
     InternalCall {
         function: String,
@@ -83,6 +94,16 @@ pub enum CfgStatement {
         from_modifier: Option<String>,
         #[serde(default)]
         arguments: String,
+        #[serde(default = "internal_kind")]
+        kind: CallKind,
+        // `super`, the library or the base contract named before the function
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        resolved: Option<DeclId>,
+        // the declaration solc resolved, as (contract, function key)
+        #[serde(default)]
+        declaration: Option<(String, String)>,
     },
     EmitEvent {
         event: String,

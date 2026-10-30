@@ -2,10 +2,14 @@ use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use ilold_core::model::common::SourceSpan;
+use ilold_core::model::contract::ContractDef;
+use ilold_core::model::function::FunctionDef;
+use ilold_core::model::project::FunctionLookupError;
 use ilold_core::pathtree::types::PathTree;
 use ilold_core::sequence::types::SequenceTree;
 
@@ -26,6 +30,10 @@ pub struct ContractDetail {
 #[derive(Serialize)]
 pub struct FunctionSummary {
     pub name: String,
+    /// Route segment for `/api/contract/{c}/{key}/...`: the bare name when it is unique on
+    /// this contract, otherwise the signature.
+    pub key: String,
+    pub signature: String,
     pub kind: String,
     pub visibility: String,
     pub mutability: String,
@@ -62,14 +70,22 @@ pub async fn get_contract(
         .find(|c| c.name == name)
         .ok_or(StatusCode::NOT_FOUND)?;
 
+    let accessible = state.project.accessible_functions(contract);
+    let route_key = |f: &FunctionDef| -> String {
+        let same_name = accessible.iter().filter(|af| af.function.name == f.name).count();
+        if same_name > 1 { f.match_signature().to_string() } else { f.name.clone() }
+    };
+
     let functions = contract
         .functions
         .iter()
         .map(|f| {
-            let key = (contract.name.clone(), f.name.clone());
+            let key = (contract.name.clone(), f.key.clone());
             let pt = state.path_trees.get(&key);
             FunctionSummary {
                 name: f.name.clone(),
+                key: route_key(f),
+                signature: f.match_signature().to_string(),
                 kind: format!("{:?}", f.kind),
                 visibility: format!("{:?}", f.visibility),
                 mutability: format!("{:?}", f.mutability),
@@ -103,10 +119,12 @@ pub async fn get_contract(
         .filter(|af| af.is_inherited)
         .map(|af| {
             let f = af.function;
-            let key = (af.origin.clone(), f.name.clone());
+            let key = (af.origin.clone(), f.key.clone());
             let pt = state.path_trees.get(&key);
             FunctionSummary {
                 name: f.name.clone(),
+                key: route_key(f),
+                signature: f.match_signature().to_string(),
                 kind: format!("{:?}", f.kind),
                 visibility: format!("{:?}", f.visibility),
                 mutability: format!("{:?}", f.mutability),
@@ -184,6 +202,12 @@ pub struct CytoscapeEdgeData {
     pub target: String,
     pub kind: String,
     pub call_count: usize,
+    /// Human label of a call-graph edge kind (absent on CFG edges).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind_label: Option<String>,
+    /// Declaration named in the source when virtual dispatch picked another implementation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_target: Option<String>,
 }
 
 pub async fn get_callgraph(
@@ -201,7 +225,7 @@ pub async fn get_callgraph(
             let node = &cg[idx];
             CytoscapeNode {
                 data: CytoscapeNodeData {
-                    id: format!("{}::{}", node.contract, node.function),
+                    id: node.id(),
                     label: node.function.clone(),
                     node_type: if node.is_external { "external" } else { "internal" }.into(),
                     contract: node.contract.clone(),
@@ -221,10 +245,12 @@ pub async fn get_callgraph(
             CytoscapeEdge {
                 data: CytoscapeEdgeData {
                     id: format!("e{i}"),
-                    source: format!("{}::{}", cg[src].contract, cg[src].function),
-                    target: format!("{}::{}", cg[dst].contract, cg[dst].function),
+                    source: cg[src].id(),
+                    target: cg[dst].id(),
                     kind: format!("{:?}", edge.kind),
                     call_count: edge.call_count,
+                    kind_label: Some(edge.kind.label().to_string()),
+                    static_target: edge.static_target.clone(),
                 },
             }
         })
@@ -234,19 +260,38 @@ pub async fn get_callgraph(
 }
 
 
+/// Selects the function behind `{func}`: a bare name when unambiguous on the contract, or a
+/// full signature such as `setPoolPause(bool,uint40)`. An ambiguous bare name is a 409 that
+/// lists the candidate signatures.
+fn route_function<'a>(
+    state: &'a AppState,
+    contract_name: &str,
+    func: &str,
+) -> Result<(&'a ContractDef, &'a FunctionDef), Response> {
+    let contract = state.project.contracts.iter()
+        .find(|c| c.name == contract_name)
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+    state.project.lookup_function(contract, func).map_err(|e| match e {
+        FunctionLookupError::NotFound => StatusCode::NOT_FOUND.into_response(),
+        FunctionLookupError::Ambiguous(candidates) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": format!("'{func}' is overloaded on {contract_name}; use a signature"),
+                "candidates": candidates,
+            })),
+        )
+            .into_response(),
+    })
+}
+
 pub async fn get_cfg(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-) -> Result<Json<CytoscapeGraph>, StatusCode> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<CytoscapeGraph>, Response> {
+    let (owning, func) = route_function(&state, &contract_name, &func_name)?;
 
-    let (owning, _func) = state.project.resolve_function(contract, &func_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let key = (owning.name.clone(), func_name);
-    let cfg = state.cfgs.get(&key).ok_or(StatusCode::NOT_FOUND)?;
+    let key = (owning.name.clone(), func.key.clone());
+    let cfg = state.cfgs.get(&key).ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
 
     let nodes: Vec<CytoscapeNode> = cfg
         .node_indices()
@@ -280,6 +325,8 @@ pub async fn get_cfg(
                     target: format!("b{}", cfg[dst].id),
                     kind: format!("{:?}", edge),
                     call_count: 0,
+                    kind_label: None,
+                    static_target: None,
                 },
             }
         })
@@ -299,16 +346,11 @@ pub struct FunctionSourceResponse {
 pub async fn get_function_source(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-) -> Result<Json<FunctionSourceResponse>, StatusCode> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let (_owning, func) = state.project.resolve_function(contract, &func_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<FunctionSourceResponse>, Response> {
+    let (_owning, func) = route_function(&state, &contract_name, &func_name)?;
 
     let file = state.project.source_files.get(func.span.file_index)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
 
     let source = slice_lines(
         &file.content,
@@ -338,21 +380,16 @@ fn slice_lines(src: &str, start_1based: usize, end_1based: usize) -> String {
 pub async fn get_paths(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-) -> Result<Json<PathTree>, StatusCode> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<PathTree>, Response> {
+    let (owning, func) = route_function(&state, &contract_name, &func_name)?;
 
-    let (owning, _func) = state.project.resolve_function(contract, &func_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let key = (owning.name.clone(), func_name);
+    let key = (owning.name.clone(), func.key.clone());
     state
         .path_trees
         .get(&key)
         .cloned()
         .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())
 }
 
 

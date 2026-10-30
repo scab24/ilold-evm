@@ -150,15 +150,41 @@ Returns the contract dependency graph in Cytoscape-compatible JSON. Nodes carry 
 
 ### GET /api/contract/{name}
 
-Returns contract detail: name, kind, inheritance chain, functions (with path stats), state variables, and inherited functions and state variables.
+Returns contract detail: name, kind, inheritance chain, functions (with path stats), state variables, and inherited functions and state variables. Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
+
+Signatures are `name(type,...)`:
+
+- External and public functions use the ABI form, without data locations: `sums(uint256[])`.
+- Internal and private functions keep each parameter's location, because overloads may differ only by it: `_sum(uint256[] calldata)`, `_sum(uint256[] storage)`.
+- `struct`, `enum` and `contract` prefixes are dropped (`DataTypes.ReserveData`, `IPool`). Function-type parameters are written `function(uint256) external returns (bool)`.
+- The receive and fallback functions have the bare signatures `receive` and `fallback`. A regular function with one of those names (solc warns about it) is always keyed by its signature, e.g. `fallback()`.
+
+A bare-name key is not stable: adding an overload later turns an existing key such as `put` into `put(uint256)`. Clients that store function references should prefer the signature.
 
 ### GET /api/contract/{name}/callgraph
 
-Returns the call graph for a contract in Cytoscape-compatible JSON format. Nodes represent functions (with contract, type, external flag). Edges represent calls (with kind and count).
+Returns the call graph for a contract in Cytoscape-compatible JSON format, built as the most derived contract: its own and inherited functions, with `super` following the C3 linearization and calls to virtual functions dispatched to the visible override. Node ids are `Contract::name`, or `Contract::name(types)` for overloaded functions; `is_external` marks nodes outside the contract's hierarchy. Edges carry the call `kind`, a `kind_label`, the call count and, for dispatched calls, the `static_target` named in the source. Kinds:
+
+| Kind | Meaning |
+|------|---------|
+| `Internal` | JUMP within the hierarchy, including `super.f()` and `Base.f()` |
+| `InternalLibrary` | JUMP into an internal library function, directly or through `using for` |
+| `LibraryDelegatecall` | DELEGATECALL into a public or external library function |
+| `External` | Call through an interface or contract type, including casts such as `IFoo(addr).f()` |
+| `ExternalSelf` | `this.f()` |
+| `LowLevelCall`, `LowLevelDelegatecall`, `LowLevelStaticcall` | `address.call/delegatecall/staticcall`, node `address::call` etc. |
+| `Transfer`, `Send` | `payable(to).transfer(v)` / `.send(v)` |
+| `Creation` | `new C(...)`, also with `{salt: s}`; node `C::constructor` |
+
+Compiler builtins (`keccak256`, `abi.*`, `ecrecover`, `type(...)`, `require`, ...) are not calls.
 
 ### GET /api/contract/{name}/depgraph
 
 Returns the contract's neighbourhood in the dependency graph: the contract itself (flagged `focus`), the contracts it depends on, and the contracts that depend on it. Same node and edge shape as `/api/project/depgraph`.
+
+### Function routes and overloads
+
+`{func}` in `/api/contract/{name}/{func}/cfg`, `/paths` and `/source` is a bare function name when it is unambiguous on the contract (own and inherited public functions), or a full signature such as `setPoolPause(bool,uint40)`. Whitespace in a signature is ignored, so `_sum(uint256[]storage)` matches `_sum(uint256[] storage)`. A bare name shared by several overloads returns `409 Conflict` with `{"error": ..., "candidates": ["setPoolPause(bool,uint40)", "setPoolPause(bool)"]}`. All three routes select the same overload for the same `{func}`.
 
 ### GET /api/contract/{name}/{func}/cfg
 
@@ -166,7 +192,7 @@ Returns the control flow graph for a function in Cytoscape-compatible JSON forma
 
 ### GET /api/contract/{name}/{func}/paths
 
-Returns the path tree for a function. Contains all execution paths with stats (total, happy, revert) and per-path annotations (state writes, external calls, events).
+Returns the path tree for a function. Contains all execution paths with stats (total, happy, revert) and per-path annotations (state writes, external calls, events). `internal_calls` lists JUMPs (`f`, `super.f`, `Base.f`, `Library.f` for internal library functions), and `internal_call_targets` repeats them in the same order with the `declaration` solc resolved (`[contract, key]`). `external_calls` lists everything that leaves the frame, each with its call `kind`.
 
 ### GET /api/contract/{name}/sequences
 

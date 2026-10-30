@@ -14,12 +14,20 @@ pub enum ExpressionKind {
     FunctionCall {
         callee: Box<Expression>,
         arguments: Vec<Expression>,
+        // `{value: v, gas: g}` call options
+        #[serde(default)]
+        options: Vec<CallOption>,
+        #[serde(default)]
+        call: CallType,
     },
     MemberAccess {
         object: Box<Expression>,
         member: String,
         #[serde(default)]
         resolved: Option<DeclId>,
+        // solc type string of the object, e.g. `contract IPool` or `type(library L)`
+        #[serde(default)]
+        object_type: Option<String>,
     },
     BinaryOp {
         left: Box<Expression>,
@@ -63,6 +71,11 @@ pub enum ExpressionKind {
     New {
         type_name: String,
         arguments: Vec<Expression>,
+        #[serde(default)]
+        options: Vec<CallOption>,
+        // `new C(...)` deploys a contract; `new uint256[](n)` only allocates
+        #[serde(default)]
+        creates_contract: bool,
     },
     Tuple {
         elements: Vec<Option<Expression>>,
@@ -72,6 +85,86 @@ pub enum ExpressionKind {
         start: Option<Box<Expression>>,
         end: Option<Box<Expression>>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallOption {
+    pub name: String,
+    pub value: Expression,
+}
+
+/// What a call expression invokes, taken from the solc function type of its callee.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallType {
+    /// No compiler type information; consumers fall back to syntax and names.
+    #[default]
+    Unknown,
+    /// Compiler builtin, event, error or array push/pop: no contract code runs.
+    Builtin,
+    Call(CallKind),
+}
+
+/// How control reaches the callee.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum CallKind {
+    /// JUMP into a function of the same contract hierarchy (incl. `super.f()`).
+    Internal,
+    /// JUMP into an internal library function, directly or through `using for`.
+    InternalLibrary,
+    /// DELEGATECALL into a public or external library function.
+    LibraryDelegatecall,
+    /// CALL/STATICCALL through an interface or contract type.
+    External,
+    /// `this.f()`: an external call back into the analysed contract.
+    ExternalSelf,
+    LowLevelCall,
+    LowLevelDelegatecall,
+    LowLevelStaticcall,
+    Transfer,
+    Send,
+    /// `new C(...)`, also with `{salt: s}` (CREATE2).
+    Creation,
+}
+
+impl CallKind {
+    /// Same-code JUMPs; everything else leaves the current execution frame.
+    pub fn is_internal(self) -> bool {
+        matches!(self, CallKind::Internal | CallKind::InternalLibrary)
+    }
+
+    /// Short human label for listings and the web UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            CallKind::Internal => "internal",
+            CallKind::InternalLibrary => "library internal",
+            CallKind::LibraryDelegatecall => "library delegatecall",
+            CallKind::External => "external",
+            CallKind::ExternalSelf => "external self",
+            CallKind::LowLevelCall => "low-level call",
+            CallKind::LowLevelDelegatecall => "low-level delegatecall",
+            CallKind::LowLevelStaticcall => "low-level staticcall",
+            CallKind::Transfer => "transfer",
+            CallKind::Send => "send",
+            CallKind::Creation => "creation",
+        }
+    }
+
+    /// Maps the kind segment of a solc function type identifier (`t_function_<kind>_...`).
+    /// `None` means the callee is a builtin and runs no contract code.
+    pub fn from_solc_function_kind(kind: &str) -> Option<CallKind> {
+        Some(match kind {
+            "internal" => CallKind::Internal,
+            "external" => CallKind::External,
+            "delegatecall" => CallKind::LibraryDelegatecall,
+            "barecall" => CallKind::LowLevelCall,
+            "baredelegatecall" | "barecallcode" => CallKind::LowLevelDelegatecall,
+            "barestaticcall" => CallKind::LowLevelStaticcall,
+            "transfer" => CallKind::Transfer,
+            "send" => CallKind::Send,
+            "creation" => CallKind::Creation,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
