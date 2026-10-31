@@ -48,8 +48,7 @@ enum Level {
     Unresolved(String),
 }
 
-// Jump targets of the innermost enclosing loop. Blocks that may stay unused
-// (for increment, do-while condition and exit) are created on first use.
+// Blocks that may stay unused (increment, do-while condition, exit) are created on first use.
 struct LoopFrame {
     continue_block: Option<NodeIndex>,
     continue_kind: BlockKind,
@@ -57,15 +56,12 @@ struct LoopFrame {
     exit_block: Option<NodeIndex>,
 }
 
-/// A variable as an identifier refers to it: by solc id, or by name in models without ids.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum VarKey {
     Id(DeclId),
     Name(String),
 }
 
-/// What denotes storage inside one function: state variables, `storage` parameters and
-/// storage pointer locals with the locations they may point to.
 #[derive(Default)]
 struct Scope {
     state_ids: HashMap<DeclId, String>,
@@ -138,7 +134,6 @@ impl Scope {
         }
     }
 
-    /// A storage pointer variable: a storage local or a `storage` parameter.
     fn is_pointer(&self, expr: &Expression) -> Option<VarKey> {
         let ExpressionKind::Identifier { name, resolved } = &expr.kind else { return None };
         let key = Self::key(name, *resolved);
@@ -237,8 +232,7 @@ impl<'p> CfgBuilder<'p> {
         builder.graph
     }
 
-    // Runs modifier `level` (its `_` runs the next level), or the body after the last one.
-    // Solidity inlines the same way: the body sits at the innermost placeholder.
+    // The body sits at the innermost placeholder, as Solidity inlines it.
     fn run_level(&mut self, level: usize) {
         self.level = level;
         match self.levels.get(level).cloned() {
@@ -262,16 +256,18 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // `_`: the inner levels run here; a `return` in them continues after the placeholder,
-    // so the code after `_` runs on every exit that does not revert.
+    // A `return` in the inner levels continues after the placeholder, so the code after `_` runs on every exit.
     fn process_placeholder(&mut self) {
         let level = self.level;
         if level >= self.levels.len() {
             return;
         }
         let modifier = self.current_modifier.clone();
+        // inner levels must not cite the `_` statement
+        let placeholder = self.current_span.take();
         self.exits.push(None);
         self.run_level(level + 1);
+        self.current_span = placeholder;
         if let Some(Some(exit)) = self.exits.pop() {
             if !self.block_is_terminal(self.current_block) {
                 self.add_edge(self.current_block, exit, BranchEdge::Unconditional);
@@ -482,7 +478,6 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // an expression evaluated for its effects, assignments included
     fn evaluate(&mut self, expr: &Expression) {
         let ExpressionKind::Assignment { target, operator, value } = &expr.kind else {
             self.add_effects(expr);
@@ -548,7 +543,7 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // Every storage place `expr` may denote; calls returning a storage pointer are followed once.
+    // calls returning a storage pointer are followed once
     fn place(&self, expr: &Expression) -> Vec<StorageRef> {
         self.place_in(&self.scope, expr, true)
     }
@@ -645,8 +640,7 @@ impl<'p> CfgBuilder<'p> {
             .collect()
     }
 
-    // Storage `expr` reads when evaluated. A storage path counts once as a whole; the
-    // storage named by a pointer binding or an assignment target is not read.
+    // A storage path counts once; the storage a pointer binding or assignment target names is not read.
     fn reads(&self, expr: &Expression, out: &mut Vec<StorageRef>) {
         match &expr.kind {
             ExpressionKind::Identifier { .. } | ExpressionKind::MemberAccess { .. } | ExpressionKind::IndexAccess { .. } => {
@@ -1353,7 +1347,6 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // A call whose kind solc fixed through the callee's function type.
     fn typed_call(
         &self,
         callee: &Expression,
@@ -1421,7 +1414,7 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // Models without solc function types: classify by syntax and names.
+    // models without solc function types are classified by syntax and names
     fn untyped_call(&self, callee: &Expression, args: String, stmts: &mut Vec<CfgStatement>) {
         let from_modifier = &self.current_modifier;
         let internal = |function: String, target: Option<String>| CfgStatement::InternalCall {
@@ -1503,13 +1496,11 @@ fn storage_write(place: StorageRef, from_modifier: Option<String>) -> CfgStateme
     CfgStatement::StateWrite { variable: place.path, span: None, from_modifier, param: place.param }
 }
 
-// A library function bound through `using for`: the receiver is its first argument.
 fn is_attached(callee: &Expression, kind: CallKind) -> bool {
     matches!(kind, CallKind::InternalLibrary | CallKind::LibraryDelegatecall)
         && matches!(&callee.kind, ExpressionKind::MemberAccess { object_type: Some(t), .. } if !t.starts_with("type("))
 }
 
-// The arguments a call passes, the `using for` receiver first.
 pub(crate) fn call_arguments<'e>(callee: &'e Expression, arguments: &'e [Expression], kind: CallKind) -> Vec<&'e Expression> {
     let mut out = Vec::with_capacity(arguments.len() + 1);
     if let (true, ExpressionKind::MemberAccess { object, .. }) = (is_attached(callee, kind), &callee.kind) {
@@ -1599,7 +1590,6 @@ fn option_strings(options: &[CallOption]) -> Vec<(String, String)> {
     options.iter().map(|o| (o.name.clone(), expr_to_string(&o.value))).collect()
 }
 
-// `type(library L)` / `type(contract C)` / `contract C` -> `L` / `C`
 fn type_contract_name(object_type: &str) -> Option<String> {
     let inner = object_type
         .strip_prefix("type(")
@@ -1611,8 +1601,6 @@ fn type_contract_name(object_type: &str) -> Option<String> {
         .or_else(|| inner.strip_prefix("interface "))
         .map(|name| name.strip_prefix("super ").unwrap_or(name).to_string())
 }
-
-// A call whose kind solc fixed through the callee's function type.
 
 pub(crate) fn expr_to_string(expr: &Expression) -> String {
     match &expr.kind {

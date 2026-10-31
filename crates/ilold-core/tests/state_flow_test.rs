@@ -1,7 +1,4 @@
-//! State and revert flow across calls and storage pointers: library `storage` parameters
-//! bound at the call site, transitive effects with their call chain, behaviors of inherited
-//! functions in the derived contract, resolved reads and writes, and modifier inlining.
-//! Fixture: tests/fixtures/solc/state_flow.
+//! State and revert flow across calls and storage pointers. Fixture: tests/fixtures/solc/state_flow.
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -53,7 +50,6 @@ fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
 
-/// (item, via) of the transitive effects of one kind, sorted.
 fn traced(b: &FunctionBehavior, kind: EffectKind) -> Vec<(String, Vec<String>)> {
     let mut out: Vec<(String, Vec<String>)> = b
         .transitive_effects
@@ -78,10 +74,9 @@ fn cfg(contract_name: &str, key: &str) -> CfgGraph {
 
 fn tree(contract_name: &str, key: &str) -> PathTree {
     let c = contract(contract_name);
-    build_path_tree(&cfg(contract_name, key), &c.name, key, &project().inherited_state_vars(c), &PruningConfig::default())
+    build_path_tree(&cfg(contract_name, key), &c.name, key, &PruningConfig::default())
 }
 
-/// Targets of the assignments and storage writes of `stmts`.
 fn written(stmts: &[CfgStatement]) -> Vec<&str> {
     stmts
         .iter()
@@ -303,7 +298,6 @@ fn post_placeholder_code_runs_after_every_return() {
     }
 }
 
-/// `both` with its first modifier renamed to one that does not exist.
 fn unresolved_project() -> Project {
     let mut p = project().clone();
     let modded = p.contracts.iter_mut().find(|c| c.name == "Modded").unwrap();
@@ -311,6 +305,23 @@ fn unresolved_project() -> Project {
     assert_eq!(both.modifiers[0].name, "checked");
     both.modifiers[0].name = "missingGuard".into();
     p
+}
+
+#[test]
+fn unresolved_modifier_after_a_placeholder_cites_no_span() {
+    let mut p = project().clone();
+    let modded = p.contracts.iter_mut().find(|c| c.name == "Modded").unwrap();
+    let both = modded.functions.iter_mut().find(|f| f.key == "both").unwrap();
+    assert_eq!(both.modifiers[1].name, "tracked");
+    both.modifiers[1].name = "missingGuard".into();
+    let modded = p.contracts.iter().find(|c| c.name == "Modded").unwrap();
+    let both = modded.functions.iter().find(|f| f.key == "both").unwrap();
+    let g = CfgBuilder::build_with_project(both, modded, Some(&p));
+    let span = g.node_weights().flat_map(|b| &b.statements).find_map(|s| match s {
+        CfgStatement::UnresolvedModifier { name, span, .. } if name == "missingGuard" => Some(*span),
+        _ => None,
+    });
+    assert_eq!(span, Some(None));
 }
 
 #[test]

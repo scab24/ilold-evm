@@ -9,10 +9,9 @@ use super::statement::Statement;
 pub struct FunctionDef {
     pub name: String,
     /// Unique within the defining contract: the name, or the signature when overloaded.
-    /// Analysis maps and call-graph ids use `(contract, key)`.
     #[serde(default)]
     pub key: String,
-    /// `name(type,...)` from solc parameter types, without data locations.
+    /// Without data locations.
     #[serde(default)]
     pub signature: String,
     #[serde(default)]
@@ -35,7 +34,7 @@ pub struct FunctionDef {
 }
 
 impl FunctionDef {
-    /// Signature used to match overrides and overloads; hand-built models fall back to the name.
+    /// Hand-built models fall back to the name.
     pub fn match_signature(&self) -> &str {
         if self.signature.is_empty() { &self.name } else { &self.signature }
     }

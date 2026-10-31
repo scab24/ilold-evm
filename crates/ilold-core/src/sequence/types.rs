@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::model::function::Visibility;
 use crate::util::Page;
 
-/// Functions a transaction sequence can call; the sequences themselves are generated per
-/// request because there are `n + n^2 + ... + n^depth` of them.
+/// The sequences are generated per request: there are `n + n^2 + ... + n^depth` of them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SequenceTree {
     pub contract: String,
@@ -29,7 +28,7 @@ pub struct TransactionSequence {
     pub has_state_change: bool,
 }
 
-/// One page of the sequences up to `max_depth`, shortest first, each depth in lexicographic order.
+/// Shortest first, each depth in lexicographic order.
 #[derive(Debug, Clone, Serialize)]
 pub struct SequencePage {
     pub contract: String,
@@ -40,7 +39,6 @@ pub struct SequencePage {
 }
 
 impl SequenceTree {
-    /// Number of sequences of length 1 to `depth`.
     pub fn sequence_count(&self, depth: usize) -> usize {
         (1..=depth).fold(0usize, |total, d| total.saturating_add(self.at_depth(d)))
     }

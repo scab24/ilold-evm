@@ -13,7 +13,8 @@ use reedline::{
 use ilold_core::classify::entry_points::AccessLevel;
 use ilold_core::exploration::commands::CommandResult;
 use ilold_core::model::project::ContractLookupError;
-use ilold_evm_mcp::encode_component as enc;
+use ilold_core::util::{compact, push_unique};
+use ilold_evm_mcp::{check_segments, encode_component as enc};
 
 use crate::colors::*;
 use crate::fmt;
@@ -121,8 +122,7 @@ pub async fn run(
         repl_loop(handle, contract_name, contract_names, names_by_contract, Some(state_for_thread), base_url);
     });
 
-    // Never block the Tokio worker while Reedline waits for input: a
-    // current-thread runtime must still service browser/API requests.
+    // a current-thread runtime must keep serving API requests while Reedline waits for input
     let repl = tokio::task::spawn_blocking(move || {
         repl_thread.join().map_err(|_| anyhow::anyhow!("REPL thread panicked"))
     });
@@ -136,8 +136,6 @@ pub async fn run(
     Ok(())
 }
 
-/// Contract the REPL starts on: `--contract` when it names a project contract,
-/// otherwise the shared default rule applied to the server's `/api/project`.
 fn start_contract(project_info: &serde_json::Value, explicit: Option<&str>) -> Result<String> {
     use ilold_core::model::contract::ContractKind;
 
@@ -222,7 +220,6 @@ fn repl_loop(
             ColumnarMenu::default().with_name(COMPLETION_MENU),
         )))
         .with_edit_mode(Box::new(Emacs::new(keybindings)))
-        // One candidate completes in place; several fill their common prefix, then list.
         .with_quick_completions(true)
         .with_partial_completions(true)
         .with_hinter(Box::new(DefaultHinter::default().with_style(
@@ -240,8 +237,7 @@ fn repl_loop(
     };
 
     loop {
-        // The browser and other clients share the server session: refresh steps,
-        // active scenario and scenario names before every prompt.
+        // other clients share the server session: refresh it before every prompt
         if let Some(snapshot) = sync_session(&handle, &client, &base_url, &contract) {
             steps = snapshot.steps;
             scenario_name = snapshot.active;
@@ -289,7 +285,6 @@ fn repl_loop(
                     }
                 }
             }
-            // Ctrl-C only discards the line being edited; Ctrl-D (or `q`) exits.
             Ok(Signal::CtrlC) => continue,
             Ok(Signal::CtrlD) => break,
             Err(e) => {
@@ -302,7 +297,6 @@ fn repl_loop(
 
 const COMPLETION_MENU: &str = "completion_menu";
 
-/// Names the completer and argument checks use for one contract (own and inherited).
 #[derive(Debug, Clone, Default, PartialEq)]
 struct ContractNames {
     functions: Vec<String>,
@@ -310,7 +304,6 @@ struct ContractNames {
 }
 
 impl ContractNames {
-    /// From `/api/contract/{name}` (attached mode).
     fn from_detail(detail: &serde_json::Value) -> Self {
         let items = |keys: &[&str]| -> Vec<serde_json::Value> {
             keys.iter().flat_map(|key| detail[*key].as_array().cloned().unwrap_or_default()).collect()
@@ -325,17 +318,14 @@ impl ContractNames {
         let mut state_vars: Vec<String> = Vec::new();
         for v in items(&["state_vars", "inherited_state_vars"]) {
             if let Some(name) = v["name"].as_str().filter(|n| !n.is_empty()) {
-                if !state_vars.iter().any(|o| o == name) {
-                    state_vars.push(name.to_string());
-                }
+                push_unique(&mut state_vars, name.to_string());
             }
         }
         ContractNames { functions: function_names(&functions), state_vars }
     }
 }
 
-/// Function names for completion and argument checks from `(name, signature)` pairs: the
-/// bare name, or the signature without spaces for each overload of a shared name.
+/// Overloads of a shared name are listed by signature without spaces.
 fn function_names(functions: &[(String, String)]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (name, signature) in functions.iter().filter(|(n, _)| !n.is_empty()) {
@@ -348,10 +338,6 @@ fn function_names(functions: &[(String, String)]) -> Vec<String> {
     out
 }
 
-fn compact(s: &str) -> String {
-    s.chars().filter(|c| !c.is_whitespace()).collect()
-}
-
 fn local_names(project: &ilold_core::model::project::Project) -> HashMap<String, ContractNames> {
     let mut out = HashMap::new();
     for c in project.contracts.iter().filter(|c| !c.name.is_empty()) {
@@ -361,16 +347,13 @@ fn local_names(project: &ilold_core::model::project::Project) -> HashMap<String,
         let functions = function_names(&functions);
         let mut state_vars: Vec<String> = Vec::new();
         for v in project.inherited_state_vars(c) {
-            if !state_vars.contains(&v.name) {
-                state_vars.push(v.name);
-            }
+            push_unique(&mut state_vars, v.name);
         }
         out.insert(c.key().to_string(), ContractNames { functions, state_vars });
     }
     out
 }
 
-/// Everything a command needs besides the mutable session view.
 struct ReplContext<'a> {
     handle: &'a tokio::runtime::Handle,
     client: &'a reqwest::Client,
@@ -533,12 +516,11 @@ fn handle_input(
         "ct" | "contracts" => {
             let all = arg == "all";
             if let Some(ref state) = state {
-                let hidden = state.project.contracts.iter().filter(|c| !c.is_listed()).count();
-                println!("{}", render_contracts(&local_rows(&state.project, all), contract, hidden, all));
+                println!("{}", render_contracts(&local_rows(&state.project, all), contract, state.project.hidden_contracts(), all));
             } else {
                 match send_get(handle, client, &format!("{base_url}/api/project?include_dependencies={all}")) {
                     Ok(info) => {
-                        let hidden = info["dependency_contracts"].as_u64().unwrap_or(0) as usize;
+                        let hidden = info["hidden_contracts"].as_u64().unwrap_or(0) as usize;
                         println!("{}", render_contracts(&contract_rows(&info), contract, hidden, all));
                     }
                     Err(e) => eprintln!("  {}", c_danger(&format!("Failed to fetch contracts: {e}"))),
@@ -592,7 +574,7 @@ fn handle_input(
                 }
             } else {
                 let name = arg.to_string();
-                if !contract_names.iter().any(|c| *c == name) {
+                if !contract_names.contains(&name) {
                     eprintln!("  {}", c_danger(&crate::analyze::contract_not_found(
                         &name, contract_names.iter().map(String::as_str)).to_string()));
                     return InputResult::Continue;
@@ -675,7 +657,7 @@ fn handle_input(
             match send_command(handle, client, base_url, &body) {
                 Ok(result) => {
                     print_result(&result, steps);
-                    // Only a confirmed clear empties the local view; an Error keeps it.
+                    // an Error keeps the local view
                     if matches!(result, CommandResult::Cleared) {
                         steps.clear();
                         return InputResult::UpdatePrompt;
@@ -843,7 +825,7 @@ fn handle_input(
                         return InputResult::Continue;
                     }
                     if parsed.has_render_flags() {
-                        // The persisted trace has a fixed shape: flags rebuild the step's function.
+                        // the persisted trace has a fixed shape, so flags rebuild it from the function
                         let func_name = &steps[*idx];
                         println!("  {}", c_muted(&format!("step {idx} ({func_name}) rebuilt with the given flags")));
                         function_trace_url(base_url, contract, func_name, &parsed)
@@ -1035,7 +1017,6 @@ fn handle_input(
             match send_command(handle, client, base_url, &body) {
                 Ok(CommandResult::SessionLoaded { contract: loaded, steps: loaded_steps }) => {
                     println!("  {} Session loaded: {} ({} steps)", c_ok("✓"), c_accent(&loaded), loaded_steps.len());
-                    // The saved store belongs to its own contract; follow it there.
                     if loaded != contract {
                         return InputResult::SwitchContract(loaded);
                     }
@@ -1062,8 +1043,7 @@ struct SessionSnapshot {
     scenarios: Vec<String>,
 }
 
-/// Active scenario, its steps and every scenario name for `contract`, read
-/// without changing which contract the server considers current.
+/// Read without changing which contract the server considers current.
 fn sync_session(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
@@ -1090,27 +1070,8 @@ fn send_command(
     base_url: &str,
     body: &serde_json::Value,
 ) -> Result<CommandResult, String> {
-    handle.block_on(async {
-        let resp = client.post(format!("{base_url}/api/cmd"))
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {e}"))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(if body.is_empty() {
-                format!("Server error: {status}")
-            } else {
-                body
-            });
-        }
-
-        resp.json::<CommandResult>()
-            .await
-            .map_err(|e| format!("Parse failed: {e}"))
-    })
+    let value = handle.block_on(json_body(client.post(format!("{base_url}/api/cmd")).json(body)))?;
+    serde_json::from_value(value).map_err(|e| format!("Parse failed: {e}"))
 }
 
 fn send_get(
@@ -1118,26 +1079,18 @@ fn send_get(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<serde_json::Value, String> {
-    handle.block_on(async {
-        let resp = client.get(url)
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {e}"))?;
+    check_segments(url)?;
+    handle.block_on(json_body(client.get(url)))
+}
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(if body.is_empty() {
-                format!("Server error: {status}")
-            } else {
-                body
-            });
-        }
-
-        resp.json::<serde_json::Value>()
-            .await
-            .map_err(|e| format!("Parse failed: {e}"))
-    })
+async fn json_body(request: reqwest::RequestBuilder) -> Result<serde_json::Value, String> {
+    let resp = request.send().await.map_err(|e| format!("Request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(if body.is_empty() { format!("Server error: {status}") } else { body });
+    }
+    resp.json().await.map_err(|e| format!("Parse failed: {e}"))
 }
 
 fn send_and_print(
@@ -1191,13 +1144,12 @@ struct TraceArgs {
 }
 
 impl TraceArgs {
-    /// Flags that change what the trace contains (not just how it is shown).
+    /// Flags that change what the trace contains, not just how it is shown.
     fn has_render_flags(&self) -> bool {
         self.depth.is_some() || self.reverts || !self.expand.is_empty()
     }
 }
 
-/// `trace` arguments; unknown flags, bad numbers and stray words are errors.
 fn parse_trace_args(arg: &str) -> Result<TraceArgs, String> {
     let tokens: Vec<&str> = arg.split_whitespace().collect();
     let mut target: Option<TraceTarget> = None;
@@ -1244,7 +1196,6 @@ fn parse_trace_args(arg: &str) -> Result<TraceArgs, String> {
 
 fn function_trace_url(base_url: &str, contract: &str, func_name: &str, parsed: &TraceArgs) -> String {
     let mut url = format!("{base_url}/api/session/trace/{}/{}", enc(contract), enc(func_name));
-    // the user is looking at this function: canvases showing the contract follow
     let mut params: Vec<String> = vec!["highlight=true".into()];
     if let Some(d) = parsed.depth.or(if parsed.interactive { Some(4) } else { None }) {
         params.push(format!("depth={d}"));
@@ -1261,7 +1212,6 @@ fn function_trace_url(base_url: &str, contract: &str, func_name: &str, parsed: &
     url
 }
 
-/// Text after the first word, for commands that take exactly one name.
 fn extra_args(arg: &str) -> Option<&str> {
     arg.split_once(char::is_whitespace).map(|(_, rest)| rest.trim()).filter(|r| !r.is_empty())
 }
@@ -1289,7 +1239,6 @@ fn unknown_name(kind: &str, name: &str, contract: &str, known: &[String]) -> Str
     }
 }
 
-/// `name` (or the base of `name[..]`/`name.field`) is a state variable of the contract.
 /// An empty name list means the contract's names are unknown, so nothing is rejected.
 fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
     if let Some(extra) = extra_args(name) {
@@ -1303,7 +1252,7 @@ fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<
     }
 }
 
-/// A bare name also matches its overloads (listed by signature); the server picks the first.
+/// A bare name also matches its overloads; the server picks the first.
 fn check_function(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
     let query = compact(name);
     let known = names.functions.iter()
@@ -1321,7 +1270,6 @@ fn sessions_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".ilold/sessions"))
 }
 
-/// `~/.ilold/sessions/<name>.json`; the name is a plain file stem, never a path.
 fn session_file(name: &str) -> Result<PathBuf, String> {
     Ok(sessions_dir().join(format!("{}.json", session_stem(name)?)))
 }
@@ -1350,8 +1298,7 @@ fn session_stem(name: &str) -> Result<&str, String> {
     Ok(stem)
 }
 
-/// Refuses a session file, or a sessions directory, that is a symbolic link: saving or
-/// loading through one would reach outside the sessions directory.
+/// Saving or loading through a symbolic link would reach outside the sessions directory.
 fn check_session_path(path: &std::path::Path) -> Result<(), String> {
     for p in [path.parent(), Some(path)].into_iter().flatten() {
         if std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -1440,8 +1387,6 @@ fn handle_finding_interactive(
     }
 }
 
-/// Notes and findings attach to the current step; with no steps they are
-/// recorded at session level, and the message says so.
 fn print_annotation_result(result: &CommandResult, steps: &[String]) {
     let scope = match steps.last() {
         Some(last) => format!("attached to step {} ({last})", steps.len() - 1),
@@ -1456,7 +1401,6 @@ fn print_annotation_result(result: &CommandResult, steps: &[String]) {
     }
 }
 
-/// One `ct` line; both REPL modes fill it, from the model or from `/api/project`.
 struct ContractRow {
     key: String,
     kind: ilold_core::model::contract::ContractKind,
@@ -1466,7 +1410,6 @@ struct ContractRow {
     is_dependency: bool,
 }
 
-/// Project contracts by key; `ct all` adds the dependency contracts loaded for resolution.
 fn local_rows(project: &ilold_core::model::project::Project, include_dependencies: bool) -> Vec<ContractRow> {
     project.contracts.iter()
         .filter(|c| !c.name.is_empty() && (include_dependencies || c.is_listed()))
@@ -1481,7 +1424,6 @@ fn local_rows(project: &ilold_core::model::project::Project, include_dependencie
         .collect()
 }
 
-/// Rows from a `/api/project` response (attached mode).
 fn contract_rows(info: &serde_json::Value) -> Vec<ContractRow> {
     info["contracts"].as_array().into_iter().flatten()
         .filter_map(|c| Some(ContractRow {
@@ -1544,6 +1486,10 @@ fn show_deps(
     }
 
     let url = format!("{base_url}/api/contract/{}/depgraph", enc(name));
+    if let Err(e) = check_segments(&url) {
+        eprintln!("  {}", c_danger(&e));
+        return;
+    }
     let result = handle.block_on(async {
         let resp = client.get(&url).send().await?;
         if !resp.status().is_success() {
@@ -1579,7 +1525,6 @@ fn print_findings_list(
     }
 }
 
-/// Active scenario name and its journal findings from a saved-session JSON.
 fn active_findings(json: &str) -> Option<(String, Vec<ilold_core::journal::types::Finding>)> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     let active = value["active"].as_str()?.to_string();
@@ -1955,7 +1900,6 @@ fn print_narrative(val: &serde_json::Value) {
             .unwrap_or_default()
     };
 
-    // guards: `kind: condition (via a → b)`
     let guards: Vec<String> = val.get("guards")
         .and_then(|v| serde_json::from_value::<Vec<ilold_core::classify::guards::GuardFact>>(v.clone()).ok())
         .unwrap_or_default()
@@ -2160,8 +2104,11 @@ fn print_sequence_narrative(val: &serde_json::Value) {
     println!();
 }
 
-/// Help groups: (shortcut, usage, description). Every entry has inline help (`cmd?`).
-const HELP_GROUPS: &[(&str, &[(&str, &str, &str)])] = &[
+// (shortcut, usage, description)
+type HelpEntry = (&'static str, &'static str, &'static str);
+
+/// Every entry has inline help (`cmd?`).
+const HELP_GROUPS: &[(&str, &[HelpEntry])] = &[
     ("Session", &[
         ("c",      "call <func>",      "Add function to sequence"),
         ("b",      "back",             "Remove last step"),
@@ -2207,7 +2154,6 @@ const HELP_GROUPS: &[(&str, &[(&str, &str, &str)])] = &[
     ]),
 ];
 
-/// Inline help: (aliases, usage, description).
 const INLINE_HELP: &[(&[&str], &str, &str)] = &[
     (&["c", "call"],      "call <func>",                     "Add a public/external function call to the session. Example: c deposit"),
     (&["b", "back"],      "back",                            "Remove last step from the session sequence."),
@@ -2342,7 +2288,6 @@ const SEVERITIES: &[&str] = &["critical", "high", "medium", "low", "info"];
 const STATUSES: &[&str] = &["reviewed", "suspicious", "vulnerable", "clean", "inprogress", "notreviewed"];
 
 impl IloldCompleter {
-    /// Start of the word being completed and the names that fit its position.
     fn candidates(&self, before: &str) -> (usize, Vec<String>) {
         let word_start = before.rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
         let partial = &before[word_start..];
@@ -2448,7 +2393,6 @@ mod tests {
             Some(SessionSnapshot { active: "main".into(), steps: vec![], scenarios: vec!["main".into()] }),
         );
 
-        // Another client (the browser) adds a step and moves to another contract.
         let call = serde_json::json!({ "contract": "Vault", "command": { "Call": { "func": "depositVia" } } });
         send_command(rt.handle(), &client, &url, &call).unwrap();
         let other = serde_json::json!({ "contract": "LendingPool", "command": "Session" });
@@ -2458,7 +2402,7 @@ mod tests {
             sync_session(rt.handle(), &client, &url, "Vault"),
             Some(SessionSnapshot { active: "main".into(), steps: vec!["depositVia".to_string()], scenarios: vec!["main".into()] }),
         );
-        // Syncing is a read: it does not take the session over from the browser.
+        // syncing is a read: it does not take the session over
         assert_eq!(state.scenarios.read().unwrap().current_contract(), "LendingPool");
     }
 
@@ -2526,6 +2470,17 @@ mod tests {
     }
 
     #[test]
+    fn dot_segments_fail_before_the_request() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let client = reqwest::Client::new();
+        let t = trace("..").unwrap();
+        let err = send_get(rt.handle(), &client, &function_trace_url("http://127.0.0.1:1", "C", "..", &t)).unwrap_err();
+        assert_eq!(err, "'..' is not a valid path segment");
+        let url = format!("http://127.0.0.1:1/api/session/timeline/{}?contract=C", enc("."));
+        assert_eq!(send_get(rt.handle(), &client, &url).unwrap_err(), "'.' is not a valid path segment");
+    }
+
+    #[test]
     fn session_names_cannot_escape_the_sessions_dir() {
         for bad in ["../x", "../../escape-t2", "/etc/passwd", "a/b", "a\\b", "..", ".hidden", "", "a b", "~/x"] {
             assert!(session_stem(bad).is_err(), "{bad:?} accepted");
@@ -2566,12 +2521,27 @@ mod tests {
         let client = reqwest::Client::new();
         let info = send_get(rt.handle(), &client, &format!("{url}/api/project")).unwrap();
         colored::control::set_override(false);
-        let attached = render_contracts(&contract_rows(&info), "Vault", info["dependency_contracts"].as_u64().unwrap_or(0) as usize, false);
-        let local = render_contracts(&local_rows(&state.project, false), "Vault", 0, false);
+        let attached = render_contracts(&contract_rows(&info), "Vault", info["hidden_contracts"].as_u64().unwrap() as usize, false);
+        let local = render_contracts(&local_rows(&state.project, false), "Vault", state.project.hidden_contracts(), false);
         for line in ["[I] IPool", "[L] SafeMath", "[A] BasePool", "[C] LendingPool", "[C] Vault"] {
             assert!(attached.contains(line), "{line} in {attached}");
         }
         assert!(attached.contains("← current"));
+        assert_eq!(attached, local);
+    }
+
+    #[test]
+    fn attached_and_local_footers_count_the_same_hidden_contracts() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/model/project");
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let (state, port) = rt.block_on(ilold_web::start_server(vec![root], 0, 2)).unwrap();
+        let info = send_get(rt.handle(), &reqwest::Client::new(), &format!("http://127.0.0.1:{port}/api/project")).unwrap();
+        colored::control::set_override(false);
+        let hidden = info["hidden_contracts"].as_u64().unwrap() as usize;
+        assert!(hidden > 0);
+        let attached = render_contracts(&contract_rows(&info), "Vault", hidden, false);
+        let local = render_contracts(&local_rows(&state.project, false), "Vault", state.project.hidden_contracts(), false);
+        assert!(local.contains(&format!("{hidden} dependency or free-function contract(s) hidden")), "{local}");
         assert_eq!(attached, local);
     }
 

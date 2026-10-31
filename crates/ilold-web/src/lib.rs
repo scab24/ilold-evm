@@ -49,8 +49,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-/// Absolute project directory the embedded terminal attaches to: the path itself
-/// when it is a directory, otherwise its parent. Never empty, even for `.`.
+/// The directory itself, or a file's parent; never empty, even for `.`.
 pub fn contract_path_for(path: &Path) -> PathBuf {
     let absolute = std::fs::canonicalize(path)
         .or_else(|_| std::path::absolute(path))

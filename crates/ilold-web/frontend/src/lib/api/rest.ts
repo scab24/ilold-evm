@@ -3,25 +3,19 @@ import type { AccessLevel, GuardFact } from './types';
 export interface ProjectSummary {
   files: number;
   contracts: ContractSummary[];
-  /** Dependency contracts in the model; listed only with `?include_dependencies=true`. */
   dependency_contracts: number;
-  /** Non-fatal compilation problems, e.g. test files left out of the model. */
+  hidden_contracts: number;
   warnings: string[];
 }
 
-/** Identity shared by contract listings and details. */
 export interface ContractIdentity {
-  /** Route segment: the bare name when unique, otherwise the qualified id. */
+  /** The bare name when unique, otherwise the qualified id. */
   name: string;
-  /** Solidity name as declared. */
   display_name: string;
-  /** Stable `<source path>:<Name>` id. */
   qualified_id: string;
-  /** Declared outside the project sources (libraries, vendored code). */
   is_dependency: boolean;
 }
 
-/** Direct bases as written (`inherits`) and as route segments (`inherit_keys`). */
 interface Bases {
   inherits: string[];
   inherit_keys: string[];
@@ -43,7 +37,7 @@ export interface ContractDetail extends ContractIdentity, Bases {
 
 export interface FunctionSummary {
   name: string;
-  /** Route segment for /api/contract/{c}/{key}/...: the name, or the signature when overloaded. */
+  /** The name, or the signature when overloaded. */
   key: string;
   signature: string;
   kind: string;
@@ -55,7 +49,6 @@ export interface FunctionSummary {
   revert_paths: number;
   modifiers: string[];
   access: AccessLevel;
-  /** Access and state guards read from code, as this contract runs the function. */
   guards: GuardFact[];
 }
 
@@ -87,8 +80,8 @@ export interface CytoscapeNodeData {
   contract: string;
   is_external: boolean;
   statements?: string[];
-  /** CFG blocks: the source lines the block runs. */
   span?: SourceSpan;
+  file?: string;
 }
 
 export interface CytoscapeEdgeData {
@@ -97,9 +90,8 @@ export interface CytoscapeEdgeData {
   target: string;
   kind: string;
   call_count: number;
-  /** Call-graph edges only: human label of the call kind (e.g. "library delegatecall"). */
   kind_label?: string;
-  /** Call-graph edges only: declaration named in source when virtual dispatch moved the target. */
+  /** Declaration named in source when virtual dispatch moved the target. */
   static_target?: string;
 }
 
@@ -143,21 +135,23 @@ export interface MapRelationship {
   kind: string;
 }
 
-const BASE = '';  // same origin in production, proxied in dev
+export const BASE = '';  // same origin in production, proxied in dev
 
-/** The JSON body of a successful response; otherwise throws the server's message
- *  (a 409 names the candidates to choose from). */
-async function body<T>(res: Response, fallback: string): Promise<T> {
+export async function body<T>(res: Response, fallback: string): Promise<T> {
   if (res.ok) return res.json();
   const text = await res.text();
   let message = text;
   try {
     const err = JSON.parse(text);
     if (err?.error) message = err.candidates ? `${err.error}: ${err.candidates.join(', ')}` : err.error;
-  } catch {
-    // plain-text error body
-  }
+  } catch {}
   throw new Error(message || `${fallback} (HTTP ${res.status})`);
+}
+
+// browsers resolve `.` and `..` segments away, even percent-encoded
+export function segment(value: string): string {
+  if (value === '.' || value === '..') throw new Error(`'${value}' is not a valid path segment`);
+  return encodeURIComponent(value);
 }
 
 export async function getProjectMap(): Promise<ProjectMap> {
@@ -202,24 +196,23 @@ export async function getProject(): Promise<ProjectSummary> {
 }
 
 export async function getContract(name: string): Promise<ContractDetail> {
-  return body(await fetch(`${BASE}/api/contract/${encodeURIComponent(name)}`), `Contract ${name} not found`);
+  return body(await fetch(`${BASE}/api/contract/${segment(name)}`), `Contract ${name} not found`);
 }
 
 export async function getCallGraph(contractName: string): Promise<CytoscapeGraph> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/callgraph`);
+  const res = await fetch(`${BASE}/api/contract/${segment(contractName)}/callgraph`);
   return body(res, `No call graph for ${contractName}`);
 }
 
 export async function getCfg(contractName: string, funcName: string): Promise<CytoscapeGraph> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${encodeURIComponent(funcName)}/cfg`);
+  const res = await fetch(`${BASE}/api/contract/${segment(contractName)}/${segment(funcName)}/cfg`);
   return body(res, `No CFG for ${funcName}`);
 }
 
-/** One page of a function's paths; `page.truncated` when more follow. */
 export async function getPaths(contractName: string, funcName: string, offset = 0, limit?: number) {
   const params = new URLSearchParams({ offset: String(offset) });
   if (limit !== undefined) params.set('limit', String(limit));
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${encodeURIComponent(funcName)}/paths?${params}`);
+  const res = await fetch(`${BASE}/api/contract/${segment(contractName)}/${segment(funcName)}/paths?${params}`);
   return body<any>(res, `No paths for ${funcName}`);
 }
 
@@ -233,7 +226,7 @@ export async function getFunctionSource(
   contractName: string,
   funcName: string,
 ): Promise<FunctionSourceResponse> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${encodeURIComponent(funcName)}/source`);
+  const res = await fetch(`${BASE}/api/contract/${segment(contractName)}/${segment(funcName)}/source`);
   return body(res, `Source for ${funcName} not found`);
 }
 
@@ -260,16 +253,16 @@ export interface SequenceAnalysis {
 }
 
 export async function getSequenceAnalysis(contractName: string): Promise<SequenceAnalysis> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/analysis`);
+  const res = await fetch(`${BASE}/api/contract/${segment(contractName)}/analysis`);
   return body(res, `No sequence analysis for ${contractName}`);
 }
 
 export async function getSearchSuggestions(contractName: string): Promise<SearchSuggestions> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/suggestions`);
+  const res = await fetch(`${BASE}/api/contract/${segment(contractName)}/suggestions`);
   return body(res, `No suggestions for ${contractName}`);
 }
 
-/** Sequence functions plus one page of sequences; `limit: 0` fetches only the functions. */
+/** `limit: 0` fetches only the functions. */
 export async function getSequences(
   contractName: string,
   options: { depth?: number; offset?: number; limit?: number } = {},
@@ -279,6 +272,6 @@ export async function getSequences(
     if (value !== undefined) params.set(key, String(value));
   }
   const query = params.toString();
-  const url = `${BASE}/api/contract/${encodeURIComponent(contractName)}/sequences${query ? `?${query}` : ''}`;
+  const url = `${BASE}/api/contract/${segment(contractName)}/sequences${query ? `?${query}` : ''}`;
   return body<any>(await fetch(url), `No sequences for ${contractName}`);
 }

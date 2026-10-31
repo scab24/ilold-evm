@@ -1,5 +1,4 @@
-//! Long lists are served in pages with an explicit marker: paths, sequences and path search.
-//! Fixture: tests/fixtures/staking (server sequence depth 2).
+//! Paged lists. Fixture: tests/fixtures/staking (server sequence depth 2).
 
 use std::path::PathBuf;
 
@@ -72,10 +71,10 @@ async fn sequences_honour_depth_and_pages() {
     assert!(light["sequences"].as_array().unwrap().is_empty());
     assert_eq!(light["functions"].as_array().unwrap().len() as u64, n);
 
-    let (_, none) = get(&client, format!("{base}/Staking/sequences?depth=0")).await;
-    assert_eq!(page(&none).2, 0);
-    let (status, body) = get(&client, format!("{base}/Staking/sequences?depth=9")).await;
-    assert_eq!(status, reqwest::StatusCode::BAD_REQUEST, "{body}");
+    for depth in [0, 9] {
+        let (status, body) = get(&client, format!("{base}/Staking/sequences?depth={depth}")).await;
+        assert_eq!(status, reqwest::StatusCode::BAD_REQUEST, "{depth}: {body}");
+    }
 
     let (_, interface) = get(&client, format!("{base}/IERC20/sequences?depth=3")).await;
     assert!(interface["functions"].as_array().unwrap().is_empty(), "{interface}");
@@ -96,8 +95,8 @@ fn path_search_reports_every_match_but_returns_a_bounded_list() {
     use ilold_web::ws::search::{search_paths, SearchQuery};
     let state = ilold_web::state::AppState::from_paths(&[fixture()], 2, 0, fixture()).unwrap();
     let query = SearchQuery { query: "revert".into(), contract: None, function: None };
-    let (all, total) = search_paths(&state, &query, usize::MAX);
+    let (all, total) = search_paths(&state, &query, usize::MAX).unwrap();
     assert!(total > 1 && all.len() == total, "{total}");
-    let (first, counted) = search_paths(&state, &query, 1);
+    let (first, counted) = search_paths(&state, &query, 1).unwrap();
     assert_eq!((first.len(), counted), (1, total));
 }

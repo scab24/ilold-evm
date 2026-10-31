@@ -1,6 +1,4 @@
-//! Manual spot checks on Aave v3 origin. Analysing no longer writes into the project, but
-//! `aave_model_completeness` verifies exactly that, so point it at a scratch copy:
-//! `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check -- --ignored --nocapture`
+//! Manual spot checks on Aave v3 origin; `ILOLD_AAVE_ROOT` points at the project.
 use std::path::PathBuf;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
@@ -75,8 +73,7 @@ fn aave_call_resolution() {
     let atoken_def = project.contracts.iter().find(|c| c.name == "AToken").unwrap();
     let (owner, permit) = project.lookup_function(atoken_def, "permit").unwrap();
     let cfg = CfgBuilder::build_with_project(permit, owner, Some(&project));
-    let pt = build_path_tree(&cfg, &owner.name, &permit.key, &project.inherited_state_vars(owner),
-        &PruningConfig::default());
+    let pt = build_path_tree(&cfg, &owner.name, &permit.key, &PruningConfig::default());
     let mut internal: Vec<String> = pt.paths().flat_map(|p| p.annotations.internal_calls).collect();
     internal.sort();
     internal.dedup();
@@ -134,7 +131,6 @@ fn aave_call_resolution() {
     }
 }
 
-/// Path, size and modification time of every file under `dir` (empty when it is absent).
 fn snapshot(dir: &std::path::Path) -> std::collections::BTreeMap<PathBuf, (u64, std::time::SystemTime)> {
     let mut out = std::collections::BTreeMap::new();
     let mut pending = vec![dir.to_path_buf()];
@@ -223,8 +219,6 @@ fn files_size(dir: &std::path::Path) -> u64 {
     snapshot(dir).iter().filter(|(p, _)| p.extension().is_some_and(|e| e == "json")).map(|(_, (len, _))| len).sum()
 }
 
-/// State and revert flow through Aave's logic libraries.
-/// `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check aave_state_flow -- --ignored --nocapture`
 #[test]
 #[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
 fn aave_state_flow() {
@@ -238,7 +232,6 @@ fn aave_state_flow() {
     println!("== analysis build {:.2?}: {} cfgs, {} path trees", started.elapsed(), analysis.cfgs.len(), analysis.path_trees.len());
 
     // persisted snapshot size, and the part of it this model adds
-    // inside the isolated cache directory of the run
     let store = PathBuf::from(std::env::var("ILOLD_PROJECT_CACHE_DIR").expect("ILOLD_PROJECT_CACHE_DIR")).join("state-flow-measure");
     let _ = ilold_core::analysis_cache::load_or_build_with(Some(&store), key.as_ref(), &params, || {
         ProjectAnalysis::build(&project, &params)
@@ -360,9 +353,6 @@ fn aave_state_flow() {
     println!("== behaviors with incomplete effects: {incomplete:?}");
 }
 
-/// Access and state guards of Aave's entry points, and the "without access control"
-/// observations they leave.
-/// `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check aave_access_guards -- --ignored --nocapture`
 #[test]
 #[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
 fn aave_access_guards() {
@@ -401,7 +391,7 @@ fn aave_access_guards() {
                 .iter()
                 .map(|g| format!("{:?}{} `{}` via [{}]", g.kind, if g.heuristic { " (heuristic)" } else { "" }, g.condition, g.via.join(" -> ")))
                 .collect();
-            let from = if af.is_inherited { format!(" (from {})", af.origin) } else { String::new() };
+            let from = if af.is_inherited { format!(" (from {})", af.owner.key()) } else { String::new() };
             println!("  {}{from}: {}\n    {}", f.key, access(c, &f.name), if shown.is_empty() { "-".into() } else { shown.join("\n    ") });
             let key = (af.owner.key().to_string(), f.key.clone());
             if let (Some(pt), Some(cfg)) = (analysis.path_trees.get(&key), analysis.cfgs.get(&key)) {
@@ -433,9 +423,6 @@ fn graph_json_len<N: serde::Serialize, E: serde::Serialize, Ty: petgraph::EdgeTy
     json_len(&g.node_weights().collect::<Vec<_>>()) + json_len(&g.edge_weights().collect::<Vec<_>>())
 }
 
-/// Snapshot bytes per component, the default /paths and /sequences payloads of Pool and IPool,
-/// and how the heaviest functions report their truncated path enumeration.
-/// `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check aave_sizes -- --ignored --nocapture`
 #[test]
 #[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
 fn aave_sizes() {
@@ -453,10 +440,10 @@ fn aave_sizes() {
     let call_graphs: usize = analysis.call_graphs.values().map(graph_json_len).sum();
     let dep = &analysis.dep_graph.graph;
     let dep_graph = json_len(&dep.node_weights().collect::<Vec<_>>()) + json_len(&dep.edge_weights().collect::<Vec<_>>());
-    let path_trees: usize = analysis.path_trees.values().map(|pt| json_len(pt)).sum();
-    let sequence_trees: usize = analysis.sequence_trees.values().map(|st| json_len(st)).sum();
-    let sequence_analyses: usize = analysis.sequence_analyses.values().map(|sa| json_len(sa)).sum();
-    let classifications: usize = analysis.classifications.values().map(|c| json_len(c)).sum();
+    let path_trees: usize = analysis.path_trees.values().map(json_len).sum();
+    let sequence_trees: usize = analysis.sequence_trees.values().map(json_len).sum();
+    let sequence_analyses: usize = analysis.sequence_analyses.values().map(json_len).sum();
+    let classifications: usize = analysis.classifications.values().map(json_len).sum();
     println!("== components (bytes): cfgs {cfgs}, path_trees {path_trees}, call_graphs {call_graphs}, dep_graph {dep_graph}, \
         sequence_trees {sequence_trees}, sequence_analyses {sequence_analyses}, classifications {classifications}");
 

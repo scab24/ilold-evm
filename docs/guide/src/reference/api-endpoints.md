@@ -84,7 +84,7 @@ Returns the persisted FlowTree of a session step. This is the tree captured when
 
 **Path params:** `index` -- zero-based step index.
 
-**Response:** `FlowTree` with step nodes, each containing operation type, target, conditions, and child steps. Returns 404 if the step has no persisted tree (pre-Phase-2a sessions). With `?highlight=true` it also [highlights](#get-ws) the step's function.
+**Response:** `FlowTree` with step nodes, each containing operation type, target, conditions, and child steps. Returns 404 if the step has no persisted tree (sessions saved without one). With `?highlight=true` it also [highlights](#get-ws) the step's function.
 
 ### GET /api/session/timeline/{variable}
 
@@ -146,7 +146,7 @@ Contracts from libraries and vendored code (`lib/`, `src/**/dependencies/`) that
 
 ### GET /api/project
 
-Returns a project summary: file count, the listed contracts (`name`, `display_name`, `qualified_id`, `is_dependency`, kind, function count, state variable count, `inherits` with the base names as written and `inherit_keys` with the same bases as `{name}` route segments), the number of `dependency_contracts` in the model, and `warnings`. A warning is reported when test or script files fail to compile: the model is then built from the sources alone and the warning names the failing files. Errors in the sources still fail the analysis.
+Returns a project summary: file count, the listed contracts (`name`, `display_name`, `qualified_id`, `is_dependency`, kind, function count, state variable count, `inherits` with the base names as written and `inherit_keys` with the same bases as `{name}` route segments, omitting bases outside the model), the number of `dependency_contracts` in the model, the number of `hidden_contracts` default listings omit (dependencies and free-function containers), and `warnings`. A warning is reported when test or script files fail to compile: the model is then built from the sources alone and the warning names the failing files. Errors in the sources still fail the analysis.
 
 ### GET /api/project/map
 
@@ -158,7 +158,7 @@ Returns the contract dependency graph in Cytoscape-compatible JSON. Nodes carry 
 
 ### GET /api/contract/{name}
 
-Returns contract detail: name, `display_name`, `qualified_id`, `is_dependency`, kind, direct bases (`inherits` as written, `inherit_keys` as route segments, so an aliased or same-named base links to the right contract), functions (with `path_count`, `happy_paths`, `revert_paths` and `paths_truncated`), state variables, and inherited functions and state variables. Inherited functions are the public, external and internal functions of the linearization that the contract does not override; private functions and base constructors are not inherited, and an interface function implemented by a public state variable getter is not listed. Inherited state variables are in storage layout order, most base contract first (slot numbers are not computed). Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
+Returns contract detail: name, `display_name`, `qualified_id`, `is_dependency`, kind, direct bases (`inherits` as written, `inherit_keys` as route segments, so an aliased or same-named base links to the right contract; bases outside the model are omitted), functions (with `path_count`, `happy_paths`, `revert_paths` and `paths_truncated`), state variables, and inherited functions and state variables. Inherited functions are the public, external and internal functions of the linearization that the contract does not override; private functions and base constructors are not inherited, and an interface function implemented by a public state variable getter is not listed. Inherited state variables are in storage layout order, most base contract first (slot numbers are not computed). Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
 
 Signatures are `name(type,...)`:
 
@@ -196,7 +196,7 @@ Returns the contract's neighbourhood in the dependency graph: the contract itsel
 
 ### GET /api/contract/{name}/{func}/cfg
 
-Returns the control flow graph for a function in Cytoscape-compatible JSON format. Nodes represent basic blocks (entry, normal, return, revert, assembly, loop) with their `statements` and, when known, the `span` of source lines they run (`file_index`, `start_line`, `start_col`, `end_line`, `end_col`): the function's own lines, or the modifier's for a block of inlined modifier code; a revert or return block cites the statement that ends there. Edges represent control flow transitions.
+Returns the control flow graph for a function in Cytoscape-compatible JSON format. Nodes represent basic blocks (entry, normal, return, revert, assembly, loop) with their `statements` and, when known, the `span` of source lines they run (`file_index`, `start_line`, `start_col`, `end_line`, `end_col`) and the `file` path it points into: the function's own lines, or the modifier's for a block of inlined modifier code; a revert or return block cites the statement that ends there. Edges represent control flow transitions.
 
 ### GET /api/contract/{name}/{func}/source
 
@@ -212,11 +212,11 @@ Path enumeration cuts a path off when it reaches a loop condition a fourth time 
 
 ### GET /api/contract/{name}/{func}/paths
 
-Returns one [page](#pages) of the function's paths, by id, with the [path stats](#path-stats) of the whole tree. Each path has its nodes, terminal kind (`Return`, `Revert`, `LoopCutoff`, `DepthCutoff`) and annotations (state writes, external calls, events); a cut-off path stops before running its last node. `internal_calls` lists JUMPs (`f`, `super.f`, `Base.f`, `Library.f` for internal library functions), and `internal_call_targets` repeats them in the same order with the `declaration` solc resolved (`[contract, key]`). `external_calls` lists everything that leaves the frame, each with its call `kind`.
+Returns one [page](#pages) of the function's paths, by id, with the [path stats](#path-stats) of the whole tree and a `truncation_note` naming the causes when the paths are truncated (otherwise `null`). Each path has its nodes, terminal kind (`Return`, `Revert`, `LoopCutoff`, `DepthCutoff`) and annotations (state writes, external calls, events); a cut-off path stops before running its last node. `internal_calls` lists JUMPs (`f`, `super.f`, `Base.f`, `Library.f` for internal library functions), and `internal_call_targets` repeats them in the same order with the `declaration` solc resolved (`[contract, key]`). `external_calls` lists everything that leaves the frame, each with its call `kind`.
 
 ### GET /api/contract/{name}/sequences
 
-Returns the functions a transaction sequence can call (public and external functions with a body; none for an interface) and one [page](#pages) of the sequences of 1 to `?depth=` calls (0 to 8, default the server's `--max-seq-depth`), shortest first and each depth in lexicographic order. There are `n + n^2 + ... + n^depth` of them for `n` functions; they are generated per request. `?limit=0` returns only the functions. A depth above 8 is `400 Bad Request`.
+Returns the functions a transaction sequence can call (public and external functions with a body; none for an interface) and one [page](#pages) of the sequences of 1 to `?depth=` calls (1 to 8, default the server's `--max-seq-depth`), shortest first and each depth in lexicographic order. There are `n + n^2 + ... + n^depth` of them for `n` functions; they are generated per request. `?limit=0` returns only the functions. A depth outside 1 to 8 is `400 Bad Request`.
 
 ### GET /api/contract/{name}/analysis
 
@@ -228,13 +228,13 @@ Returns search suggestions for the contract: function names (own and inherited),
 
 ## Annotations
 
-Free-form notes on the canvas, held in memory for the server's lifetime (not part of saved sessions). An annotation has `id`, `contract`, `function`, `path_id` and `block_id` (each optional except `contract`), `text`, `severity` (`info`, `low`, `medium`, `high`, `critical`) and `status` (`open`, `reviewed`, `finding`).
+Free-form notes on the canvas, held in memory for the server's lifetime (not part of saved sessions). An annotation has `id` (required, may be empty), `contract`, `text`, `severity` (`info`, `low`, `medium`, `high`, `critical`) and `status` (`open`, `reviewed`, `finding`), all required, and optional `function`, `path_id` and `block_id`.
 
 | Route | Description |
 |---|---|
 | `GET /api/annotations` | Every annotation |
 | `POST /api/annotations` | Create one; an empty `id` is assigned (`ann-N`). Returns `201 Created` with the annotation |
-| `PUT /api/annotations/{id}` | Update its `text`, `severity` and `status`; 404 for an unknown id |
+| `PUT /api/annotations/{id}` | Takes a full annotation body and applies its `text`, `severity` and `status`; 404 for an unknown id |
 | `DELETE /api/annotations/{id}` | `204 No Content`, or 404 for an unknown id |
 
 ## WebSocket
@@ -246,9 +246,9 @@ Upgrades to a WebSocket connection. The server pushes JSON messages when session
 - `session_add_node`: a step was added (scenario, function, access level, step index)
 - `session_remove_node`: the last step was removed
 - `session_clear`: all steps were cleared
-- `session_highlight`: a client inspected `function` (scenario, function) through `GET /api/session/function`, `/api/session/trace` or a step's narrative or trace with `?highlight=true` (the REPL's `info`, `trace` and `step`, the MCP's `ilold_function_analysis` and `ilold_trace`); canvases showing the contract select it. Without the parameter these reads affect no other client; the web UI's own reads never pass it
+- `session_highlight`: a client inspected `function` (scenario, and the function's key: its name, or its signature when the name is overloaded) through `GET /api/session/function`, `/api/session/trace` or a step's narrative or trace with `?highlight=true` (the REPL's `info`, `trace` and `step`, the MCP's `ilold_function_analysis` and `ilold_trace`); canvases showing the contract select it. Without the parameter these reads affect no other client; the web UI's own reads never pass it
 - `scenario_created`, `scenario_switched`, `scenario_deleted`, `scenario_forked`, `scenario_store_reloaded`: scenario lifecycle events
-- `search_result`, then `search_complete` with `total` and `truncated`: the answer to a `{"type": "search", "query": ..., "contract": ..., "function": ...}` message (`contract` and `function` optional) streams the first 100 matching paths, `total` counts every match. With `contract`, the search covers the functions it runs, inherited ones included, and reports them under that contract
+- `search_result`, then `search_complete` with `total` and `truncated`: the answer to a `{"type": "search", "query": ..., "contract": ..., "function": ...}` message (`contract` and `function` optional) streams the first 100 matching paths, `total` counts every match. With `contract`, the search covers the functions it runs, inherited ones included, and reports them under that contract; an unknown or ambiguous `contract` gets an `error` message instead
 - `session_resync` (no `contract`): the client fell behind and messages were dropped; refetch the session with `GET /api/scenarios/all?contract=<name>`
 
 ### GET /ws/pty

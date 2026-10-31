@@ -41,13 +41,11 @@ impl AccessLevel {
     }
 }
 
-/// Access level of `func` read from its own contract only (no inherited modifiers or helpers).
-/// Use [`classify_in`] when the project is at hand.
+/// From its own contract only; use [`classify_in`] when the project is at hand.
 pub fn classify_function(func: &FunctionDef, contract: &ContractDef) -> AccessLevel {
     access_level(func, &function_guards(None, contract, contract, func))
 }
 
-/// Access level and guards of `func` (declared in `owner`) as `context` runs it.
 pub fn classify_in(
     project: &Project,
     context: &ContractDef,
@@ -58,15 +56,13 @@ pub fn classify_in(
     (access_level(func, &guards), guards)
 }
 
-/// Access level of the function `name` (bare, key or signature) as `context` runs it.
+/// `name` is a bare name, key or signature.
 pub fn classify_named(project: &Project, context: &ContractDef, name: &str) -> Option<AccessLevel> {
     let (owner, func) = project.resolve_function(context, name)?;
     Some(classify_in(project, context, owner, func).0)
 }
 
-/// `Restricted` when an access guard exists; its role names the modifiers that carry the
-/// guards (the first one on the chain, also when reached through a called function), or the
-/// checks themselves when no modifier is on the chain.
+/// The role names the modifiers carrying the guards, or the checks when no modifier is on the chain.
 pub fn access_level(func: &FunctionDef, guards: &[GuardFact]) -> AccessLevel {
     match func.kind {
         FunctionKind::Constructor => return AccessLevel::Special { kind: "constructor".into() },
@@ -94,7 +90,6 @@ pub fn access_level(func: &FunctionDef, guards: &[GuardFact]) -> AccessLevel {
     }
 }
 
-/// Own functions of `contract`, read from the contract alone.
 pub fn classify_all(contract: &ContractDef) -> Vec<(String, AccessLevel)> {
     contract
         .functions
@@ -103,7 +98,6 @@ pub fn classify_all(contract: &ContractDef) -> Vec<(String, AccessLevel)> {
         .collect()
 }
 
-/// Own and inherited functions of `contract` as the most derived contract runs them.
 pub fn classify_contract(project: &Project, contract: &ContractDef) -> Vec<(String, AccessLevel)> {
     project
         .accessible_functions(contract)

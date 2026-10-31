@@ -24,7 +24,7 @@ fn test_set_produces_2_paths() {
     let set_fn = contract.functions.iter().find(|f| f.name == "set").unwrap();
     let cfg = CfgBuilder::build(set_fn, contract);
 
-    let pt = build_path_tree(&cfg, &contract.name, "set", &contract.state_vars, &PruningConfig::default());
+    let pt = build_path_tree(&cfg, &contract.name, "set", &PruningConfig::default());
 
     println!("set() paths:");
     for p in pt.paths() {
@@ -46,7 +46,7 @@ fn test_transfer_from_produces_5_paths() {
     let func = contract.functions.iter().find(|f| f.name == "transferFrom").unwrap();
     let cfg = CfgBuilder::build(func, contract);
 
-    let pt = build_path_tree(&cfg, &contract.name, "transferFrom", &contract.state_vars, &PruningConfig::default());
+    let pt = build_path_tree(&cfg, &contract.name, "transferFrom", &PruningConfig::default());
 
     println!("transferFrom() paths:");
     for p in pt.paths() {
@@ -68,7 +68,7 @@ fn test_path_annotations() {
     let set_fn = contract.functions.iter().find(|f| f.name == "set").unwrap();
     let cfg = CfgBuilder::build(set_fn, contract);
 
-    let pt = build_path_tree(&cfg, &contract.name, "set", &contract.state_vars, &PruningConfig::default());
+    let pt = build_path_tree(&cfg, &contract.name, "set", &PruningConfig::default());
 
     // The happy path should have: state write (value) + event (ValueChanged)
     let happy = pt.paths().find(|p| p.terminal == TerminalKind::Return).unwrap();
@@ -93,7 +93,7 @@ fn test_loop_unrolling() {
     let cfg = CfgBuilder::build(sqrt_fn, contract);
 
     let config = PruningConfig { max_loop_unroll: 3, ..PruningConfig::default() };
-    let pt = build_path_tree(&cfg, &contract.name, "_sqrt", &contract.state_vars, &config);
+    let pt = build_path_tree(&cfg, &contract.name, "_sqrt", &config);
 
     println!("_sqrt() paths: {} total, {:?}", pt.stats.total_paths, pt.stats);
     for p in pt.paths() {
@@ -117,7 +117,7 @@ fn test_interface_function_no_paths() {
     let transfer = ierc20.functions.iter().find(|f| f.name == "transfer").unwrap();
     let cfg = CfgBuilder::build(transfer, ierc20);
 
-    let pt = build_path_tree(&cfg, "IERC20", "transfer", &ierc20.state_vars, &PruningConfig::default());
+    let pt = build_path_tree(&cfg, "IERC20", "transfer", &PruningConfig::default());
 
     assert_eq!(pt.stats.total_paths, 0, "Interface function should have 0 paths");
 }
@@ -127,7 +127,7 @@ fn erc20_transfer_from(config: &PruningConfig) -> ilold_core::pathtree::types::P
     let contract = &project.contracts[0];
     let func = contract.functions.iter().find(|f| f.name == "transferFrom").unwrap();
     let cfg = CfgBuilder::build(func, contract);
-    build_path_tree(&cfg, &contract.name, "transferFrom", &contract.state_vars, config)
+    build_path_tree(&cfg, &contract.name, "transferFrom", config)
 }
 
 fn assert_totals(stats: &ilold_core::pathtree::types::PathTreeStats) {
@@ -155,6 +155,8 @@ fn path_cap_is_flagged_with_the_dropped_branches() {
     assert!(pt.stats.cap_reached && pt.stats.truncated, "{:?}", pt.stats);
     assert!(pt.stats.paths_dropped >= 1, "{:?}", pt.stats);
     assert_eq!(pt.paths().count(), 2);
+    let note = format!("truncated: path cap reached ({} branches dropped)", pt.stats.paths_dropped);
+    assert_eq!(pt.page(0, 1).truncation_note, Some(note));
 }
 
 #[test]
@@ -169,7 +171,7 @@ fn depth_and_loop_cutoffs_are_counted_apart() {
     let contract = project.contracts.iter().find(|c| c.name == "UniswapV2Pair").unwrap();
     let sqrt_fn = contract.functions.iter().find(|f| f.name == "_sqrt").unwrap();
     let cfg = CfgBuilder::build(sqrt_fn, contract);
-    let looped = build_path_tree(&cfg, &contract.name, "_sqrt", &contract.state_vars, &PruningConfig::default());
+    let looped = build_path_tree(&cfg, &contract.name, "_sqrt", &PruningConfig::default());
     assert_totals(&looped.stats);
     let cutoffs = looped.paths().filter(|p| p.terminal == TerminalKind::LoopCutoff).count();
     assert_eq!(looped.stats.loop_cutoff, cutoffs);
@@ -195,6 +197,7 @@ fn paths_page_carries_ids_annotations_and_a_truncation_marker() {
         serde_json::to_value(&all[4]).unwrap()
     );
     assert!(pt.page(9, 10).paths.is_empty());
+    assert_eq!(first.truncation_note, None);
 }
 
 #[test]
@@ -215,7 +218,7 @@ fn narrative_carries_path_stats_and_counts_the_paths_it_omits() {
     let sqrt_fn = contract.functions.iter().find(|f| f.name == "_sqrt").unwrap();
     let cfg = CfgBuilder::build(sqrt_fn, contract);
     let config = PruningConfig { max_loop_unroll: 400, max_depth: 6400, ..PruningConfig::default() };
-    let pt = build_path_tree(&cfg, &contract.name, "_sqrt", &contract.state_vars, &config);
+    let pt = build_path_tree(&cfg, &contract.name, "_sqrt", &config);
     let total = pt.stats.total_paths;
     assert!(total > 100, "{:?}", pt.stats);
 

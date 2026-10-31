@@ -1,6 +1,4 @@
-//! Persisted derived analysis, stored beside the parsed-project snapshot in the same private
-//! directory and envelope format. A snapshot is valid only for the exact validated project key,
-//! analysis parameters and analysis format version it was written with.
+//! Persisted derived analysis, valid only for its exact project key, parameters and format version.
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
@@ -15,7 +13,7 @@ use crate::callgraph::types::{CallEdge, CallNode};
 use crate::cfg::types::{BasicBlock, BranchEdge};
 use crate::classify::entry_points::AccessLevel;
 use crate::depgraph::{ContractDeps, DepEdge, DepNode};
-use crate::parse::cache::{read_envelope, write_envelope, Store};
+use crate::parse::cache::{digest, read_envelope, write_envelope, Store};
 use crate::parse::ProjectKey;
 use crate::pathtree::types::PathTree;
 use crate::sequence::analysis::SequenceAnalysis;
@@ -23,12 +21,9 @@ use crate::sequence::types::SequenceTree;
 
 /// Bump whenever an analysis algorithm or any persisted type changes shape or meaning.
 const VERSION: &str = concat!("ilold-analysis-v10-", env!("CARGO_PKG_VERSION"));
-/// Bounds disk use and load memory per snapshot.
 const MAX_SNAPSHOT: u64 = 256 * 1024 * 1024;
-/// Snapshot files per project. Parameter sets map to a slot and keep only their latest result.
+/// Parameter sets map to a slot and keep only their latest result.
 const SLOTS: u8 = 4;
-
-fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 
 fn parameters(params: &AnalysisParams) -> [usize; 4] {
     let pruning = &params.pruning;
@@ -45,8 +40,7 @@ fn snapshot_path(dir: &Path, params: &AnalysisParams) -> PathBuf {
     dir.join(format!("analysis-{slot}.json"))
 }
 
-/// Graphs are persisted as nodes and edges in index order. Builders never remove nodes or
-/// edges, so re-adding them in order restores identical indices and adjacency order.
+/// Builders never remove nodes or edges, so re-adding them in order restores identical indices.
 #[derive(Serialize, Deserialize)]
 struct Graph<N, E> {
     nodes: Vec<N>,
@@ -134,7 +128,7 @@ fn snapshot_ref(analysis: &ProjectAnalysis) -> Result<SnapshotRef<'_>, String> {
     })
 }
 
-/// Rejects duplicate keys, which a snapshot written from a map can never contain.
+/// A snapshot written from a map can never contain duplicate keys.
 fn unique<K: Eq + Hash, V>(entries: Vec<(K, V)>) -> Option<HashMap<K, V>> {
     let len = entries.len();
     let map: HashMap<K, V> = entries.into_iter().collect();
@@ -176,8 +170,7 @@ pub(crate) fn load_or_build_from_env(
     load_or_build_in(store.as_ref(), key, params, build)
 }
 
-/// Injection seam: `store_base` replaces the environment-selected store (`None` bypasses),
-/// and `build` is called only when no valid snapshot exists.
+/// `store_base` replaces the environment-selected store (`None` bypasses it).
 pub fn load_or_build_with(
     store_base: Option<&Path>, key: Option<&ProjectKey>, params: &AnalysisParams,
     build: impl FnOnce() -> ProjectAnalysis,

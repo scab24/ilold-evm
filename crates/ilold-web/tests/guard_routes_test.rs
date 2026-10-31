@@ -1,6 +1,4 @@
-//! Guard facts on the web API: `/api/contract/{c}` function summaries (own and inherited),
-//! the `f`/`fa` session commands and the function narrative carry the same facts.
-//! Fixture: tests/fixtures/solc/access.
+//! Guard facts on the web API. Fixture: tests/fixtures/solc/access.
 
 use std::path::PathBuf;
 
@@ -19,7 +17,6 @@ fn entry<'a>(list: &'a Value, name: &str) -> &'a Value {
     list.as_array().unwrap().iter().find(|f| f["name"] == name).unwrap_or_else(|| panic!("{name}: {list}"))
 }
 
-/// (kind, condition, via) of each guard.
 fn facts(entry: &Value) -> Vec<(String, String, Vec<String>)> {
     entry["guards"]
         .as_array()

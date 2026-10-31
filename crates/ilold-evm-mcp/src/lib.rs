@@ -9,7 +9,7 @@ mod error;
 mod server;
 mod tools;
 
-pub use client::{encode_component, IloldClient};
+pub use client::{check_segments, encode_component, IloldClient};
 pub use error::McpClientError;
 pub use server::dispatch;
 

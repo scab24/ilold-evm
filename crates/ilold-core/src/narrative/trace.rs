@@ -23,7 +23,6 @@ pub struct FlowTree {
     pub modifiers: Vec<String>,
     pub max_depth: usize,
     pub root: FlowNode,
-    /// Path enumeration of the traced function, when the analysis has it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_stats: Option<PathTreeStats>,
 }

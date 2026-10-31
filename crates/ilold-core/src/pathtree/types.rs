@@ -6,14 +6,12 @@ use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph};
 use crate::model::expression::CallKind;
 use crate::util::{push_unique, Page};
 
-/// Paths are stored as indices into a table of distinct nodes, and annotations once per
-/// block; each path's annotations are derived on demand.
+/// Paths are indices into a table of distinct nodes; annotations are stored once per block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathTree {
     pub contract: String,
     pub function: String,
     pub(crate) nodes: Vec<PathNode>,
-    /// What each block adds to the paths that run it, by block id.
     pub(crate) blocks: BTreeMap<usize, PathAnnotations>,
     pub(crate) paths: Vec<StoredPath>,
     pub stats: PathTreeStats,
@@ -25,10 +23,7 @@ pub(crate) struct StoredPath {
     pub(crate) terminal: TerminalKind,
 }
 
-/// Every path ends in exactly one category: `happy_paths` (return), `revert_paths`,
-/// `loop_cutoff` (a loop condition reached more than `max_loop_unroll` times) or
-/// `depth_cutoff` (more than `max_depth` blocks after the entry), so they add up to `total_paths`. Once `max_paths` paths exist the walk
-/// stops: `cap_reached`, with `paths_dropped` unexplored branches of at least one path each.
+/// Every path ends in exactly one category, so the four counts add up to `total_paths`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathTreeStats {
     pub total_paths: usize,
@@ -38,13 +33,11 @@ pub struct PathTreeStats {
     pub depth_cutoff: usize,
     pub cap_reached: bool,
     pub paths_dropped: usize,
-    /// Some path was cut off or dropped: the paths do not cover every execution.
     pub truncated: bool,
     pub max_depth_reached: usize,
 }
 
 impl PathTreeStats {
-    /// Why the paths are incomplete, e.g. `truncated: 12 depth cutoffs, path cap reached (3 branches dropped)`.
     pub fn truncation_note(&self) -> Option<String> {
         if !self.truncated { return None; }
         let mut causes = Vec::new();
@@ -57,13 +50,13 @@ impl PathTreeStats {
     }
 }
 
-/// One page of a path tree with each path's annotations.
 #[derive(Debug, Clone, Serialize)]
 pub struct PathTreePage {
     pub contract: String,
     pub function: String,
     pub paths: Vec<ExecutionPath>,
     pub stats: PathTreeStats,
+    pub truncation_note: Option<String>,
     pub page: Page,
 }
 
@@ -77,12 +70,10 @@ pub struct ExecutionPath {
 }
 
 impl PathTree {
-    /// Paths in id order.
     pub fn paths(&self) -> impl Iterator<Item = ExecutionPath> + '_ {
         (0..self.paths.len()).map(|id| self.expand(id))
     }
 
-    /// Each path's id, terminal and nodes, without deriving its annotations.
     pub fn routes(&self) -> impl Iterator<Item = (usize, TerminalKind, impl Iterator<Item = &PathNode> + '_)> + '_ {
         self.paths.iter().enumerate()
             .map(|(id, path)| (id, path.terminal, path.nodes.iter().map(|&n| &self.nodes[n as usize])))
@@ -95,12 +86,11 @@ impl PathTree {
             function: self.function.clone(),
             paths: page.range().map(|id| self.expand(id)).collect(),
             stats: self.stats.clone(),
+            truncation_note: self.stats.truncation_note(),
             page,
         }
     }
 
-    /// Annotations of every block some path runs, once each: their union is the union of
-    /// every path's annotations.
     pub fn block_annotations(&self) -> impl Iterator<Item = &PathAnnotations> + '_ {
         let mut run = BTreeSet::new();
         for path in &self.paths {
@@ -156,13 +146,10 @@ pub struct PathAnnotations {
     pub state_write_paths: Vec<String>,
     #[serde(default)]
     pub state_read_paths: Vec<String>,
-    /// Calls that leave the execution frame: external, library delegatecall, low-level,
-    /// value transfers and contract creation.
+    /// Calls that leave the execution frame.
     pub external_calls: Vec<ExternalCallInfo>,
-    /// JUMPs within the contract hierarchy or into internal library functions, written
-    /// `f`, `super.f`, `Base.f` or `Library.f`.
+    /// JUMPs within the hierarchy or into internal library functions.
     pub internal_calls: Vec<String>,
-    /// `internal_calls` with the callee identity, in the same order.
     #[serde(default)]
     pub internal_call_targets: Vec<InternalCallTarget>,
     pub events_emitted: Vec<String>,
@@ -172,7 +159,6 @@ pub struct PathAnnotations {
 }
 
 impl PathAnnotations {
-    /// Appends what a later block adds, keeping the deduplicated lists unique.
     pub(crate) fn extend(&mut self, block: &PathAnnotations) {
         self.state_writes.extend(block.state_writes.iter().cloned());
         for read in &block.state_reads { push_unique(&mut self.state_reads, read.clone()); }
@@ -188,14 +174,10 @@ impl PathAnnotations {
     }
 }
 
-/// An internal call as written plus the declaration solc resolved it to. Callers dispatch
-/// from it: `super.f` continues in the most derived linearization and an unqualified call to
-/// a virtual function reaches the visible override.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct InternalCallTarget {
-    /// `f`, `super.f`, `Base.f` or `Library.f`.
     pub call: String,
-    /// (contract, function key); absent without solc ids or for function pointers.
+    /// Absent without solc ids or for function pointers.
     pub declaration: Option<(String, String)>,
 }
 
@@ -203,11 +185,9 @@ pub struct InternalCallTarget {
 pub struct ExternalCallInfo {
     pub target: String,
     pub function: String,
-    #[serde(default = "external_kind")]
+    #[serde(default = "crate::cfg::types::external_kind")]
     pub kind: CallKind,
 }
-
-fn external_kind() -> CallKind { CallKind::External }
 
 #[derive(Debug, Clone)]
 pub struct FunctionAnalysis {

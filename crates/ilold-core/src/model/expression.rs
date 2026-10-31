@@ -14,7 +14,6 @@ pub enum ExpressionKind {
     FunctionCall {
         callee: Box<Expression>,
         arguments: Vec<Expression>,
-        // `{value: v, gas: g}` call options
         #[serde(default)]
         options: Vec<CallOption>,
         #[serde(default)]
@@ -25,7 +24,7 @@ pub enum ExpressionKind {
         member: String,
         #[serde(default)]
         resolved: Option<DeclId>,
-        // solc type string of the object, e.g. `contract IPool` or `type(library L)`
+        // solc type string of the object
         #[serde(default)]
         object_type: Option<String>,
     },
@@ -93,7 +92,6 @@ pub struct CallOption {
     pub value: Expression,
 }
 
-/// What a call expression invokes, taken from the solc function type of its callee.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallType {
     /// No compiler type information; consumers fall back to syntax and names.
@@ -104,35 +102,26 @@ pub enum CallType {
     Call(CallKind),
 }
 
-/// How control reaches the callee.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CallKind {
-    /// JUMP into a function of the same contract hierarchy (incl. `super.f()`).
     Internal,
-    /// JUMP into an internal library function, directly or through `using for`.
     InternalLibrary,
-    /// DELEGATECALL into a public or external library function.
     LibraryDelegatecall,
-    /// CALL/STATICCALL through an interface or contract type.
     External,
-    /// `this.f()`: an external call back into the analysed contract.
     ExternalSelf,
     LowLevelCall,
     LowLevelDelegatecall,
     LowLevelStaticcall,
     Transfer,
     Send,
-    /// `new C(...)`, also with `{salt: s}` (CREATE2).
     Creation,
 }
 
 impl CallKind {
-    /// Same-code JUMPs; everything else leaves the current execution frame.
     pub fn is_internal(self) -> bool {
         matches!(self, CallKind::Internal | CallKind::InternalLibrary)
     }
 
-    /// Short human label for listings and the web UI.
     pub fn label(self) -> &'static str {
         match self {
             CallKind::Internal => "internal",
@@ -149,8 +138,7 @@ impl CallKind {
         }
     }
 
-    /// Maps the kind segment of a solc function type identifier (`t_function_<kind>_...`).
-    /// `None` means the callee is a builtin and runs no contract code.
+    /// `None` means a builtin that runs no contract code.
     pub fn from_solc_function_kind(kind: &str) -> Option<CallKind> {
         Some(match kind {
             "internal" => CallKind::Internal,
@@ -188,7 +176,7 @@ pub enum BinaryOperator {
     BitXor,
     Shl,
     Shr,
-    /// An operator this model does not know; never silently mapped to another one.
+    /// Never silently mapped to another operator.
     Unknown,
 }
 

@@ -34,11 +34,12 @@
     clearGraph,
     type GraphNodeData,
   } from '$lib/stores/graph.svelte';
-  import { runDagreLayout } from '$lib/utils/graph-helpers';
+  import { ownEntry, runDagreLayout } from '$lib/utils/graph-helpers';
   import { MarkerType } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
 
   let contract: ContractDetail | null = $state(null);
+  const allFuncs = $derived.by(() => [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])]);
   let error: string | null = $state(null);
   let selectedNode: any = $state(null);
   let selectedPath: any = $state(null);
@@ -71,15 +72,13 @@
   const sessionHighlight = $derived(getHighlightedFunction());
 
   let callgraphRaw: CytoscapeGraph | null = $state(null);
-  // Bumped whenever cfgCache changes so lookups made from templates re-run.
   let cfgCacheVersion = $state(0);
   let flowApi: { fitView: (opts?: any) => Promise<boolean> } | null = $state(null);
   let graphCanvas: GraphCanvasFlow;
   const cfgCache = new Map<string, CytoscapeGraph>();
 
-  // Caches keyed by Solidity names; own-property checks keep `constructor` & co. off Object.prototype
   function hasPaths(funcName: string): boolean {
-    return Object.hasOwn(funcPaths, funcName) && !!funcPaths[funcName];
+    return !!ownEntry(funcPaths, funcName);
   }
 
   function liveNodePosition(nodeId: string): { x: number; y: number } | null {
@@ -160,7 +159,7 @@
 
     const isLR = seqDirection === 'LR';
     const posMap = new Map<string, { x: number; y: number }>();
-    // Offset of each level along the depth axis; a wrapped level is several bands deep.
+    // a wrapped level is several bands deep
     let depthOffset = isLR ? SEQ_NODE_W + SEQ_LEVEL_GAP : SEQ_NODE_H + SEQ_LEVEL_GAP;
     for (let lvl = 1; lvl <= maxLevel; lvl++) {
       const ids = byLevel[lvl];
@@ -386,8 +385,6 @@
         return;
       }
 
-      const allFuncs = [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])];
-
       const SESSION_BASE_X = 200;
       const SESSION_BASE_Y = 300;
       const SESSION_STEP_WIDTH = 280;
@@ -491,16 +488,16 @@
   });
 
   $effect(() => {
-    const funcName = sessionHighlight;
-    if (!funcName) return;
-    const node = getNodes().find(
-      n => n.data._type === 'function' && n.data.label === funcName
-    );
+    const key = sessionHighlight;
+    if (!key) return;
+    // session steps are labelled by key, call-graph nodes by name
+    const name = allFuncs.find((f) => f.key === key)?.name;
+    const functions = getNodes().filter(n => n.data._type === 'function');
+    const node = functions.find(n => n.data.label === key) ?? functions.find(n => n.data.label === name);
     if (node) selectedNode = node;
   });
 
-  // The page component is reused across /contract/A → /contract/B (palette, links,
-  // back/forward), so every load keys on the route param and drops stale responses.
+  // the page component is reused across contracts, so every load keys on the route param and drops stale responses
   let loadGen = 0;
 
   async function loadContract(contractName: string) {
@@ -536,11 +533,11 @@
       ]);
       if (!current()) return;
       if (seq.status === 'fulfilled') seqTree = seq.value;
-      else notifyFailure('load sequences', seq.reason);
+      else notifyError('load sequences', seq.reason);
       if (analysis.status === 'fulfilled') seqAnalysis = analysis.value;
-      else notifyFailure('load sequence analysis', analysis.reason);
+      else notifyError('load sequence analysis', analysis.reason);
       if (pm.status === 'fulfilled') projectMap = pm.value.contracts;
-      else notifyFailure('load project map', pm.reason);
+      else notifyError('load project map', pm.reason);
     } catch (e) {
       if (current()) error = e instanceof Error ? e.message : `Contract "${contractName}" not found`;
     }
@@ -551,8 +548,7 @@
     if (contractName) untrack(() => loadContract(contractName));
   });
 
-  // Path search results (palette): the palette opens the result's contract; once it shows,
-  // open the path. Any other navigation in between drops the request.
+  // a path search result opens once its contract shows; any other navigation in between drops it
   let navRequest: { nav: SearchNavigatePayload; gen: number } | null = null;
   $effect(() => {
     const nav = getSearchNavigate();
@@ -591,7 +587,7 @@
           if (funcNode) {
             selectedNode = { ...funcNode.data, id: funcNode.id };
             // the result may lie past the loaded page
-            const inPage = (hasPaths(nav.func) ? funcPaths[nav.func] : undefined)?.paths?.find((p: any) => p.id === nav.pathId);
+            const inPage = ownEntry(funcPaths, nav.func)?.paths?.find((p: any) => p.id === nav.pathId);
             const path = inPage ?? (await getPaths(contract.name, nav.func, nav.pathId, 1)).paths?.[0];
             if (stale) return;
             if (path) selectPath(nav.func, path);
@@ -608,22 +604,17 @@
     return () => { stale = true; };
   });
 
-  // The session store follows the contract this page shows.
   $effect(() => {
     const name = contract?.name;
     if (name) untrack(() => setSessionContract(name));
   });
-
-  function notifyFailure(label: string, e: unknown) {
-    notifyError(label, e);
-  }
 
   async function handleSidebarAdd(funcName: string) {
     if (mode === 'session') {
       try {
         await postCommand({ Call: { func: funcName } }, contract?.name);
       } catch (e) {
-        notifyFailure('add step', e);
+        notifyError('add step', e);
       }
       return;
     }
@@ -637,7 +628,6 @@
     const nodeData = named.find(n => !n.data.is_external) ?? named[0];
     if (!nodeData) return;
 
-    const allFuncs = [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])];
     const funcDetail = allFuncs.find((f: any) => f.name === funcName);
 
     const count = canvasFuncs.size;
@@ -799,7 +789,7 @@
     }
   }
 
-  // First page of a function's paths; a response for an earlier load of the page is dropped
+  // a response for an earlier load of the page is dropped
   async function loadPaths(funcName: string) {
     if (!contract) return;
     const gen = loadGen;
@@ -808,7 +798,7 @@
   }
 
   async function loadMorePaths(funcName: string) {
-    const current = hasPaths(funcName) ? funcPaths[funcName] : undefined;
+    const current = ownEntry(funcPaths, funcName);
     if (!contract || !current?.page?.truncated) return;
     const gen = loadGen;
     try {
@@ -816,7 +806,7 @@
       if (gen !== loadGen || funcPaths[funcName] !== current) return;
       funcPaths = { ...funcPaths, [funcName]: { ...next, paths: [...current.paths, ...next.paths] } };
     } catch (e) {
-      notifyFailure('load paths', e);
+      notifyError('load paths', e);
     }
   }
 
@@ -842,7 +832,7 @@
     try {
       await postCommand('Back', contract?.name);
     } catch (e) {
-      notifyFailure('session back', e);
+      notifyError('session back', e);
     }
   }
 
@@ -854,7 +844,7 @@
     try {
       await postCommand('Clear', contract?.name);
     } catch (e) {
-      notifyFailure('session clear', e);
+      notifyError('session clear', e);
     }
   }
 
@@ -870,7 +860,7 @@
       const res = await getFunctionSource(contract.name, funcName);
       openInIde(res.file_path, res.span.start_line, res.span.start_col);
     } catch (e) {
-      notifyFailure('open in IDE', e);
+      notifyError('open in IDE', e);
     }
   }
 
@@ -884,7 +874,7 @@
       try {
         await postCommand('Back', contract?.name);
       } catch (e) {
-        notifyFailure('remove-from-here iteration', e);
+        notifyError('remove-from-here iteration', e);
         break;
       }
     }
@@ -983,6 +973,7 @@
         _parentFunc: funcName,
         statements: n.data.statements,
         span: n.data.span,
+        file: n.data.file,
       },
     }));
 
@@ -1069,13 +1060,12 @@
       cfgCacheVersion++;
       return cfg;
     } catch (e) {
-      notifyFailure('load CFG', e);
+      notifyError('load CFG', e);
       return null;
     }
   }
 
-  // Block statements for the inspector: from the canvas when the CFG is expanded,
-  // otherwise from the cached CFG so a collapsed CFG still shows the flow.
+  // from the cached CFG when collapsed, so a collapsed CFG still shows the flow
   function lookupBlock(blockId: string): { statements: string[]; node_type: string } | null {
     const node = findNode(blockId);
     if (node && node.data._type === 'block') {
@@ -1114,8 +1104,6 @@
     const seqFunctions: Array<{ name: string; visibility: string; read_only: boolean; path_count: number }> = seqTree.functions;
 
     const targets = seqFunctions;
-
-    const allFuncs = [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])];
 
     const newNodes: Node<GraphNodeData>[] = [];
     const newEdges: Edge[] = [];
@@ -1276,11 +1264,11 @@
       }
     }
 
-    const allFuncs = [
+    const paletteFuncs = [
       ...(ctr.functions ?? []).map((f) => ({ name: f.name, source: 'own' as const })),
       ...(ctr.inherited_functions ?? []).map((f) => ({ name: f.name, source: 'inherited' as const })),
     ];
-    allFuncs.forEach((f, i) => {
+    paletteFuncs.forEach((f, i) => {
       cmds.push({
         id: `func:${f.source}:${i}:${f.name}`,
         label: f.name,

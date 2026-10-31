@@ -76,7 +76,6 @@
     return (effects ?? []).map((e) => `${e.item}  via ${e.via.join(' → ')}`);
   }
 
-  // Non-empty narrative sections in reading order: what the step changes first.
   function sections(n: FunctionNarrative): NarrativeSection[] {
     const all: NarrativeSection[] = [
       { label: 'Writes', tone: 'write', items: n.state_writes },

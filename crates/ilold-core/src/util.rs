@@ -24,7 +24,7 @@ fn is_user_type_name(head: &str) -> bool {
         && head.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
-// Global functions that run no contract code (fallback when solc types are absent).
+// fallback when solc types are absent
 pub fn is_builtin_function(name: &str) -> bool {
     matches!(
         name,
@@ -33,15 +33,18 @@ pub fn is_builtin_function(name: &str) -> bool {
     )
 }
 
-// `abi.encode(...)`, `bytes.concat(...)`, `string.concat(...)`, `block.*`, `msg.*`, `tx.*`
 pub fn is_builtin_namespace(name: &str) -> bool {
     matches!(name, "abi" | "bytes" | "string" | "block" | "msg" | "tx")
 }
 
-pub(crate) fn push_unique<T: PartialEq>(list: &mut Vec<T>, item: T) {
+pub fn push_unique<T: PartialEq>(list: &mut Vec<T>, item: T) {
     if !list.contains(&item) {
         list.push(item);
     }
+}
+
+pub fn compact(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 pub fn target_base_name(target: &str) -> &str {
@@ -49,7 +52,6 @@ pub fn target_base_name(target: &str) -> &str {
     base.split('.').next().unwrap_or(base)
 }
 
-/// Window over a long list in an API response; `truncated` when items lie past it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct Page {
     pub offset: usize,
@@ -68,6 +70,5 @@ impl Page {
     }
 }
 
-/// Items a page holds when a request names no limit, and at most.
 pub const DEFAULT_PAGE_LIMIT: usize = 100;
 pub const MAX_PAGE_LIMIT: usize = 1000;

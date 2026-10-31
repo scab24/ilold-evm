@@ -1,7 +1,4 @@
-//! Guards read from code: revert checks on the entry path whose condition depends on the
-//! caller (access) or on pause, reentrancy and initialization flags (state guards), found in
-//! the body, in inlined modifiers and in the helpers and libraries they call.
-//! Fixture: tests/fixtures/solc/access.
+//! Guards read from code. Fixture: tests/fixtures/solc/access.
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -31,7 +28,6 @@ fn contract(name: &str) -> &'static ContractDef {
     project().contracts.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("{name}"))
 }
 
-/// (kind, condition, via) of the guards of `func` as `contract` runs it.
 fn facts(contract_name: &str, func: &str) -> Vec<(GuardKind, String, Vec<String>)> {
     guards(contract_name, func).into_iter().map(|g| (g.kind, g.condition, g.via)).collect()
 }
@@ -105,7 +101,7 @@ fn has_role_reached_with_the_caller_bound_to_a_parameter() {
         "if (!hasRole(role, account)) revert AccessControlUnauthorizedAccount(account, role)",
         &["modifier onlyRole", "AccessControl::_checkRole(bytes32)", "AccessControl::_checkRole(bytes32,address)"],
     );
-    assert_eq!(facts("Guards", "setByRole"), [expected.clone()]);
+    assert_eq!(facts("Guards", "setByRole"), std::slice::from_ref(&expected));
     assert_eq!(access("Guards", "setByRole"), restricted("onlyRole"));
     // inherited public function guarded in the base, classified in the derived contract
     assert_eq!(facts("Guards", "grantRole"), [expected]);
@@ -296,7 +292,7 @@ fn no_access_control_observation_follows_guard_facts() {
     assert_eq!(n.guards, guards("Guards", "setByAcl"));
 }
 
-// Regressions: checks that must not be reported as access guards.
+// checks that must not be reported as access guards
 
 #[test]
 fn checks_after_an_early_return_are_not_guards() {

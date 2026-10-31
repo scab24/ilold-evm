@@ -1,9 +1,4 @@
-//! Guards of a function read from its code. A guard is a revert check on the unconditional
-//! entry path -- in an inlined modifier before its `_`, in the body, or in an internal helper
-//! or library function either of them calls -- classified by what its condition depends on:
-//! the caller (access control) or a pause, reentrancy or initialization flag (state guards).
-//! Modifier names are used only when a modifier has no code to read, and such facts are
-//! marked `heuristic`.
+//! Access and state guards of a function, read from its code.
 use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
@@ -23,7 +18,7 @@ use crate::util::is_type_cast;
 /// Helpers deeper than this are not followed.
 const MAX_DEPTH: usize = 12;
 
-/// Modifier names that suggest access control; used only for modifiers without code.
+/// Used only for modifiers without code.
 const ACCESS_MODIFIERS: &[&str] = &[
     "onlyowner", "onlyadmin", "onlyrole", "onlygovernance",
     "onlyminter", "onlypauser", "onlyoperator", "onlyguardian",
@@ -32,7 +27,7 @@ const ACCESS_MODIFIERS: &[&str] = &[
     "auth", "restricted",
 ];
 
-/// Modifier names of state guards; used only for modifiers without code.
+/// Used only for modifiers without code.
 const STATE_GUARD_MODIFIERS: &[(&str, GuardKind)] = &[
     ("whennotpaused", GuardKind::Pause),
     ("whenpaused", GuardKind::Pause),
@@ -44,14 +39,11 @@ const STATE_GUARD_MODIFIERS: &[(&str, GuardKind)] = &[
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum GuardKind {
-    /// The caller compared with an address: `msg.sender == owner`, `owner() != _msgSender()`.
     CallerEquals,
-    /// The caller passed to a boolean check or used as a key: `hasRole(r, sender)`,
-    /// `acl.isPoolAdmin(msg.sender)`, `authorized[msg.sender]`.
+    /// The caller passed to a boolean check or used as a mapping key.
     RoleCheck,
-    /// A check on `tx.origin`.
     TxOrigin,
-    /// A modifier without code whose name suggests access control (always `heuristic`).
+    /// A modifier without code whose name suggests access control.
     AccessByName,
     Pause,
     Reentrancy,
@@ -59,7 +51,6 @@ pub enum GuardKind {
 }
 
 impl GuardKind {
-    /// Restricts who may call; the state guards do not.
     pub fn is_access(self) -> bool {
         matches!(self, GuardKind::CallerEquals | GuardKind::RoleCheck | GuardKind::TxOrigin | GuardKind::AccessByName)
     }
@@ -77,9 +68,7 @@ impl GuardKind {
     }
 }
 
-/// One guard: the check as written (`require(c)` or `if (c) revert E()`), the chain that
-/// reaches it from the function (`modifier m`, then `Contract::function` per helper; empty
-/// for the body) and where the check is.
+/// `via` is the chain from the function to the check, empty for the body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardFact {
     pub kind: GuardKind,
@@ -91,9 +80,7 @@ pub struct GuardFact {
     pub heuristic: bool,
 }
 
-/// Guards of `func` (declared in `owner`) when `context` is the most derived contract:
-/// modifiers and virtual helpers resolve to the overrides `context` sees. Without a project
-/// only `owner`'s own modifiers and functions are visible.
+/// `context` is the most derived contract: modifiers and virtual helpers resolve as it sees them.
 pub fn function_guards(project: Option<&Project>, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> Vec<GuardFact> {
     let mut walker = Walker { project, facts: Vec::new(), pending: Vec::new(), active: Vec::new() };
     let frame = Frame { context, owner, via: Vec::new(), callers: HashMap::new(), depth: 0 };
@@ -101,8 +88,6 @@ pub fn function_guards(project: Option<&Project>, context: &ContractDef, owner: 
     walker.facts
 }
 
-/// Who a value is: `msg.sender` (directly, through `_msgSender()` or a variable holding it)
-/// or `tx.origin`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Caller {
     Sender,
@@ -132,8 +117,6 @@ fn var_key(name: &str, id: Option<DeclId>) -> VarKey {
     }
 }
 
-/// The code being read: its contracts, the chain that reached it and the parameters and
-/// locals holding the caller.
 #[derive(Clone)]
 struct Frame<'a> {
     context: &'a ContractDef,
@@ -143,8 +126,7 @@ struct Frame<'a> {
     depth: usize,
 }
 
-/// A check whose condition is neither about the caller nor about a pause or initialization
-/// flag; inside a modifier it may still be a reentrancy lock.
+/// Neither about the caller nor a flag; inside a modifier it may still be a reentrancy lock.
 struct Pending {
     condition: String,
     via: Vec<String>,
@@ -168,7 +150,6 @@ impl<'a> Walker<'a> {
         }
     }
 
-    // Modifiers in order, then the body.
     fn function(&mut self, frame: &Frame<'a>, func: &'a FunctionDef) {
         let key = (frame.owner.key().to_string(), func.key.clone());
         if frame.depth > MAX_DEPTH || self.active.contains(&key) {
@@ -222,7 +203,6 @@ impl<'a> Walker<'a> {
         }
     }
 
-    // A modifier whose code cannot be read: only its name is left.
     fn by_name(&mut self, name: &str, via: Vec<String>) {
         let lower = name.to_lowercase();
         let kind = if ACCESS_MODIFIERS.iter().any(|p| lower.contains(p)) {
@@ -236,7 +216,6 @@ impl<'a> Walker<'a> {
         self.push(GuardFact { kind, condition, via, span: None, heuristic: true });
     }
 
-    /// The modifier `name` as `frame.context` sees it, with the contract declaring it.
     fn resolve_modifier(&self, frame: &Frame<'a>, name: &str) -> Option<(&'a ContractDef, &'a ModifierDef)> {
         let find = |c: &'a ContractDef| c.modifiers.iter().find(|m| m.name == name).map(|m| (c, m));
         let Some(project) = self.project else {
@@ -251,7 +230,7 @@ impl<'a> Walker<'a> {
         order.into_iter().find_map(find)
     }
 
-    // Straight-line statements; false once control leaves (return, revert).
+    // false once control leaves the function
     fn statements(&mut self, frame: &Frame<'a>, stmts: &'a [Statement]) -> bool {
         let mut frame = frame.clone();
         for stmt in stmts {
@@ -327,7 +306,7 @@ impl<'a> Walker<'a> {
         true
     }
 
-    /// A revert check whose condition `cond` must evaluate to `holds` for execution to go on.
+    /// `holds` is the value `cond` must have for execution to go on.
     fn check(&mut self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, condition: String, span: SourceSpan) {
         let via = frame.via.clone();
         if let Some(kind) = self.access_kind(frame, cond, holds, 0) {
@@ -350,9 +329,7 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// The access guard expressed by requiring `cond == holds`: only callers that satisfy a
-    /// caller-dependent test get through. `require(msg.sender != owner)` lets everyone but the
-    /// owner through and is not one; a disjunction is one only when every disjunct is.
+    /// Only a caller-dependent test that must hold restricts access; a disjunction only when every disjunct does.
     fn access_kind(&self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, depth: usize) -> Option<GuardKind> {
         match &cond.kind {
             ExpressionKind::UnaryOp { operator: UnaryOperator::Not, operand } => self.access_kind(frame, operand, !holds, depth),
@@ -366,7 +343,6 @@ impl<'a> Walker<'a> {
                 if both_needed { l.or(r) } else { r.and(l) }
             }
             ExpressionKind::BinaryOp { left, operator: op @ (BinaryOperator::Eq | BinaryOperator::Neq), right } => {
-                // `x == true`, `x != false`, ...
                 let equal = matches!(op, BinaryOperator::Eq) == holds;
                 if let Some(b) = bool_literal(right) {
                     return self.access_kind(frame, left, equal == b, depth);
@@ -394,7 +370,7 @@ impl<'a> Walker<'a> {
                     CallType::Call(kind) => Some(*kind),
                     CallType::Unknown => None,
                 };
-                // a call that changes state (`transferFrom(msg.sender, ...)`) is not a check
+                // a state-changing call that takes the caller is not a check
                 if !self.is_view_call(frame, callee, kind) {
                     return None;
                 }
@@ -405,7 +381,7 @@ impl<'a> Walker<'a> {
                 if let Some(c) = args.iter().find_map(|a| self.caller_of(frame, a)) {
                     return Some(c.kind(false));
                 }
-                // a boolean helper: `require(isOwner())`, every return of which is a guard
+                // a boolean helper every return of which is a guard
                 if depth >= MAX_DEPTH {
                     return None;
                 }
@@ -424,8 +400,7 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Whether the function a call reaches is declared `view` or `pure` (a public state
-    /// variable's getter counts). Unknown callees are not.
+    /// A public state variable's getter counts; unknown callees do not.
     fn is_view_call(&self, frame: &Frame<'a>, callee: &'a Expression, kind: Option<CallKind>) -> bool {
         let resolved = match &callee.kind {
             ExpressionKind::Identifier { resolved, .. } | ExpressionKind::MemberAccess { resolved, .. } => *resolved,
@@ -437,7 +412,6 @@ impl<'a> Walker<'a> {
         self.resolve(frame, callee, kind).is_some_and(|(_, f)| f.mutability.is_view_or_pure())
     }
 
-    /// Whether `expr` is the caller's identity.
     fn caller_of(&self, frame: &Frame<'a>, expr: &'a Expression) -> Option<Caller> {
         self.caller_at(frame, expr, 0)
     }
@@ -455,7 +429,6 @@ impl<'a> Walker<'a> {
                 self.caller_at(frame, elements[0].as_ref()?, depth)
             }
             ExpressionKind::FunctionCall { callee, arguments, call, .. } => {
-                // `address(x)`, `payable(x)`
                 let is_cast = match &callee.kind {
                     ExpressionKind::TypeMeta { .. } => true,
                     ExpressionKind::Identifier { name, .. } => is_type_cast(name),
@@ -475,7 +448,7 @@ impl<'a> Walker<'a> {
                 if depth >= MAX_DEPTH {
                     return None;
                 }
-                // `_msgSender()`: a helper every return of which is the caller
+                // a helper every return of which is the caller
                 match self.callee(frame, callee, arguments, kind) {
                     Some((inner, func)) => {
                         let values = returned(func);
@@ -490,7 +463,6 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Internal and library calls made by `expr`; each callee is read as a helper.
     fn calls(&mut self, frame: &Frame<'a>, expr: &'a Expression) {
         match &expr.kind {
             ExpressionKind::FunctionCall { callee, arguments, call, options } => {
@@ -540,8 +512,7 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// The function a call reaches and the frame it runs in: parameters bound to the caller
-    /// where the arguments are the caller.
+    /// Parameters are bound to the caller where the arguments are the caller.
     fn callee(
         &self,
         frame: &Frame<'a>,
@@ -646,7 +617,6 @@ impl<'a> Walker<'a> {
     }
 }
 
-// `require(c, ...)`, `assert(c)` and `revert(...)` as expression statements.
 fn check_call(expr: &Expression) -> Option<(&'static str, &[Expression])> {
     let ExpressionKind::FunctionCall { callee, arguments, .. } = &expr.kind else { return None };
     let ExpressionKind::Identifier { name, .. } = &callee.kind else { return None };
@@ -667,7 +637,6 @@ fn revert_args(arguments: &[Expression]) -> String {
     if args.chars().count() > MAX_REVERT_ARGS { "...".to_string() } else { args }
 }
 
-// How a block that always reverts ends: `revert E(args)` or `revert(args)`.
 fn revert_text(stmts: &[Statement]) -> Option<String> {
     match &stmts.last()?.kind {
         StatementKind::Revert { error_name, arguments } => {
@@ -686,8 +655,7 @@ fn revert_text(stmts: &[Statement]) -> Option<String> {
     }
 }
 
-/// Values a function returns: `return e` anywhere in its body, and named return variables
-/// assigned at top level.
+/// Named return variables count only when assigned at top level.
 fn returned(func: &FunctionDef) -> Vec<&Expression> {
     fn walk<'e>(stmts: &'e [Statement], func: &FunctionDef, out: &mut Vec<&'e Expression>) {
         for stmt in stmts {
@@ -724,7 +692,6 @@ fn returned(func: &FunctionDef) -> Vec<&Expression> {
     out
 }
 
-// Indexes of `a[i][j].k`, outermost last.
 fn index_chain<'e>(expr: &'e Expression, out: &mut Vec<&'e Expression>) {
     match &expr.kind {
         ExpressionKind::IndexAccess { base, index } => {
@@ -738,7 +705,6 @@ fn index_chain<'e>(expr: &'e Expression, out: &mut Vec<&'e Expression>) {
     }
 }
 
-// Identifiers, members and called names a condition mentions.
 fn names_in(expr: &Expression, out: &mut BTreeSet<String>) {
     match &expr.kind {
         ExpressionKind::Identifier { name, .. } => {
@@ -780,7 +746,6 @@ fn names_in(expr: &Expression, out: &mut BTreeSet<String>) {
     }
 }
 
-// The variable an assignment target is rooted at: `x`, `x[k]`, `x.f`.
 fn root_name(expr: &Expression) -> Option<String> {
     match &expr.kind {
         ExpressionKind::Identifier { name, .. } => Some(name.clone()),
@@ -797,7 +762,7 @@ fn bool_literal(expr: &Expression) -> Option<bool> {
     }
 }
 
-// `0`, `0x00`, `address(0)`: a sanity check, not a caller check.
+// a sanity check, not a caller check
 fn is_zero(expr: &Expression) -> bool {
     match &expr.kind {
         ExpressionKind::Literal { value, .. } => {
@@ -817,8 +782,7 @@ fn is_zero(expr: &Expression) -> bool {
     }
 }
 
-/// Whether `stmts` can leave the function without reverting: a `return`, a `_` (the rest
-/// of a modifier then runs after the body) or assembly, anywhere inside.
+/// A `_` counts: the rest of the modifier runs after the body.
 fn may_exit(stmts: &[Statement]) -> bool {
     stmts.iter().any(|s| match &s.kind {
         StatementKind::Return { .. } | StatementKind::Placeholder | StatementKind::Assembly { .. } => true,

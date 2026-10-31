@@ -2,8 +2,6 @@ use serde_json::Value;
 
 use crate::error::McpClientError;
 
-/// `value` as one URL path segment or query value: a contract id such as
-/// `src/core/IToken.sol:IToken` or a signature such as `f(uint256[] storage)`.
 pub fn encode_component(value: &str) -> String {
     value
         .bytes()
@@ -14,6 +12,15 @@ pub fn encode_component(value: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+// URL parsing resolves `.` and `..` segments away, even percent-encoded
+pub fn check_segments(url: &str) -> Result<(), String> {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    match path.split('/').find(|s| matches!(*s, "." | "..")) {
+        Some(s) => Err(format!("'{s}' is not a valid path segment")),
+        None => Ok(()),
+    }
 }
 
 pub struct IloldClient {
@@ -38,6 +45,7 @@ impl IloldClient {
     }
 
     pub async fn get(&self, path: &str) -> Result<Value, McpClientError> {
+        check_segments(path).map_err(McpClientError::InvalidRequest)?;
         let url = format!("{}{}", self.base_url, path);
         let resp = self
             .http
@@ -59,6 +67,7 @@ impl IloldClient {
     }
 
     pub async fn post(&self, path: &str, body: Value) -> Result<Value, McpClientError> {
+        check_segments(path).map_err(McpClientError::InvalidRequest)?;
         let url = format!("{}{}", self.base_url, path);
         let resp = self
             .http

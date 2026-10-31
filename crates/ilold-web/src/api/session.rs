@@ -18,9 +18,8 @@ use ilold_core::narrative::trace::FlowTree;
 use ilold_core::narrative::types::{FunctionNarrative, SequenceNarrative};
 use ilold_core::slicing::{build_slice_result, SliceDirection, SliceResult};
 
-use ilold_core::model::contract::ContractDef;
-use ilold_core::model::project::ContractLookupError;
-
+use super::contract::route_contract;
+use super::ApiError;
 use crate::state::{AppState, ScenarioStore, SessionBroadcast, DEFAULT_SCENARIO};
 
 #[derive(Deserialize)]
@@ -29,23 +28,11 @@ pub struct CommandRequest {
     pub command: SessionCommand,
 }
 
-/// The contract `name` selects; like the contract routes, an unknown name is a 404 and a
-/// bare name shared by several contracts a 409.
-fn lookup_contract<'a>(state: &'a AppState, name: &str) -> Result<&'a ContractDef, (StatusCode, String)> {
-    state.project.lookup_contract(name).map_err(|e| {
-        let status = match e {
-            ContractLookupError::NotFound => StatusCode::NOT_FOUND,
-            ContractLookupError::Ambiguous(_) => StatusCode::CONFLICT,
-        };
-        (status, state.project.find_contract(Some(name)).err().unwrap_or_default())
-    })
-}
-
 fn build_analysis_data<'a>(
     state: &'a AppState,
     contract_name: &str,
-) -> Result<AnalysisData<'a>, (StatusCode, String)> {
-    let contract = lookup_contract(state, contract_name)?;
+) -> Result<AnalysisData<'a>, ApiError> {
+    let contract = route_contract(state, contract_name)?;
     let contract_name = contract.key();
 
     let seq_analysis = state.sequence_analyses.get(contract_name)
@@ -61,31 +48,26 @@ fn build_analysis_data<'a>(
     })
 }
 
-/// Contract a session request targets: the explicit name when given (it must exist),
-/// otherwise the contract named by the most recent `/api/cmd` (initially the
-/// project's default contract).
-fn resolve_contract(state: &AppState, explicit: Option<&str>) -> Result<String, (StatusCode, String)> {
+/// Without an explicit name, the contract of the most recent `/api/cmd`.
+fn resolve_contract(state: &AppState, explicit: Option<&str>) -> Result<String, ApiError> {
     match explicit.map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => lookup_contract(state, name).map(|c| c.key().to_string()),
+        Some(name) => Ok(route_contract(state, name)?.key().to_string()),
         None => Ok(state.scenarios.read().unwrap().current_contract().to_string()),
     }
 }
 
-/// Optional `?contract=` selector accepted by every session-scoped read.
 #[derive(Deserialize)]
 pub struct ContractQuery {
     #[serde(default)]
     pub contract: Option<String>,
 }
 
-/// `?highlight=true`: an inspection route also highlights the function on the canvas.
 #[derive(Deserialize)]
 pub struct HighlightQuery {
     #[serde(default)]
     pub highlight: bool,
 }
 
-/// A step's narrative or trace: `?contract=` and `?highlight=`.
 #[derive(Deserialize)]
 pub struct StepQuery {
     #[serde(default)]
@@ -94,13 +76,12 @@ pub struct StepQuery {
     pub highlight: bool,
 }
 
-/// Runs `read` on the store of the resolved contract without changing ownership;
-/// a contract with no store yet reads as a fresh empty one.
+/// Does not change ownership; a contract with no store yet reads as an empty one.
 fn read_store<R>(
     state: &AppState,
     explicit: Option<&str>,
-    read: impl FnOnce(&ScenarioStore) -> Result<R, (StatusCode, String)>,
-) -> Result<R, (StatusCode, String)> {
+    read: impl FnOnce(&ScenarioStore) -> Result<R, ApiError>,
+) -> Result<R, ApiError> {
     let contract = resolve_contract(state, explicit)?;
     let guard = state.scenarios.read().unwrap();
     match guard.store(&contract) {
@@ -115,13 +96,19 @@ fn broadcast(state: &AppState, contract: &str, patch: Option<CanvasPatch>) {
     }
 }
 
-/// Tells canvases showing `contract` which function a client is inspecting; inspection
-/// routes do it only on `?highlight=true`, so a plain read has no effect on other clients.
+/// Only on `?highlight=true`, so a plain read has no effect on other clients.
 fn highlight(state: &AppState, contract: &str, function: &str) {
     let scenario = state.scenarios.read().unwrap()
         .store(contract)
         .map_or(DEFAULT_SCENARIO.to_string(), |s| s.active().to_string());
     broadcast(state, contract, Some(CanvasPatch::Highlight { scenario, function: function.to_string() }));
+}
+
+// canvases and steps name an overload by its key, not by the query that selected it
+fn highlight_function(state: &AppState, data: &AnalysisData, query: &str) {
+    if let Some((_, function)) = data.project.resolve_function(data.contract, query) {
+        highlight(state, data.contract.key(), &data.project.route_key(data.contract, function));
+    }
 }
 
 fn timestamp_now() -> String {
@@ -158,19 +145,7 @@ fn execute_scenario(
             store.insert(name.clone(), session);
             CommandResult::ScenarioCreated { name }
         }
-        ScenarioAction::List => {
-            let active = store.active().to_string();
-            let items: Vec<ScenarioInfo> = store
-                .names()
-                .iter()
-                .map(|n| ScenarioInfo {
-                    name: n.clone(),
-                    active: n == &active,
-                    step_count: store.get(n).map(|s| s.steps.len()).unwrap_or(0),
-                })
-                .collect();
-            CommandResult::ScenarioList { items }
-        }
+        ScenarioAction::List => CommandResult::ScenarioList { items: store.infos() },
         ScenarioAction::Switch { name } => {
             let from = store.active().to_string();
             if name == from {
@@ -253,7 +228,7 @@ fn fork_scenario(
 pub async fn handle_command(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CommandRequest>,
-) -> Result<Json<CommandResult>, (StatusCode, String)> {
+) -> Result<Json<CommandResult>, ApiError> {
     let contract_name = resolve_contract(&state, req.contract.as_deref())?;
     let data = build_analysis_data(&state, &contract_name)?;
     let timestamp = timestamp_now();
@@ -305,7 +280,7 @@ pub async fn get_step_detail(
     State(state): State<Arc<AppState>>,
     Path(step_index): Path<usize>,
     Query(query): Query<StepQuery>,
-) -> Result<Json<FunctionNarrative>, (StatusCode, String)> {
+) -> Result<Json<FunctionNarrative>, ApiError> {
     let (narrative, contract, function) = read_store(&state, query.contract.as_deref(), |store| {
         let session = store.active_session();
         let data = build_analysis_data(&state, &store.contract)?;
@@ -323,7 +298,7 @@ pub async fn get_session_step_trace(
     State(state): State<Arc<AppState>>,
     Path(step_index): Path<usize>,
     Query(query): Query<StepQuery>,
-) -> Result<Json<FlowTree>, (StatusCode, String)> {
+) -> Result<Json<FlowTree>, ApiError> {
     let (tree, contract, function) = read_store(&state, query.contract.as_deref(), |store| {
         let step = store.active_session().steps.get(step_index)
             .ok_or((StatusCode::NOT_FOUND, format!("step {} not found", step_index)))?;
@@ -335,7 +310,7 @@ pub async fn get_session_step_trace(
     Ok(Json(tree))
 }
 
-fn step_trace(step: &ExplorationStep, step_index: usize) -> Result<FlowTree, (StatusCode, String)> {
+fn step_trace(step: &ExplorationStep, step_index: usize) -> Result<FlowTree, ApiError> {
     let tree = step.flow_tree.clone()
         .ok_or((
             StatusCode::NOT_FOUND,
@@ -353,7 +328,7 @@ pub async fn get_variable_timeline_handler(
     State(state): State<Arc<AppState>>,
     Path(variable): Path<String>,
     Query(query): Query<ContractQuery>,
-) -> Result<Json<VariableTimeline>, (StatusCode, String)> {
+) -> Result<Json<VariableTimeline>, ApiError> {
     read_store(&state, query.contract.as_deref(), |store| {
         Ok(Json(build_variable_timeline(store.active_session(), &variable)))
     })
@@ -362,7 +337,7 @@ pub async fn get_variable_timeline_handler(
 pub async fn get_state_detail(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ContractQuery>,
-) -> Result<Json<Vec<VariableSummary>>, (StatusCode, String)> {
+) -> Result<Json<Vec<VariableSummary>>, ApiError> {
     read_store(&state, query.contract.as_deref(), |store| {
         Ok(Json(get_session_state(store.active_session())))
     })
@@ -371,12 +346,12 @@ pub async fn get_state_detail(
 pub async fn get_sequence_detail(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ContractQuery>,
-) -> Result<Json<SequenceNarrative>, (StatusCode, String)> {
+) -> Result<Json<SequenceNarrative>, ApiError> {
     read_store(&state, query.contract.as_deref(), |store| {
         let data = build_analysis_data(&state, &store.contract)?;
         get_sequence_narrative(store.active_session(), &data)
             .map(Json)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))
+            .map_err(|e| (StatusCode::BAD_REQUEST, e).into())
     })
 }
 
@@ -384,17 +359,17 @@ pub async fn get_function_detail(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
     Query(query): Query<HighlightQuery>,
-) -> Result<Json<FunctionNarrative>, (StatusCode, String)> {
+) -> Result<Json<FunctionNarrative>, ApiError> {
     let data = build_analysis_data(&state, &contract_name)?;
     let narrative = get_function_info(&func_name, &data, MAX_NARRATIVE_PATHS)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     if query.highlight {
-        highlight(&state, data.contract.key(), &func_name);
+        highlight_function(&state, &data, &func_name);
     }
     Ok(Json(narrative))
 }
 
-/// Path narratives a response carries; the path pages hold every path.
+/// The path pages hold every path.
 pub const MAX_NARRATIVE_PATHS: usize = 100;
 
 #[derive(Deserialize)]
@@ -413,7 +388,7 @@ pub async fn get_flow_trace(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
     Query(params): Query<TraceQuery>,
-) -> Result<Json<FlowTree>, (StatusCode, String)> {
+) -> Result<Json<FlowTree>, ApiError> {
     let data = build_analysis_data(&state, &contract_name)?;
 
     let max_depth = params.depth.unwrap_or(2);
@@ -424,7 +399,7 @@ pub async fn get_flow_trace(
     let tree = get_flow_tree(&func_name, &data, max_depth, include_reverts, expand_set)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     if params.highlight {
-        highlight(&state, data.contract.key(), &func_name);
+        highlight_function(&state, &data, &func_name);
     }
     Ok(Json(tree))
 }
@@ -441,10 +416,9 @@ pub async fn get_function_slice(
     State(state): State<Arc<AppState>>,
     Path((func_name, variable)): Path<(String, String)>,
     Query(params): Query<SliceQuery>,
-) -> Result<Json<SliceResult>, (StatusCode, String)> {
+) -> Result<Json<SliceResult>, ApiError> {
     let contract_name = resolve_contract(&state, params.contract.as_deref())?;
-    let contract = lookup_contract(&state, &contract_name)?;
-    // inherited functions too; modifiers resolve as the contract sees them
+    let contract = route_contract(&state, &contract_name)?;
     let (_, function) = state.project.resolve_function(contract, &func_name)
         .ok_or((
             StatusCode::NOT_FOUND,
@@ -502,25 +476,14 @@ pub struct AllScenariosResponse {
 pub async fn get_scenarios(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ContractQuery>,
-) -> Result<Json<Vec<ScenarioInfo>>, (StatusCode, String)> {
-    read_store(&state, query.contract.as_deref(), |store| {
-        let active = store.active();
-        Ok(Json(store
-            .names()
-            .iter()
-            .map(|name| ScenarioInfo {
-                name: name.clone(),
-                active: name == active,
-                step_count: store.get(name).map(|s| s.steps.len()).unwrap_or(0),
-            })
-            .collect()))
-    })
+) -> Result<Json<Vec<ScenarioInfo>>, ApiError> {
+    read_store(&state, query.contract.as_deref(), |store| Ok(Json(store.infos())))
 }
 
 pub async fn get_all_scenarios(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ContractQuery>,
-) -> Result<Json<AllScenariosResponse>, (StatusCode, String)> {
+) -> Result<Json<AllScenariosResponse>, ApiError> {
     read_store(&state, query.contract.as_deref(), |store| {
         let contract = state.project.lookup_contract(&store.contract).ok();
         let mut scenarios: Vec<ScenarioSnapshot> = Vec::with_capacity(store.len());

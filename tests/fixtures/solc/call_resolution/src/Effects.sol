@@ -5,7 +5,7 @@ interface ISink {
     function settle(uint256 amount) external;
 }
 
-// Overloaded internal callee whose overloads have different effects (AToken._transfer shape).
+// Overloaded internal callee whose overloads have different effects.
 contract Ledger {
     uint256 public plain;
     uint256 public settled;

@@ -1,6 +1,4 @@
-// Requires ILOLD_CACHE_TEST_SOLC_VERSION set to an already installed SVM compiler.
-// Each invocation parses in a separate process; events observe the selected cache path.
-// The isolated unit seam separately checks that a hit skips the compile closure.
+// Requires ILOLD_CACHE_TEST_SOLC_VERSION set to an installed SVM compiler; each parse runs in its own process.
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

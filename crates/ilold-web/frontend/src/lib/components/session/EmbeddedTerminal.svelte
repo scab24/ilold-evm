@@ -4,9 +4,9 @@
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
   import { isTerminalVisible, hideTerminal } from '$lib/stores/terminal.svelte';
+  import { contractQuery } from '$lib/api/session';
 
   interface Props {
-    /** Contract of the page; the attached REPL starts on it. */
     contract: string;
   }
 
@@ -32,13 +32,12 @@
     }
   });
 
-  // The PTY (and its REPL process) starts the first time the terminal is shown,
-  // then stays alive while hidden; it ends with the page (unmount or pagehide).
+  // the PTY starts when first shown and stays alive while hidden, until the page ends
   $effect(() => {
     if (ready && isTerminalVisible() && !ws) connect();
   });
 
-  // The page can switch contracts without remounting: reattach on the new one.
+  // the page can switch contracts without remounting
   $effect(() => {
     const current = contract;
     untrack(() => {
@@ -49,7 +48,7 @@
     });
   });
 
-  /** Closes the PTY socket on purpose; the server then ends the attached REPL. */
+  /** The server then ends the attached REPL. */
   function disconnect() {
     const socket = ws;
     ws = null;
@@ -264,9 +263,8 @@
 
   function connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const query = contract ? `?contract=${encodeURIComponent(contract)}` : '';
     wsContract = contract;
-    const socket = new WebSocket(`${protocol}//${location.host}/ws/pty${query}`);
+    const socket = new WebSocket(`${protocol}//${location.host}/ws/pty${contractQuery(contract)}`);
     socket.binaryType = 'arraybuffer';
     ws = socket;
 

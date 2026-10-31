@@ -1,4 +1,3 @@
-//! Whole-project derived analysis shared by the web server and the CLI commands.
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::callgraph::builder::build_call_graph;
@@ -20,7 +19,7 @@ use crate::sequence::effects::{summarize, CfgSummary, EffectEngine};
 use crate::sequence::builder::build_sequence_tree;
 use crate::sequence::types::SequenceTree;
 
-/// Every input of the analysis besides the project itself. All of it is part of the cache key.
+/// All of it is part of the cache key.
 #[derive(Debug, Clone)]
 pub struct AnalysisParams {
     pub max_seq_depth: usize,
@@ -33,7 +32,6 @@ impl AnalysisParams {
     }
 }
 
-/// Derived analysis only; sessions, annotations and runtime handles live elsewhere.
 pub struct ProjectAnalysis {
     pub cfgs: HashMap<(String, String), CfgGraph>,
     pub path_trees: HashMap<(String, String), PathTree>,
@@ -55,8 +53,7 @@ impl ProjectAnalysis {
         let mut sequence_analyses = HashMap::new();
         let mut classifications = HashMap::new();
 
-        // Every function of the project contracts and of the dependency contracts they inherit;
-        // other dependency functions (libraries, free functions) only once project code calls them.
+        // other dependency functions (libraries, free functions) only once project code calls them
         let inherited_dependencies: HashSet<&str> = project
             .project_contracts()
             .flat_map(|c| project.linearization(c))
@@ -77,8 +74,7 @@ impl ProjectAnalysis {
                 let cfg = CfgBuilder::build_with_project(func, contract, Some(project));
                 let summary = summarize(&cfg, project);
                 queue_dependency_callees(project, &summary, pending, queued);
-                let state_vars = project.inherited_state_vars(contract);
-                path_trees.insert(key.clone(), build_path_tree(&cfg, &key.0, &key.1, &state_vars, config));
+                path_trees.insert(key.clone(), build_path_tree(&cfg, &key.0, &key.1, config));
                 summaries.insert(key.clone(), summary);
                 cfgs.insert(key, cfg);
             }
@@ -93,10 +89,9 @@ impl ProjectAnalysis {
                 for func in owner.functions.iter().filter(|f| overrides_modifiers(project, contract, owner, f)) {
                     let cfg = CfgBuilder::build_with_project(func, contract, Some(project));
                     let key = (contract.key().to_string(), owner.key().to_string(), func.key.clone());
-                    let state_vars = project.inherited_state_vars(contract);
                     let summary = summarize(&cfg, project);
                     queue_dependency_callees(project, &summary, &mut pending, &mut queued);
-                    context_trees.insert(key.clone(), build_path_tree(&cfg, &key.1, &key.2, &state_vars, config));
+                    context_trees.insert(key.clone(), build_path_tree(&cfg, &key.1, &key.2, config));
                     context_summaries.insert(key, summary);
                 }
             }
@@ -123,7 +118,6 @@ impl ProjectAnalysis {
                 build_sequence_tree(contract, &contract_path_trees, params.max_seq_depth),
             );
 
-            // own functions, then the inherited ones as this contract runs them
             let mut functions = direct_behaviors(&own, &contract_key);
             for af in project.accessible_functions(contract).into_iter().filter(|af| af.is_inherited) {
                 let key = (af.owner.key().to_string(), af.function.key.clone());
@@ -144,7 +138,6 @@ impl ProjectAnalysis {
             let transitions = transitions(&functions);
             sequence_analyses.insert(contract_key.clone(), SequenceAnalysis { functions, transitions });
 
-            // inherited functions too, with modifiers and helpers as this contract resolves them
             classifications.insert(contract_key, classify_contract(project, contract));
         }
 
@@ -161,14 +154,12 @@ impl ProjectAnalysis {
         }
     }
 
-    /// Reuses a persisted analysis for this validated project key, or builds and publishes one.
-    /// Without a key (project cache bypassed) the analysis is always built fresh.
+    /// Without a key the project cache was bypassed and the analysis is always built fresh.
     pub fn load_or_build(project: &Project, key: Option<&ProjectKey>, params: &AnalysisParams) -> Self {
         crate::analysis_cache::load_or_build_from_env(key, params, || Self::build(project, params))
     }
 }
 
-/// The function a behavior of `contract` describes: its own, or the inherited one it runs.
 fn owner_of<'a>(
     project: &'a Project,
     contract: &'a ContractDef,

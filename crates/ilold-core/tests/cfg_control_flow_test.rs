@@ -38,8 +38,7 @@ fn analyze(project: &Project, contract: &str, name: &str) -> (CfgGraph, PathTree
     let contract = project.contracts.iter().find(|c| c.name == contract).unwrap();
     let f = contract.functions.iter().find(|f| f.name == name).unwrap();
     let cfg = CfgBuilder::build_with_project(f, contract, Some(project));
-    let state_vars = project.inherited_state_vars(contract);
-    let tree = build_path_tree(&cfg, &contract.name, name, &state_vars, &PruningConfig::default());
+    let tree = build_path_tree(&cfg, &contract.name, name, &PruningConfig::default());
     (cfg, tree)
 }
 
@@ -153,7 +152,7 @@ fn for_break_and_continue_use_the_increment_and_exit() {
             (8, 5, "U"),
         ]
     );
-    // Per iteration: exit (happy), break (happy), continue or fall through (2 back edges).
+    // per iteration: exit, break, continue or fall through
     assert_eq!(counts(&tree), (14, 0, 8));
 }
 
@@ -380,7 +379,7 @@ fn describe(project: &Project, contract: &str, name: &str) {
     println!("  paths total={} happy={happy} revert={revert} loop_cutoff={cutoff}", tree.stats.total_paths);
 }
 
-/// Spot check on a copy of Aave v3 origin: ILOLD_AAVE_ROOT=<copy> cargo test ... -- --ignored --nocapture
+/// Needs ILOLD_AAVE_ROOT.
 #[test]
 #[ignore]
 fn aave_spot_check() {

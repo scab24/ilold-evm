@@ -118,7 +118,6 @@ fn state_access(fn_name: &str) -> (Vec<String>, Vec<String>) {
         &cfg,
         &contract.name,
         &f.name,
-        &contract.state_vars,
         &PruningConfig::default(),
     );
     let reads: Vec<String> = tree.paths().flat_map(|p| p.annotations.state_reads.clone()).collect();
@@ -163,7 +162,6 @@ fn array_push_is_not_an_external_call() {
         &cfg,
         &contract.name,
         &push_fn.name,
-        &contract.state_vars,
         &PruningConfig::default(),
     );
 
@@ -230,7 +228,6 @@ fn write_after_external_call_is_observed() {
         &cfg,
         &contract.name,
         &f.name,
-        &contract.state_vars,
         &PruningConfig::default(),
     );
 
@@ -254,7 +251,6 @@ fn value_call_options_resolve_the_real_callee() {
         &cfg,
         &contract.name,
         &f.name,
-        &contract.state_vars,
         &PruningConfig::default(),
     );
 
@@ -293,7 +289,7 @@ fn method_named_push_is_an_external_call_not_a_write() {
     let f = vault.functions.iter().find(|f| f.name == "pushVia").unwrap();
 
     let cfg = CfgBuilder::build(f, vault);
-    let tree = build_path_tree(&cfg, &vault.name, &f.name, &vault.state_vars, &PruningConfig::default());
+    let tree = build_path_tree(&cfg, &vault.name, &f.name, &PruningConfig::default());
 
     let calls_push = tree.paths().any(|p| p.annotations.external_calls.iter().any(|c| c.function == "push"));
     let writes_pool = tree.paths().any(|p| p.annotations.state_writes.iter().any(|w| w == "pool"));

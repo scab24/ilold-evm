@@ -36,7 +36,6 @@ impl SolcFrontend {
         self.parse_project_keyed(root).map(|(project, _)| project)
     }
 
-    /// Like `parse`, also returning the validated project cache key when one exists.
     pub fn parse_keyed(&self, paths: &[PathBuf]) -> Result<(Project, Option<ProjectKey>), ParseError> {
         let root = project_root(paths)?;
         self.parse_project_keyed(&root)
@@ -67,7 +66,7 @@ impl SolcFrontend {
     fn compile_prepared(&self, root: &Path, prepared: Prepared) -> Result<Project, ParseError> {
         let src_dir = prepared.paths.sources.clone();
         let roots: Vec<PathBuf> = [Some(root.to_path_buf()), prepared.canonical.clone()].into_iter().flatten().collect();
-        // Nothing is written into the analysed project: no artifacts and no compiler cache.
+        // nothing is written into the analysed project: no artifacts, no compiler cache
         let project = ProjectBuilder::<SolcCompiler>::default()
             .paths(prepared.paths)
             .settings(prepared.settings)
@@ -82,7 +81,7 @@ impl SolcFrontend {
             message: format!("solc compile: {e}"),
         })?;
 
-        // Broken tests or scripts must not discard the model: compile the sources alone.
+        // broken tests or scripts must not discard the model: compile the sources alone
         let mut warnings = Vec::new();
         if output.has_compiler_errors() {
             let errors: Vec<&SolcError> = output.output().errors.iter().filter(|e| e.is_error()).collect();
@@ -155,8 +154,7 @@ impl SolcFrontend {
     }
 }
 
-/// Source files reachable through imports from the files under `src_dir`; tests and scripts
-/// that no source imports stay out of the model.
+/// Tests and scripts no source imports stay out of the model.
 fn import_closure(units: &[(&PathBuf, &Ast)], src_dir: &Path) -> std::collections::HashSet<usize> {
     let by_id: std::collections::HashMap<usize, usize> =
         units.iter().enumerate().map(|(i, (_, ast))| (ast.id, i)).collect();
@@ -180,7 +178,6 @@ fn read_source(path: &Path) -> Result<String, ParseError> {
     })
 }
 
-/// `path` relative to the project root when it lies inside it, otherwise unchanged.
 fn relative_path(path: &Path, roots: &[PathBuf]) -> String {
     roots
         .iter()
@@ -198,7 +195,6 @@ fn absolute_in(file: &str, roots: &[PathBuf]) -> PathBuf {
     }
 }
 
-/// The file of each error; `None` when solc gives no location.
 fn failing_files(errors: &[&SolcError], roots: &[PathBuf]) -> Vec<Option<PathBuf>> {
     errors
         .iter()
@@ -240,9 +236,7 @@ fn solidity_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// A project contract keeps its bare name as key while no other project contract shares it;
-/// a dependency only while no other contract at all does. Every other contract is keyed by
-/// its qualified id, so keys are unique and a bare name prefers project contracts.
+/// Bare names stay keys while unique (project contracts first), so keys are unique and bare names prefer project contracts.
 fn assign_contract_keys(contracts: &mut [ContractDef]) {
     let mut project_names: std::collections::HashMap<String, usize> = Default::default();
     let mut all_names: std::collections::HashMap<String, usize> = Default::default();
@@ -258,7 +252,6 @@ fn assign_contract_keys(contracts: &mut [ContractDef]) {
     }
 }
 
-/// Every declaration of the model by solc id, with a readable `<qualified id>::<name>` key.
 fn declarations(contracts: &[ContractDef]) -> DeclTable {
     let mut table = DeclTable::default();
     for c in contracts {
@@ -452,8 +445,7 @@ fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<
     if cfg.auto_detect_remappings() {
         let explicit = remappings.len();
         for detected in library_remappings(root, &lib_paths(root, cfg), &selected_profile()) {
-            // Explicit remappings win over any conflicting library remapping in their context;
-            // library remappings only displace each other within the same context.
+            // explicit remappings win in their context; library remappings only displace each other within one context
             let shadowed = remappings[..explicit].iter().any(|existing| {
                 names_conflict(&existing.name, &detected.name)
                     && existing.context.as_deref().is_none_or(|context| {
@@ -489,11 +481,7 @@ fn names_conflict(existing: &str, new: &str) -> bool {
     new.starts_with(&existing_dir) || existing.starts_with(new)
 }
 
-/// Library remappings as Foundry derives them: auto-detected library directories plus the
-/// `remappings.txt` / `foundry.toml` remappings of nested Foundry projects, rebased to their
-/// own root. The closest path wins globally; a name that resolves to different paths in
-/// different projects is also emitted scoped to each owning project, so nested imports keep
-/// their own copy. Contexted entries come first because import resolution takes the first match.
+/// As Foundry derives them; a name resolving differently per nested project is also emitted scoped to each, contexted first.
 fn library_remappings(root: &Path, libs: &[PathBuf], profile: &str) -> Vec<Remapping> {
     let mut owned = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -534,8 +522,6 @@ fn library_remappings(root: &Path, libs: &[PathBuf], profile: &str) -> Vec<Remap
     scoped
 }
 
-/// Collects `(owning project, remapping, owned directly)` for `project`'s libraries and,
-/// recursively, for every nested Foundry project found in them.
 fn collect_library_remappings(
     project: &Path,
     libs: &[PathBuf],
@@ -548,7 +534,7 @@ fn collect_library_remappings(
             if ["lib/", "src/", "contracts/"].contains(&detected.name.as_str()) {
                 continue;
             }
-            // A detected directory is owned by `project` only when it sits directly in its libs.
+            // a detected directory is owned by `project` only when it sits directly in its libs
             let first = detected.name.split('/').next().unwrap_or_default();
             let direct = Path::new(&detected.path).strip_prefix(lib).ok()
                 .and_then(|rest| rest.components().next())
@@ -562,13 +548,12 @@ fn collect_library_remappings(
             let Ok(cfg) = read_foundry_config_with_profile(&nested, profile) else { continue };
             let mut explicit = read_remappings_file(&nested);
             explicit.extend(cfg.remappings.iter().cloned());
-            // Every nested project is importable by its directory name through its `src`.
             if let Some(name) = nested.file_name().and_then(|name| name.to_str()) {
                 let src = cfg.src.as_deref().unwrap_or("src");
                 let path = format!("{}/", nested.join(src).to_string_lossy().trim_end_matches('/'));
                 owned.push((project.to_path_buf(), Remapping { context: None, name: format!("{name}/"), path }, false));
             }
-            // Like Foundry, contexts declared inside a library are not rebased; skip them.
+            // like Foundry, contexts declared inside a library are not rebased
             for remapping in explicit.into_iter().filter(|r| r.context.is_none()) {
                 owned.push((nested.clone(), remapping, true));
             }
@@ -579,7 +564,6 @@ fn collect_library_remappings(
     }
 }
 
-/// `dir` itself and its direct subdirectories that contain a `foundry.toml`.
 fn foundry_toml_dirs(dir: &Path) -> Vec<PathBuf> {
     let mut dirs = std::fs::read_dir(dir)
         .map(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).collect::<Vec<_>>())
@@ -591,7 +575,6 @@ fn foundry_toml_dirs(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn solc_settings(cfg: &FoundryConfig) -> Result<Settings, ParseError> {
-    // The model needs ASTs only; no bytecode is generated.
     let mut settings = Settings::new(OutputSelection::ast_output_selection());
     if let Some(via_ir) = cfg.via_ir {
         settings = settings.set_via_ir(via_ir);
@@ -769,8 +752,7 @@ fn map_contract(node: &Node, index: &LineIndex, path: &str, is_dependency: bool)
 
 pub use crate::model::contract::FREE_FUNCTIONS;
 
-/// The file-level functions of one source unit as a library named [`FREE_FUNCTIONS`], so that
-/// calls to them (also through `using {f} for T`) resolve like internal library calls.
+/// File-level functions as a library, so calls to them resolve like internal library calls.
 fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependency: bool) -> Option<ContractDef> {
     let free: Vec<&Node> = nodes.iter().filter(|n| n.node_type == NodeType::FunctionDefinition).collect();
     let first = free.first()?;
@@ -798,9 +780,7 @@ fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependen
     })
 }
 
-// overloads are keyed by signature so they never collide
-// Constructor, receive and fallback keep their bare name as key; a regular function that
-// shares one of those names is always keyed by its signature (`fallback()`).
+// Overloads are keyed by signature; a regular function named like a special one always is.
 fn assign_function_keys(functions: &mut [FunctionDef]) {
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for f in functions.iter().filter(|f| f.kind == FunctionKind::Function) {
@@ -818,9 +798,7 @@ fn assign_function_keys(functions: &mut [FunctionDef]) {
     }
 }
 
-// `name(type,...)`. External and public functions use the ABI form (no data locations);
-// internal and private ones keep each parameter's location, because overloads may differ
-// only by it. Receive and fallback have no parameter list in their signature.
+// Internal and private signatures keep data locations, because overloads may differ only by them.
 fn function_signature(node: &Node, kind: FunctionKind, name: &str, vis: Visibility) -> String {
     if matches!(kind, FunctionKind::Receive | FunctionKind::Fallback) {
         return name.to_string();
@@ -1168,7 +1146,6 @@ fn map_expression(node: &Node, index: &LineIndex) -> Expression {
             name: node.attribute::<String>("name").unwrap_or_default(),
             resolved: referenced_decl(node),
         },
-        // a type used as a value
         NodeType::ElementaryTypeNameExpression => ExpressionKind::Identifier {
             name: type_expr_name(node),
             resolved: None,
@@ -1282,7 +1259,6 @@ fn map_call(node: &Node, index: &LineIndex) -> ExpressionKind {
     }
 }
 
-// `new Child(...)` -> `Child`, `new uint256[](n)` -> `uint256[]`
 fn new_type_name(node: &Node) -> String {
     node.attribute::<Node>("typeName")
         .map(|t| canonical_type(&type_string(&t)))
@@ -1300,7 +1276,6 @@ fn call_options(node: &Node, index: &LineIndex) -> Vec<CallOption> {
         .collect()
 }
 
-// The callee's solc function type says how control reaches it (`t_function_<kind>_...`).
 fn call_type(callee: &Node) -> CallType {
     let Some(identifier) = callee
         .attribute::<serde_json::Value>("typeDescriptions")
@@ -1319,8 +1294,7 @@ fn call_type(callee: &Node) -> CallType {
         .then(|| callee.attribute::<Node>("expression"))
         .flatten();
     let kind = match (kind, &object) {
-        // a library function, named (`L.f()`) or attached through `using for`; `super.f()`,
-        // `Base.f()` and function-pointer fields (`s.op()`) stay internal
+        // `super.f()`, `Base.f()` and function-pointer fields stay internal
         (CallKind::Internal, Some(object)) => {
             let attached = identifier.contains("$attached_to$") || identifier.contains("$bound_to$");
             if attached || type_string(object).starts_with("type(library ") {
@@ -1340,8 +1314,6 @@ fn call_type(callee: &Node) -> CallType {
     CallType::Call(kind)
 }
 
-// Parameter type without data locations or `struct`/`enum`/`contract` prefixes.
-// Function types stay readable: `function(uint256) external returns (bool)`.
 fn canonical_type(type_string: &str) -> String {
     const DROP: [&str; 9] =
         ["memory", "calldata", "storage", "ref", "pointer", "struct", "enum", "contract", "payable"];
@@ -1406,7 +1378,7 @@ fn placeholder_expr(node: &Node, index: &LineIndex) -> Expression {
 }
 
 fn type_expr_name(node: &Node) -> String {
-    // `address(x)`, `payable(x)`: the written type, not solc's `type(address)`
+    // the written type, not solc's `type(address)`
     if node.node_type == NodeType::ElementaryTypeNameExpression {
         if let Some(name) = node.attribute::<Node>("typeName").and_then(|t| {
             let name = t.attribute::<String>("name")?;
@@ -1485,7 +1457,7 @@ fn unary_op(node: &Node) -> UnaryOperator {
     }
 }
 
-// Address literals are `number` literals typed `address` by solc.
+// address literals are `number` literals typed `address` by solc
 fn literal_type(node: &Node) -> LiteralType {
     match node.attribute::<String>("kind").as_deref().unwrap_or("") {
         "number" if type_string(node).starts_with("address") => LiteralType::Address,
@@ -1505,7 +1477,7 @@ fn literal_value(node: &Node) -> String {
         .unwrap_or_default()
 }
 
-// solc lists constructor base calls (`constructor() Base(x)`) among the modifiers
+// solc lists constructor base calls among the modifiers
 fn modifier_refs(node: &Node, base_constructors: bool) -> Vec<ModifierRef> {
     node.attribute::<Vec<serde_json::Value>>("modifiers")
         .unwrap_or_default()
@@ -1981,7 +1953,7 @@ mod tests {
         }
     }
 
-    /// Compares against `forge remappings` for each root in `ILOLD_FORGE_PARITY_ROOTS` (`:`-separated).
+    /// Compares against `forge remappings` for each root in `ILOLD_FORGE_PARITY_ROOTS`.
     #[test]
     #[ignore = "requires forge and ILOLD_FORGE_PARITY_ROOTS"]
     fn remappings_match_forge() {

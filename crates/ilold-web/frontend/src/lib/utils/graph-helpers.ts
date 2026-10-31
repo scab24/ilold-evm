@@ -10,6 +10,11 @@ export interface LayoutOptions {
   nodeHeight?: number;
 }
 
+// own-property lookup, so names like `constructor` never hit Object.prototype
+export function ownEntry<T>(record: Record<string, T> | undefined, key: string): T | undefined {
+  return record && Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 export function runDagreLayout(
   nodes: Node<GraphNodeData>[],
   edges: Edge[],
@@ -50,20 +55,13 @@ export function runDagreLayout(
 export interface PackOptions {
   nodeWidth: number;
   nodeHeight: number;
-  /** Gap between nodes of one rank, and between the sub-columns a tall rank wraps into. */
   nodeSep: number;
-  /** Gap between consecutive ranks. */
   rankSep: number;
-  /** Target width / height of the whole drawing (usually the viewport's). */
+  /** Target width / height of the whole drawing. */
   aspect: number;
 }
 
-/**
- * Re-packs a left-to-right layered layout so it fits a viewport: ranks keep their
- * order (left to right) and their internal order (top to bottom), but a rank taller
- * than the chosen row limit wraps into side-by-side sub-columns. The row limit is the
- * one that needs the least zoom-out to show the whole drawing at `aspect`.
- */
+/** A rank taller than the row limit wraps into sub-columns; the limit needing the least zoom-out wins. */
 export function packLayeredLR(nodes: Node<GraphNodeData>[], options: PackOptions): Node<GraphNodeData>[] {
   if (nodes.length === 0) return nodes;
   const { nodeWidth, nodeHeight, nodeSep, rankSep, aspect } = options;

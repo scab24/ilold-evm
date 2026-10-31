@@ -1,5 +1,6 @@
 <script lang="ts">
   import Collapsible from '$lib/Collapsible.svelte';
+  import { ownEntry } from '$lib/utils/graph-helpers';
 
   interface Props {
     selectedNode: any;
@@ -31,28 +32,13 @@
     onexpandcfg,
   }: Props = $props();
 
-  // Keys are Solidity names; own-property lookup so names like `constructor` never hit Object.prototype
-  function pathsFor(funcName: string): any {
-    return funcPaths && Object.hasOwn(funcPaths, funcName) ? funcPaths[funcName] : undefined;
-  }
-
-  // mirrors PathTreeStats::truncation_note on the server
-  function truncationCauses(s: any): string {
-    const causes: string[] = [];
-    if (s.depth_cutoff) causes.push(`${s.depth_cutoff} depth cutoffs`);
-    if (s.loop_cutoff) causes.push(`${s.loop_cutoff} loop cutoffs`);
-    if (s.cap_reached) causes.push(`path cap reached (${s.paths_dropped} branches dropped)`);
-    return causes.join(', ');
-  }
-
   function termColor(t: string): string {
     return t === 'Return' ? 'var(--color-success)' : t === 'Revert' ? 'var(--color-danger)' : 'var(--color-text-muted)';
   }
 
   const allFunctions = $derived([...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])]);
 
-  // Declared visibility from the contract detail; the call graph's is_external only
-  // says whether the node belongs to another contract.
+  // the call graph's is_external only says whether the node belongs to another contract
   function visibilityOf(node: any): string | null {
     if (node.visibility) return node.visibility;
     return allFunctions.find((f) => f.name === node.label)?.visibility ?? null;
@@ -96,13 +82,13 @@
           </div>
         {/if}
 
-        {#if pathsFor(selectedNode.label)}
-          {@const fp = pathsFor(selectedNode.label)}
+        {#if ownEntry(funcPaths, selectedNode.label)}
+          {@const fp = ownEntry(funcPaths, selectedNode.label)}
           {@const fpPaths = Array.isArray(fp.paths) ? fp.paths : []}
           {@const cutoffs = (fp.stats?.loop_cutoff ?? 0) + (fp.stats?.depth_cutoff ?? 0)}
           <div class="d-row"><span class="d-label">Paths</span><span>{fp.stats?.total_paths ?? fpPaths.length} ({fp.stats?.happy_paths ?? 0} return, {fp.stats?.revert_paths ?? 0} revert{cutoffs ? `, ${cutoffs} cut off` : ''})</span></div>
-          {#if fp.stats?.truncated}
-            <div class="d-hint" style="color:var(--color-warning)">Truncated: {truncationCauses(fp.stats)}</div>
+          {#if fp.truncation_note}
+            <div class="d-hint" style="color:var(--color-warning)">{fp.truncation_note}</div>
           {/if}
 
           <Collapsible title="Paths" count={fp.stats?.total_paths ?? fpPaths.length} open={true}>
@@ -262,13 +248,13 @@
         {/if}
       {:else if selectedNode._type === 'block'}
         {@const parentFunc = selectedNode._parentFunc || ''}
-        {@const paths = pathsFor(parentFunc)?.paths || []}
+        {@const paths = ownEntry(funcPaths, parentFunc)?.paths || []}
         {@const passingPaths = paths.filter((p: any) => p.nodes.some((n: any) => `cfg:${parentFunc}:b${n.block_id}` === selectedNode.id))}
         <div class="d-row"><span class="d-label">Function</span><span>{parentFunc}</span></div>
         {#if selectedNode.span}
-          <div class="d-row"><span class="d-label">Lines</span><span>{selectedNode.span.start_line === selectedNode.span.end_line ? selectedNode.span.start_line : `${selectedNode.span.start_line}–${selectedNode.span.end_line}`}</span></div>
+          <div class="d-row"><span class="d-label">Lines</span><span>{selectedNode.file ? `${selectedNode.file.split('/').pop()}:` : ''}{selectedNode.span.start_line === selectedNode.span.end_line ? selectedNode.span.start_line : `${selectedNode.span.start_line}–${selectedNode.span.end_line}`}</span></div>
         {/if}
-        <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length}{pathsFor(parentFunc)?.page?.truncated ? ' loaded' : ''} paths</span></div>
+        <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length}{ownEntry(funcPaths, parentFunc)?.page?.truncated ? ' loaded' : ''} paths</span></div>
 
         {#if passingPaths.length > 0}
           <div class="d-section-label">Select a path to explore</div>

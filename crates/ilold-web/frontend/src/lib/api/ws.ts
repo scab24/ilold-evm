@@ -160,8 +160,7 @@ export function teardown(): void {
   }
 }
 
-// A page leaving (tab close, navigation, bfcache) closes its socket; a page
-// restored from bfcache reconnects if anything is still subscribed.
+// a page restored from bfcache reconnects if anything is still subscribed
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => teardown());
   window.addEventListener('pageshow', (e: PageTransitionEvent) => {

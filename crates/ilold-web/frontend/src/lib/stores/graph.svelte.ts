@@ -28,6 +28,7 @@ export interface BlockNodeData {
   _parentFunc: string;
   statements?: string[];
   span?: SourceSpan;
+  file?: string;
   _dimmed?: boolean;
 }
 

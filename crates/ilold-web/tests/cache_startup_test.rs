@@ -1,5 +1,4 @@
-// Restarting the web state reuses persisted derived analysis but never persisted sessions.
-// Each startup runs in a child process with an explicit private ILOLD_PROJECT_CACHE_DIR.
+// Each startup runs in a child process with a private ILOLD_PROJECT_CACHE_DIR.
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::fmt::Debug;

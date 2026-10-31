@@ -22,7 +22,6 @@ use super::session::{ExplorationSession, TraceConfig, VariableSummary};
 pub struct FunctionEntry {
     pub name: String,
     pub access: AccessLevel,
-    /// Access and state guards read from code; see [`GuardFact`].
     #[serde(default)]
     pub guards: Vec<GuardFact>,
     pub writes_state: bool,
@@ -320,7 +319,7 @@ pub fn execute_command(
     }
 }
 
-/// Directory name of the Foundry root (nearest ancestor with foundry.toml) of a source file.
+/// Nearest ancestor with foundry.toml.
 pub fn project_root_name(source_path: &str) -> Option<String> {
     std::path::Path::new(source_path)
         .ancestors()
@@ -347,8 +346,7 @@ fn execute_state_vars_all(data: &AnalysisData) -> CommandResult {
     CommandResult::StateVarListAll { state_vars }
 }
 
-/// Access level and guards of `func` (declared in `owner`) as `data.contract` runs it, read
-/// from code: an empty `guards` on a behavior may mean "never computed", not "unguarded".
+/// An empty `guards` on a behavior may mean never computed, not unguarded.
 fn guarded(data: &AnalysisData, owner: &ContractDef, func: &crate::model::function::FunctionDef) -> (AccessLevel, Vec<GuardFact>) {
     classify_in(data.project, data.contract, owner, func)
 }
@@ -358,14 +356,13 @@ fn execute_functions_all(data: &AnalysisData) -> CommandResult {
         .accessible_functions(data.contract)
         .into_iter()
         .map(|af| {
-            // inherited functions too, with modifiers as this contract resolves them
             let (access, guards) = guarded(data, af.owner, af.function);
 
             // inherited functions are analysed as this contract runs them
             let owner = af.owner.key();
             let key = &af.function.key;
             let behavior = find_behavior(data.behaviors, owner, key).or_else(|| {
-                data.all_sequence_analyses.get(&af.origin)
+                data.all_sequence_analyses.get(owner)
                     .and_then(|sa| find_behavior(&sa.functions, owner, key))
             });
 
@@ -381,7 +378,7 @@ fn execute_functions_all(data: &AnalysisData) -> CommandResult {
                 name: af.function.name.clone(),
                 access,
                 guards,
-                origin: af.origin,
+                origin: owner.to_string(),
                 is_inherited: af.is_inherited,
                 writes_state,
                 has_external_calls,
@@ -414,16 +411,7 @@ fn execute_call(
         },
     };
 
-    let owning_contract = if resolved.is_inherited {
-        match data.project.contract_index.get(&resolved.origin).map(|&i| &data.project.contracts[i]) {
-            Some(c) => c,
-            None => return CommandResult::Error {
-                message: format!("Parent contract '{}' not found", resolved.origin),
-            },
-        }
-    } else {
-        data.contract
-    };
+    let owning_contract = resolved.owner;
 
     let key = (owning_contract.key().to_string(), resolved.function.key.clone());
     let cfg = match data.cfgs.get(&key) {
@@ -466,11 +454,8 @@ fn execute_call(
         trace_config.unwrap_or_default(),
     );
 
-    // a bare name shared by several functions would not find this one again
-    if data.project.lookup_function(data.contract, &function_def.name).is_err() {
-        if let Some(step) = session.steps.last_mut() {
-            step.function = function_def.match_signature().to_string();
-        }
+    if let Some(step) = session.steps.last_mut() {
+        step.function = data.project.route_key(data.contract, function_def);
     }
 
     let state_changed: Vec<String> = session.steps.last()
@@ -564,7 +549,7 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     let mut contract_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for af in data.project.accessible_functions(data.contract) {
         if af.is_inherited {
-            contract_set.insert(af.origin);
+            contract_set.insert(af.owner.key().to_string());
         }
     }
     contract_set.remove(data.contract.key());
@@ -656,8 +641,7 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     CommandResult::VariableInfo { variable: variable.to_string(), writers, readers }
 }
 
-/// Behaviors that describe `func` as `data.contract` runs it: the contract's own analysis
-/// lists inherited functions too; the defining contract's is a fallback.
+/// The contract's own analysis lists inherited functions too; the defining contract's is a fallback.
 fn behaviors_for<'a>(data: &AnalysisData<'a>, owning: &ContractDef, func: &crate::model::function::FunctionDef) -> &'a [FunctionBehavior] {
     if find_behavior(data.behaviors, owning.key(), &func.key).is_some() {
         return data.behaviors;
@@ -665,7 +649,6 @@ fn behaviors_for<'a>(data: &AnalysisData<'a>, owning: &ContractDef, func: &crate
     data.all_sequence_analyses.get(owning.key()).map(|sa| sa.functions.as_slice()).unwrap_or(&[])
 }
 
-/// Narrative of a session step; see [`get_function_info`] for `max_paths`.
 pub fn get_step_narrative(
     session: &ExplorationSession,
     step_index: usize,
@@ -674,21 +657,9 @@ pub fn get_step_narrative(
 ) -> Result<FunctionNarrative, String> {
     let step = session.steps.get(step_index)
         .ok_or_else(|| format!("Step {} not found", step_index))?;
-
-    let (owning, func) = data.project
-        .resolve_function(data.contract, &step.function)
-        .ok_or_else(|| format!("Function '{}' not found", step.function))?;
-
-    let key = (owning.key().to_string(), func.key.clone());
-    let cfg = data.cfgs.get(&key).ok_or("No CFG")?;
-    let pt = data.path_trees.get(&key).ok_or("No paths")?;
-
-    let behaviors = behaviors_for(data, owning, func);
-
-    Ok(build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths))
+    get_function_info(&step.function, data, max_paths)
 }
 
-/// Narrative of `func_name` with its first `max_paths` paths narrated.
 pub fn get_function_info(
     func_name: &str,
     data: &AnalysisData,

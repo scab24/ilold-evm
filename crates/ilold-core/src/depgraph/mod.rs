@@ -17,7 +17,7 @@ pub type DepGraph = DiGraph<DepNode, DepEdge>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepNode {
-    /// Contract key (`ContractDef::key`): the bare name unless it is ambiguous.
+    /// The bare name unless it is ambiguous.
     pub name: String,
     pub kind: ContractKind,
     pub folder: String,
@@ -93,7 +93,7 @@ impl ContractDeps {
         build::from_call_graphs(project, call_graphs)
     }
 
-    /// Restores a persisted graph. Built graphs hold one node per contract key; anything else is rejected.
+    /// Built graphs hold one node per contract key; anything else is rejected.
     pub fn from_graph(graph: DepGraph) -> Option<Self> {
         let mut index = HashMap::new();
         for idx in graph.node_indices() {
@@ -104,7 +104,6 @@ impl ContractDeps {
         Some(ContractDeps { graph, index })
     }
 
-    /// The graph of listed contracts, for listings that hide dependencies and free functions.
     pub fn without_dependencies(&self) -> Self {
         let graph = self.graph.filter_map(
             |_, node| (!node.is_dependency && !node.is_free_functions).then(|| node.clone()),
@@ -215,8 +214,7 @@ mod tests {
         assert_eq!(used, vec!["BasePool"]);
     }
 
-    // Same-named contracts used to collapse into one node and inherit by name; each now has
-    // its own node (by key) and inheritance follows the declaration id.
+    // same-named contracts get one node each and inheritance follows the declaration id
     #[test]
     fn duplicate_names_keep_one_node_per_key() {
         let lib = |path: &str, id: isize| ContractDef {

@@ -6,29 +6,28 @@ use super::common::StateVar;
 use super::contract::{ContractDef, ContractKind};
 use super::decl_id::{DeclId, DeclKind, DeclTable};
 use super::function::{FunctionDef, FunctionKind, Visibility};
+use crate::util::compact;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub source_files: Vec<SourceFile>,
-    /// Project contracts and the dependency contracts they reach (`is_dependency`).
+    /// Project contracts and the dependency contracts they reach.
     pub contracts: Vec<ContractDef>,
-    /// Contract position by `key` and by `qualified_id`.
+    /// By `key` and by `qualified_id`.
     #[serde(skip)]
     pub contract_index: HashMap<String, usize>,
     #[serde(skip)]
     pub id_index: HashMap<DeclId, usize>,
     #[serde(skip)]
     pub decl_table: DeclTable,
-    /// Non-fatal compilation problems, such as test or script files left out of the model.
     #[serde(default)]
     pub warnings: Vec<String>,
 }
 
-/// Why a contract name does not select exactly one contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractLookupError {
     NotFound,
-    /// A bare name shared by several contracts; carries their qualified ids.
+    /// Carries the qualified ids.
     Ambiguous(Vec<String>),
 }
 
@@ -71,17 +70,19 @@ impl Project {
         }
     }
 
-    /// Contracts declared in the project sources, without dependencies.
     pub fn project_contracts(&self) -> impl Iterator<Item = &ContractDef> {
         self.contracts.iter().filter(|c| !c.is_dependency)
     }
 
-    /// Contracts default listings show; see [`ContractDef::is_listed`].
     pub fn listed_contracts(&self) -> impl Iterator<Item = &ContractDef> {
         self.contracts.iter().filter(|c| c.is_listed())
     }
 
-    /// Whether the function or getter `id` declares is `view` or `pure`; `None` when unknown.
+    pub fn hidden_contracts(&self) -> usize {
+        self.contracts.len() - self.listed_contracts().count()
+    }
+
+    /// `None` when unknown.
     pub fn is_view_declaration(&self, id: DeclId) -> Option<bool> {
         let target = self.decl_table.lookup(id)?;
         Some(match target.kind {
@@ -95,8 +96,7 @@ impl Project {
         })
     }
 
-    /// Contract by key, qualified id or bare name. A bare name selects the project contract
-    /// with that name, or else the dependency with that name, when exactly one exists.
+    /// A bare name selects the one project contract with it, or else the one dependency.
     pub fn lookup_contract(&self, query: &str) -> Result<&ContractDef, ContractLookupError> {
         if let Some(&i) = self.contract_index.get(query) {
             return Ok(&self.contracts[i]);
@@ -118,7 +118,6 @@ impl Project {
         Err(ContractLookupError::NotFound)
     }
 
-    /// Contract a session starts on when none is named; see [`pick_default_contract`].
     pub fn default_contract(&self) -> Option<&ContractDef> {
         let key = pick_default_contract(
             self.listed_contracts().map(|c| (c.key(), c.kind, c.inherits.as_slice())),
@@ -181,15 +180,13 @@ pub struct SourceFile {
 pub struct AccessibleFunction<'a> {
     pub function: &'a FunctionDef,
     pub owner: &'a ContractDef,
-    pub origin: String,
     pub is_inherited: bool,
 }
 
-/// Why a function name or signature does not select exactly one function.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionLookupError {
     NotFound,
-    /// A bare name shared by several overloads; carries their signatures.
+    /// Carries the signatures.
     Ambiguous(Vec<String>),
 }
 
@@ -202,19 +199,16 @@ impl Project {
         }
     }
 
-    /// Keys of the direct bases of `contract`, by the declarations solc resolved (so aliased
-    /// or same-named bases select the right contract); names as written without ids.
-    pub fn base_keys<'a>(&'a self, contract: &'a ContractDef) -> Vec<&'a str> {
+    /// By the declarations solc resolved, so aliased or same-named bases select the right contract; bases outside the model are omitted.
+    pub fn base_keys(&self, contract: &ContractDef) -> Vec<String> {
         if contract.base_ids.is_empty() {
-            contract.inherits.iter().map(String::as_str).collect()
+            contract.inherits.clone()
         } else {
-            contract.base_ids.iter().filter_map(|id| self.contract_by_id(*id)).map(|c| c.key()).collect()
+            contract.base_ids.iter().filter_map(|id| self.contract_by_id(*id)).map(|c| c.key().to_string()).collect()
         }
     }
 
-    /// The contracts of `contract`'s C3 linearization that are in the model, most derived
-    /// first. Uses solc `linearizedBaseContracts`; models without it fall back to the
-    /// declared bases, right to left, breadth first.
+    /// Most derived first; models without `linearizedBaseContracts` fall back to the declared bases, right to left, breadth first.
     pub fn linearization<'a>(&'a self, contract: &'a ContractDef) -> Vec<&'a ContractDef> {
         let mut out = vec![contract];
         if !contract.linearized_bases.is_empty() {
@@ -239,8 +233,7 @@ impl Project {
         out
     }
 
-    /// First implementation of `signature` in `linearization`, starting after the contract
-    /// keyed `after` when given (`super`). Declarations without a body are used only when nothing implements it.
+    /// Starts after the contract keyed `after` (`super`); bodiless declarations only when nothing implements it.
     pub fn implementation<'a>(
         &self,
         linearization: &[&'a ContractDef],
@@ -262,11 +255,7 @@ impl Project {
         candidates().find(|(_, f)| f.body.is_some()).or_else(|| candidates().next())
     }
 
-    /// Functions of `contract` as the most derived contract: its own, then the inherited
-    /// public, external and internal ones in linearization order. Private functions and
-    /// constructors are not inherited; an override hides the base function with the same
-    /// signature, and an interface declaration implemented by a public state variable getter
-    /// is not a function of its own.
+    /// Own functions, then inherited non-private ones in linearization order; getter-implemented interface functions are not listed.
     pub fn accessible_functions<'a>(&'a self, contract: &'a ContractDef) -> Vec<AccessibleFunction<'a>> {
         let mut seen: HashSet<&str> = HashSet::new();
         let mut result: Vec<AccessibleFunction<'a>> = Vec::new();
@@ -295,7 +284,6 @@ impl Project {
                     result.push(AccessibleFunction {
                         function: f,
                         owner,
-                        origin: owner.key().to_string(),
                         is_inherited,
                     });
                 }
@@ -305,14 +293,12 @@ impl Project {
         result
     }
 
-    /// Selects one accessible function by bare name or by signature (`f(uint256,bool)`).
     pub fn lookup_function<'a>(
         &'a self,
         contract: &'a ContractDef,
         query: &str,
     ) -> Result<(&'a ContractDef, &'a FunctionDef), FunctionLookupError> {
         // internal signatures carry spaced locations (`f(uint256[] storage)`); compare unspaced
-        let compact = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
         let query = compact(query);
         let matches: Vec<AccessibleFunction<'a>> = self
             .accessible_functions(contract)
@@ -342,8 +328,7 @@ impl Project {
         }
     }
 
-    /// Lenient lookup for interactive commands: like [`Project::lookup_function`], but an
-    /// ambiguous bare name picks the first overload.
+    /// Like `lookup_function`, but an ambiguous bare name picks the first overload.
     pub fn resolve_function<'a>(
         &'a self,
         contract: &'a ContractDef,
@@ -360,9 +345,15 @@ impl Project {
         }
     }
 
-    /// State variables of `contract` in storage declaration order (most base contract first,
-    /// see [`Project::inherited_state_vars`]) with the key of the declaring contract and
-    /// whether it is inherited.
+    /// The name when it selects `function` on `contract`, otherwise the signature.
+    pub fn route_key(&self, contract: &ContractDef, function: &FunctionDef) -> String {
+        match self.lookup_function(contract, &function.name) {
+            Ok((_, found)) if std::ptr::eq(found, function) => function.name.clone(),
+            _ => function.match_signature().to_string(),
+        }
+    }
+
+    /// Storage order, most base contract first, with the declaring contract's key and whether it is inherited.
     pub fn accessible_state_vars(&self, contract: &ContractDef) -> Vec<(StateVar, String, bool)> {
         self.linearization(contract)
             .into_iter()
@@ -384,23 +375,13 @@ impl Project {
             .find_map(|c| c.modifiers.iter().find(|m| m.name == mod_name))
     }
 
-    /// Every state variable of `contract`, own ones included, in the order solc lays out
-    /// storage: the reversed C3 linearization (most base contract first), declaration order
-    /// within each contract. Constants and immutables are kept in place although they take no
-    /// slot; slot and offset numbers are not computed here.
+    /// Constants and immutables stay in place although they take no slot.
     pub fn inherited_state_vars(&self, contract: &ContractDef) -> Vec<StateVar> {
-        self.linearization(contract)
-            .into_iter()
-            .rev()
-            .flat_map(|c| c.state_vars.iter().cloned())
-            .collect()
+        self.accessible_state_vars(contract).into_iter().map(|(sv, _, _)| sv).collect()
     }
 }
 
-/// Deterministic default contract shared by the web server and both REPL modes.
-/// Prefers deployable contracts, then abstract contracts, libraries and interfaces;
-/// within a kind the most derived contract (most transitive ancestors) wins and
-/// ties break by name. Unnamed entries are ignored; `None` only for no contracts.
+/// Deployable contracts first, then the most derived one (most ancestors), ties by name.
 pub fn pick_default_contract<'a>(
     candidates: impl IntoIterator<Item = (&'a str, ContractKind, &'a [String])>,
 ) -> Option<&'a str> {

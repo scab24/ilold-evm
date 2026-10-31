@@ -46,15 +46,14 @@ pub fn run(
     let config = PruningConfig::default();
     let mut cfgs: HashMap<(String, String), CfgGraph> = HashMap::new();
     let mut pt_map: HashMap<(String, String), PathTree> = HashMap::new();
-    let combined_state_vars = project.inherited_state_vars(contract);
     for func in &contract.functions {
         let cfg = CfgBuilder::build_with_project(func, contract, Some(&project));
-        let pt = build_path_tree(&cfg, contract.key(), &func.key, &combined_state_vars, &config);
+        let pt = build_path_tree(&cfg, contract.key(), &func.key, &config);
         let key = (contract.key().to_string(), func.key.clone());
         cfgs.insert(key.clone(), cfg);
         pt_map.insert(key, pt);
     }
-    // Sequence depth does not affect what context prints; the CLI default shares the cached analysis.
+    // sequence depth does not affect what context prints, so the CLI default shares the cached analysis
     let params = AnalysisParams::new(SHARED_SEQ_DEPTH);
     let all_sequence_analyses =
         ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;

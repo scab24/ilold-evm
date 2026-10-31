@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DeclId(pub isize);
 
-/// What a solc declaration id names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeclKind {
     Contract,
@@ -19,17 +18,16 @@ pub enum DeclKind {
 #[derive(Debug, Clone)]
 pub struct DeclTarget {
     pub kind: DeclKind,
-    /// Key of the declaring contract (`ContractDef::key`).
     pub contract: String,
-    /// Function key for functions, empty for every other kind.
+    /// Empty for every kind but functions.
     pub function: String,
-    /// Member name (function key for functions); empty for contracts.
+    /// Empty for contracts.
     pub name: String,
-    /// Readable stable key: `<contract qualified id>` or `<contract qualified id>::<name>`.
+    /// Readable and stable: `<contract qualified id>` or `<contract qualified id>::<name>`.
     pub key: String,
 }
 
-/// One persisted declaration: id, kind, contract key, function key, member name, readable key.
+/// (id, kind, contract key, function key, member name, readable key)
 pub(crate) type DeclEntry = (isize, DeclKind, String, String, String, String);
 
 #[derive(Debug, Clone, Default)]
@@ -38,7 +36,7 @@ pub struct DeclTable {
 }
 
 impl DeclTable {
-    /// Registers a function (or, with an empty `function`, its contract) by contract key.
+    /// An empty `function` registers the contract.
     pub fn insert(&mut self, id: DeclId, contract: String, function: String) {
         let kind = if function.is_empty() { DeclKind::Contract } else { DeclKind::Function };
         let key = if function.is_empty() { contract.clone() } else { format!("{contract}::{function}") };
@@ -53,7 +51,6 @@ impl DeclTable {
         self.targets.get(&id)
     }
 
-    /// Function declarations only.
     pub fn function(&self, id: DeclId) -> Option<&DeclTarget> {
         self.lookup(id).filter(|t| t.kind == DeclKind::Function)
     }

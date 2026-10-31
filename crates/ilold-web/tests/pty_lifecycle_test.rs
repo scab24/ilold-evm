@@ -13,7 +13,6 @@ use tokio_tungstenite::tungstenite::Message;
 
 type Client = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-/// A bridge whose child prints its pid and then waits forever.
 async fn serve() -> u16 {
     let app = Router::new().route(
         "/pty",

@@ -2,7 +2,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::response::Response;
 use axum::Json;
 use serde::Serialize;
 
@@ -10,6 +9,7 @@ use ilold_core::depgraph::{ContractDeps, DepEdge};
 use ilold_core::model::contract::ContractKind;
 
 use crate::api::contract::route_contract;
+use crate::api::ApiError;
 use crate::api::project::ListingQuery;
 use crate::state::AppState;
 
@@ -51,8 +51,7 @@ pub struct DepEdgeData {
     pub call_count: usize,
 }
 
-/// The dependency graph a listing shows: project contracts only unless dependencies are asked
-/// for. Layers are computed on that graph.
+/// Layers are computed on the listed graph.
 fn listed_graph(state: &AppState, include_dependencies: bool) -> std::borrow::Cow<'_, ContractDeps> {
     if include_dependencies {
         std::borrow::Cow::Borrowed(&state.dep_graph)
@@ -105,7 +104,7 @@ pub async fn get_contract_depgraph(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     Query(query): Query<ListingQuery>,
-) -> Result<Json<DepGraphResponse>, Response> {
+) -> Result<Json<DepGraphResponse>, ApiError> {
     let contract = route_contract(&state, &name)?;
     let name = contract.key().to_string();
     // a dependency's own neighbourhood always includes dependencies

@@ -17,7 +17,7 @@ import type {
 } from '$lib/api/types';
 
 
-// Contract whose session this page shows; events for other contracts are ignored.
+// events for other contracts are ignored
 let sessionContract = $state<string | null>(null);
 let scenarios = $state<Map<string, SessionStep[]>>(new Map([['main', []]]));
 let activeScenario = $state<string>('main');
@@ -35,7 +35,6 @@ function isOwn(msg: { contract: string }): boolean {
   return sessionContract !== null && msg.contract === sessionContract;
 }
 
-/** Bind the store to `contract` and load its session from the server. */
 export function setSessionContract(contract: string): void {
   if (contract === sessionContract) return;
   sessionContract = contract;
@@ -109,7 +108,6 @@ subscribe('scenario_store_reloaded', (msg: ScenarioStoreReloaded) => {
   if (isOwn(msg)) resync();
 });
 
-// The server dropped patches for this client (broadcast lag): refetch everything.
 subscribe('session_resync', (_msg: SessionResync) => {
   resync();
 });

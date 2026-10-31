@@ -10,7 +10,7 @@ use super::effects::{CfgSummary, Effects};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionBehavior {
     pub name: String,
-    /// Declaring contract; function keys are unique only within it.
+    /// Function keys are unique only within the declaring contract.
     #[serde(default)]
     pub owner: String,
     pub preconditions: Vec<String>,
@@ -23,7 +23,6 @@ pub struct FunctionBehavior {
     pub external_calls: Vec<String>,
     #[serde(default)]
     pub internal_calls: Vec<String>,
-    /// Internal callees with the declaration solc resolved; used for transitive effects.
     #[serde(default)]
     pub internal_call_targets: Vec<InternalCallTarget>,
     pub events: Vec<String>,
@@ -46,19 +45,15 @@ pub struct FunctionBehavior {
     #[serde(default)]
     pub transitive_internal_calls: Vec<String>,
 
-    /// Explicit revert points of the function itself (`require(c)`, `revert E()`).
     #[serde(default)]
     pub revert_sources: Vec<String>,
-    /// Writes through the function's own `storage` parameters, as normalised paths rooted at
-    /// the parameter name (`userConfig.data`, `reservesData[].rate`).
+    /// Normalised paths rooted at the parameter name.
     #[serde(default)]
     pub storage_param_writes: Vec<String>,
     #[serde(default)]
     pub storage_param_reads: Vec<String>,
-    /// Effects reached through callees, each with the call chain that reaches it.
     #[serde(default)]
     pub transitive_effects: Vec<EffectTrace>,
-    /// Modifiers named by the function that resolve to no definition; not inlined.
     #[serde(default)]
     pub unresolved_modifiers: Vec<String>,
     /// The effects of a recursion whose written places keep growing were cut.
@@ -68,12 +63,10 @@ pub struct FunctionBehavior {
     pub guards: Vec<crate::classify::guards::GuardFact>,
 }
 
-/// What a transitive effect is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum EffectKind {
     StateWrite,
     StateRead,
-    /// A write through a `storage` parameter of the analysed (library) function.
     StorageParamWrite,
     StorageParamRead,
     ExternalCall,
@@ -81,8 +74,7 @@ pub enum EffectKind {
     Revert,
 }
 
-/// One effect reached through calls. `via` lists the callees from the analysed function to
-/// the one that has the effect (`Contract::key`, or `modifier m` for a modifier body).
+/// `via` lists the callees from the analysed function to the one with the effect.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EffectTrace {
     pub kind: EffectKind,
@@ -166,7 +158,6 @@ pub fn analyze_sequences(
     SequenceAnalysis { functions, transitions }
 }
 
-/// Behaviors of the functions of `contract_name` from their own paths, sorted by name.
 pub fn direct_behaviors(
     path_trees: &HashMap<(String, String), PathTree>,
     contract_name: &str,
@@ -285,7 +276,7 @@ pub fn direct_behaviors(
     behaviors
 }
 
-/// Ordered pairs of functions where the first one changes something the second one uses.
+/// Pairs where the first function changes something the second one uses.
 pub fn transitions(behaviors: &[FunctionBehavior]) -> Vec<TransitionInfo> {
     behaviors.iter().flat_map(|a| behaviors.iter().filter_map(move |b| transition(a, b))).collect()
 }
@@ -340,7 +331,6 @@ fn sorted(items: impl IntoIterator<Item = String>) -> Vec<String> {
     set.into_iter().collect()
 }
 
-/// Completes a behavior with its own CFG summary and the effects reached through calls.
 /// `effects` must be computed in the contract the behavior is listed under.
 pub fn apply_effects(behavior: &mut FunctionBehavior, summary: &CfgSummary, effects: &Effects, func: &FunctionDef) {
     let b = behavior;

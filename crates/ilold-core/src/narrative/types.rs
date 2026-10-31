@@ -12,10 +12,8 @@ pub struct FunctionNarrative {
     pub total_paths: usize,
     pub happy_paths: usize,
     pub revert_paths: usize,
-    /// Path enumeration counters, including cutoffs and truncation.
     #[serde(default)]
     pub path_stats: PathTreeStats,
-    /// Paths of the function not narrated in `paths`.
     #[serde(default)]
     pub paths_omitted: usize,
     pub paths: Vec<PathNarrative>,
@@ -36,10 +34,10 @@ pub struct FunctionNarrative {
     pub transitive_external_calls: Vec<TransitiveEffect>,
     #[serde(default)]
     pub transitive_events: Vec<TransitiveEffect>,
-    /// Reverts here or in a callee (path counts only cover this function's own code).
+    /// Path counts only cover this function's own code.
     #[serde(default)]
     pub can_revert: bool,
-    /// Where it can revert: own checks with an empty `via`, then those reached through calls.
+    /// Own checks with an empty `via` first.
     #[serde(default)]
     pub revert_sources: Vec<TransitiveEffect>,
     #[serde(default)]

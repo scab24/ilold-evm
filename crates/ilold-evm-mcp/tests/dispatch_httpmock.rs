@@ -337,3 +337,27 @@ async fn contract_ids_and_names_are_url_encoded() {
     dispatch(&client, &current, "ilold_cfg", Some(&json!({ "contract": id, "function": "put(uint256[] storage)" }))).await;
     cfg.assert();
 }
+
+#[tokio::test]
+async fn dot_segments_are_rejected_before_any_request() {
+    let server = MockServer::start();
+    let any = server.mock(|w, t| {
+        w.path_matches(httpmock::Regex::new(".*").unwrap());
+        t.status(200).json_body(json!({}));
+    });
+    let client = IloldClient::new(server.base_url());
+    let current = Mutex::new(Some("..".to_string()));
+
+    for (tool, args) in [
+        ("ilold_cfg", json!({ "contract": "..", "function": "f" })),
+        ("ilold_source", json!({ "contract": "C", "function": "." })),
+        ("ilold_slice", json!({ "function": "..", "variable": "x" })),
+    ] {
+        let res = dispatch(&client, &current, tool, Some(&args)).await;
+        assert_eq!(res.is_error, Some(true), "{tool}");
+    }
+    assert_eq!(any.hits(), 0);
+
+    dispatch(&client, &current, "ilold_timeline", Some(&json!({ "variable": "x" }))).await;
+    assert_eq!(any.hits(), 1, "a `..` query value is not a path segment");
+}

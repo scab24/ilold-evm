@@ -93,7 +93,7 @@ fn function_label(f: &Finding) -> &str {
     if f.affected_function.is_empty() { SESSION_LEVEL } else { &f.affected_function }
 }
 
-/// Journal start, or the first recorded entry for journals saved without one.
+/// The first recorded entry for journals saved without a start.
 fn started_at(journal: &AuditJournal) -> &str {
     if !journal.started_at.is_empty() {
         return &journal.started_at;
@@ -112,8 +112,7 @@ fn entry_timestamp(entry: &JournalEntry) -> &str {
     }
 }
 
-/// Unix-seconds timestamps (what the server records) as `YYYY-MM-DD HH:MM:SS UTC`;
-/// other strings keep their first 16 characters (ISO minutes).
+/// Other strings keep their first 16 characters (ISO minutes).
 pub fn format_timestamp(ts: &str) -> String {
     if ts.is_empty() {
         return "unknown".into();
@@ -128,7 +127,7 @@ pub fn format_timestamp(ts: &str) -> String {
     }
 }
 
-/// Days since 1970-01-01 to a proleptic Gregorian date (Howard Hinnant's algorithm).
+/// Proleptic Gregorian date (Howard Hinnant's algorithm).
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);

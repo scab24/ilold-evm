@@ -18,7 +18,7 @@ pub fn access_colored(access: &AccessLevel) -> ColoredString {
     }
 }
 
-/// One tag per guard kind, `?` marking those taken from a modifier name: `{caller} {pause}`.
+/// `?` marks guards taken from a modifier name.
 pub fn guard_badges(guards: &[GuardFact]) -> String {
     let mut tags: Vec<String> = Vec::new();
     for g in guards {

@@ -61,7 +61,7 @@ fn static_edges(project: &Project, graph: &mut DepGraph, index: &Index) {
             continue;
         };
         for parent in project.base_keys(c) {
-            if let Some(&to) = index.get(parent) {
+            if let Some(&to) = index.get(parent.as_str()) {
                 if to != from {
                     edge_mut(graph, from, to).inherits = true;
                 }
@@ -85,8 +85,7 @@ fn static_edges(project: &Project, graph: &mut DepGraph, index: &Index) {
 fn call_edges(graph: &mut DepGraph, index: &Index, from: NodeIndex, name: &str, cg: &CallGraph) {
     for eidx in cg.edge_indices() {
         let (s, t) = cg.edge_endpoints(eidx).unwrap();
-        // calls written in this contract; inherited bodies count for their own contract and
-        // calls into the own hierarchy are inheritance, not a dependency
+        // inherited bodies count for their own contract; calls into the own hierarchy are inheritance
         if cg[s].contract != name || !cg[t].is_external {
             continue;
         }

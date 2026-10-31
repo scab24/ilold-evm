@@ -66,8 +66,7 @@ enum Commands {
         /// Attach to an existing ilold server URL instead of starting one
         #[arg(long)]
         attach: Option<String>,
-        /// Contract to start on; must exist in the project. Defaults to the most
-        /// derived deployable contract (ties broken by name)
+        /// Contract to start on; defaults to the most derived deployable contract
         #[arg(long)]
         contract: Option<String>,
     },
@@ -110,16 +109,15 @@ async fn main() -> Result<()> {
     }
 }
 
-/// `--max-seq-depth`, bounded like the server's `/sequences?depth=`.
 fn seq_depth(raw: &str) -> Result<usize, String> {
-    const MAX: usize = ilold_web::api::contract::MAX_SEQUENCE_DEPTH;
+    use ilold_web::api::contract::{valid_sequence_depth, MAX_SEQUENCE_DEPTH};
     match raw.parse::<usize>() {
-        Ok(depth) if (1..=MAX).contains(&depth) => Ok(depth),
-        _ => Err(format!("--max-seq-depth must be between 1 and {MAX}")),
+        Ok(depth) if valid_sequence_depth(depth) => Ok(depth),
+        _ => Err(format!("--max-seq-depth must be between 1 and {MAX_SEQUENCE_DEPTH}")),
     }
 }
 
-/// Canonical absolute Foundry root, so `.` and other relative inputs never yield an empty path.
+/// Canonical, so `.` and other relative inputs never yield an empty path.
 pub fn foundry_root(path: &Path) -> Result<PathBuf> {
     let Ok(start) = path.canonicalize() else {
         anyhow::bail!("Path does not exist: {}", path.display());

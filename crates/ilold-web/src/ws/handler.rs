@@ -46,7 +46,6 @@ enum ServerMessage {
     ScenarioForked { contract: String, from: String, to: String, at_step: usize },
     #[serde(rename = "scenario_store_reloaded")]
     ScenarioStoreReloaded { contract: String, active: String },
-    /// Patches were dropped for this client (broadcast lag): refetch session state.
     #[serde(rename = "session_resync")]
     SessionResync,
 }
@@ -82,8 +81,7 @@ fn server_message_from_patch(SessionBroadcast { contract, patch }: SessionBroadc
     }
 }
 
-/// Next session message for a WebSocket client as JSON text. A lagged receiver
-/// gets `session_resync` instead of silently losing patches; `None` once closed.
+/// A lagged receiver gets `session_resync` instead of silently losing patches.
 pub async fn next_session_message(rx: &mut broadcast::Receiver<SessionBroadcast>) -> Option<String> {
     let msg = match rx.recv().await {
         Ok(update) => server_message_from_patch(update),
@@ -121,7 +119,13 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
 
                 match parsed {
                     ClientMessage::Search(query) => {
-                        let (results, total) = search::search_paths(&state, &query, search::MAX_SEARCH_RESULTS);
+                        let (results, total) = match search::search_paths(&state, &query, search::MAX_SEARCH_RESULTS) {
+                            Ok(found) => found,
+                            Err(message) => {
+                                if !send_json(&mut socket, &ServerMessage::Error { message }).await { break; }
+                                continue;
+                            }
+                        };
                         let truncated = results.len() < total;
 
                         for result in results {

@@ -6,4 +6,6 @@ pub enum McpClientError {
     HttpError { status: u16, body: String },
     #[error("invalid response from ilold backend: {0}")]
     InvalidResponse(String),
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
 }

@@ -12,7 +12,7 @@ struct SequenceInput<'a> {
     behavior: Option<&'a FunctionBehavior>,
 }
 
-/// `names` are functions of `contract` (bare, key or signature); `behaviors` are its own.
+/// `behaviors` are those of `contract` itself.
 pub fn build_sequence_narrative(
     project: &Project,
     contract: &ContractDef,

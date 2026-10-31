@@ -1,5 +1,4 @@
-//! Call resolution from compiler facts: declaration ids, C3 linearization, solc function
-//! types and call options. Fixture: tests/fixtures/solc/call_resolution.
+//! Call resolution from compiler facts. Fixture: tests/fixtures/solc/call_resolution.
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -61,8 +60,7 @@ fn tree(contract_name: &str, key: &str) -> PathTree {
     let c = contract(contract_name);
     let f = function(contract_name, key);
     let cfg = CfgBuilder::build_with_project(f, c, Some(project()));
-    let vars = project().inherited_state_vars(c);
-    build_path_tree(&cfg, &c.name, &f.key, &vars, &PruningConfig::default())
+    build_path_tree(&cfg, &c.name, &f.key, &PruningConfig::default())
 }
 
 fn internal_calls(t: &PathTree) -> BTreeSet<String> {
@@ -234,7 +232,7 @@ fn path_annotations_split_internal_and_external_calls() {
     );
 
     let builtins = tree("Caller", "builtins");
-    assert!(!builtins.paths().next().is_none());
+    assert!(builtins.paths().next().is_some());
     assert!(internal_calls(&builtins).is_empty(), "{:?}", internal_calls(&builtins));
     assert!(external_calls(&builtins).is_empty(), "{:?}", external_calls(&builtins));
 
@@ -436,7 +434,7 @@ fn session_call_by_bare_name_picks_the_callable_overload() {
     use ilold_core::exploration::session::ExplorationSession;
     use ilold_core::parse::ProjectParser;
 
-    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/entry_overload");
+    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/entry_overload");
     let project = SolcFrontend.parse(&[file]).expect("parse EntryOverload");
     let a = ProjectAnalysis::build(&project, &AnalysisParams::new(1));
     let data = AnalysisData {

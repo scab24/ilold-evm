@@ -1,6 +1,4 @@
-//! Overloaded functions on `/api/contract/{c}/{func}/...`: a bare name works when it is
-//! unambiguous, a full signature selects one overload, and an ambiguous bare name is a 409
-//! listing the candidate signatures. /cfg, /paths and /source must agree on the overload.
+//! Overloaded functions on the function routes.
 
 use std::path::PathBuf;
 
@@ -153,4 +151,24 @@ async fn scenario_steps_of_functions_sharing_a_name_keep_their_own_access() {
             ("put(address)".to_string(), r#""Public""#.to_string()),
         ]
     );
+}
+
+#[tokio::test]
+async fn highlight_names_the_resolved_overload_by_key() {
+    use ilold_core::exploration::commands::CanvasPatch;
+    let (state, port) = ilold_web::start_server(vec![fixture()], 0, 2).await.unwrap();
+    let client = reqwest::Client::new();
+    let base = format!("http://127.0.0.1:{port}/api/session");
+    let mut rx = state.session_tx.subscribe();
+    for route in ["function/Over/put(uint256,%20bool)", "trace/Over/put(address)", "trace/Over/put"] {
+        let (status, body) = get(&client, format!("{base}/{route}?highlight=true")).await;
+        assert!(status.is_success(), "{route}: {body}");
+    }
+    let mut seen = Vec::new();
+    while let Ok(update) = rx.try_recv() {
+        if let CanvasPatch::Highlight { function, .. } = update.patch {
+            seen.push(function);
+        }
+    }
+    assert_eq!(seen, ["put(uint256,bool)", "put(address)", "put(uint256)"]);
 }

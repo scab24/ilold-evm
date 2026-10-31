@@ -24,9 +24,8 @@
     onselectionchange?: (nodes: Node<GraphNodeData>[]) => void;
     onnodemouseenter?: (node: Node<GraphNodeData>) => void;
     onnodemouseleave?: (node: Node<GraphNodeData>) => void;
-    /** Fit the viewport once, after the pane has a size and every visible node is measured. */
+    /** Fit once, after the pane has a size and every visible node is measured. */
     initialFit?: FitViewOptions;
-    /** Lowest zoom; the initial fit never needs to clamp above it. */
     minZoom?: number;
   }
 
@@ -67,8 +66,7 @@
   let paneHeight = $state(0);
   let initialFitDone = false;
 
-  // A fit before layout (embedded build: pane still 0px tall) clamps to minZoom,
-  // so wait for real pane dimensions and measured nodes before the first fit.
+  // a fit before layout clamps to minZoom, so wait for real pane dimensions and measured nodes
   $effect(() => {
     if (initialFitDone || !initialFit || !flowFitView || paneWidth === 0 || paneHeight === 0) return;
     const visible = flowNodes.filter((n) => !n.hidden);

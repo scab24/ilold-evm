@@ -28,7 +28,7 @@ fn build_staking_path_trees() -> (ilold_core::model::project::Project, Vec<ilold
         .iter()
         .map(|f| {
             let cfg = CfgBuilder::build(f, staking);
-            build_path_tree(&cfg, &staking.name, &f.name, &staking.state_vars, &config)
+            build_path_tree(&cfg, &staking.name, &f.name, &config)
         })
         .collect();
 

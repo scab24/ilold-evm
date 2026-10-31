@@ -12,10 +12,7 @@ use crate::util::is_type_cast;
 
 use super::types::*;
 
-/// Call graph of `contract` as the most derived contract: every function visible from it
-/// (own and inherited, overrides applied), every constructor of its linearization, plus the
-/// base implementations reached through `super`. Targets come from solc declaration ids and the C3 linearization; names are
-/// only a fallback for models without them.
+/// As the most derived contract; names are only a fallback for models without solc ids.
 pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph {
     let linearization = project.linearization(contract);
     let mut builder = Builder {
@@ -61,7 +58,6 @@ struct Builder<'a> {
     queued: HashSet<String>,
 }
 
-// A callee before it becomes a node.
 struct Target<'a> {
     contract: String,
     key: String,
@@ -130,7 +126,6 @@ impl<'a> Builder<'a> {
     }
 
     fn add_calls(&mut self, owner: &'a ContractDef, func: &'a FunctionDef, from: NodeIndex) {
-        // with the project, inherited modifiers are inlined too
         let cfg = CfgBuilder::build_with_project(func, owner, Some(self.project));
         for block in cfg.node_weights() {
             for stmt in &block.statements {
@@ -194,8 +189,7 @@ impl<'a> Builder<'a> {
                         return self.defined(ic, i_f, static_target);
                     }
                 }
-                // no declaration id at all: first implementation by name. An id that is not a
-                // function (a function-pointer variable) must not be matched by name.
+                // without a declaration id, first implementation by name; a function-pointer id must not match by name
                 None if resolved.is_none() => {
                     let by_name = self.linearization.iter().find_map(|c| {
                         c.functions.iter().find(|f| f.name == function && f.body.is_some()).map(|f| (*c, f))

@@ -7,17 +7,15 @@ use super::modifier::ModifierDef;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractDef {
-    /// Solidity name; not unique across a project (see `key` and `qualified_id`).
+    /// Not unique across a project; see `key` and `qualified_id`.
     pub name: String,
-    /// Stable id `<source path relative to the project root>:<Name>`.
+    /// `<source path relative to the project root>:<Name>`
     #[serde(default)]
     pub qualified_id: String,
-    /// Unique within the model: the bare name when no other contract can claim it, otherwise
-    /// `qualified_id`. Analysis maps, call-graph and dependency-graph ids use it.
+    /// The bare name when no other contract can claim it, otherwise `qualified_id`.
     #[serde(default)]
     pub key: String,
-    /// Declared outside the project sources (libraries, vendored code). Loaded so that
-    /// inheritance and calls resolve; hidden from default listings.
+    /// Loaded so that inheritance and calls resolve; hidden from default listings.
     #[serde(default)]
     pub is_dependency: bool,
     pub kind: ContractKind,
@@ -28,14 +26,13 @@ pub struct ContractDef {
     pub enums: Vec<EnumDef>,
     pub events: Vec<EventDef>,
     pub errors: Vec<ErrorDef>,
-    /// Base names as written; `base_ids` holds the declarations they resolve to.
     pub inherits: Vec<String>,
-    /// solc `baseContracts[].baseName.referencedDeclaration`, in declaration order.
+    /// solc `baseContracts[].baseName.referencedDeclaration`
     #[serde(default)]
     pub base_ids: Vec<DeclId>,
     #[serde(default)]
     pub id: Option<DeclId>,
-    /// solc `linearizedBaseContracts`: C3 order, the contract itself first.
+    /// solc `linearizedBaseContracts`, the contract itself first.
     #[serde(default)]
     pub linearized_bases: Vec<DeclId>,
     pub span: SourceSpan,
@@ -49,11 +46,10 @@ pub enum ContractKind {
     Abstract,
 }
 
-/// Name of the library-like container that holds a source file's free functions.
 pub const FREE_FUNCTIONS: &str = "FreeFunctions";
 
 impl ContractDef {
-    /// `key`, or the name for hand-built models without one.
+    /// The name for hand-built models without a key.
     pub fn key(&self) -> &str {
         if self.key.is_empty() { &self.name } else { &self.key }
     }
@@ -62,7 +58,7 @@ impl ContractDef {
         self.id.is_none() && self.name == FREE_FUNCTIONS
     }
 
-    /// Shown by default listings; hidden contracts still resolve.
+    /// Hidden contracts still resolve.
     pub fn is_listed(&self) -> bool {
         !self.is_dependency && !self.is_free_functions()
     }

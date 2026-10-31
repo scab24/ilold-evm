@@ -1,7 +1,4 @@
-//! Effects of a function across the calls it makes. Each function's CFG is summarised once;
-//! effects then flow from callees to callers: internal calls, internal library calls and
-//! library delegatecalls all run on the caller's storage, so their writes through `storage`
-//! parameters land on whatever the caller bound to those parameters.
+//! Effects of a function across the calls it makes, which run on the caller's storage.
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
@@ -22,26 +19,19 @@ use super::analysis::{EffectKind, EffectTrace};
 /// A recursion passing `n.kids[i]` for `n` writes ever longer paths, so a cycle may not converge.
 const MAX_ROUNDS: usize = 64;
 
-/// A call that runs code on the caller's storage.
 #[derive(Debug, Clone)]
 pub struct CallSite {
-    /// As written: `f`, `super.f`, `Base.f`, `Library.f`.
     pub call: String,
     pub kind: CallKind,
-    /// (contract key, function key) of the declaration solc resolved.
     pub declaration: Option<(String, String)>,
     pub storage_args: Vec<StorageArg>,
-    /// The modifier whose body makes the call.
     pub modifier: Option<String>,
 }
 
-/// What one function does by itself, over every block reachable from its entry.
 #[derive(Debug, Clone, Default)]
 pub struct CfgSummary {
-    /// Normalised paths rooted at state variables.
     pub state_writes: Vec<String>,
     pub state_reads: Vec<String>,
-    /// (parameter index, normalised path rooted at the parameter name).
     pub param_writes: Vec<(usize, String)>,
     pub param_reads: Vec<(usize, String)>,
     pub external_calls: Vec<String>,
@@ -143,10 +133,7 @@ pub fn summarize(cfg: &CfgGraph, project: &Project) -> CfgSummary {
     s
 }
 
-/// The implementation a call reaches when `context` is the most derived contract: `super.f`
-/// continues after `owner` in the C3 order, an unqualified call to a virtual function reaches
-/// the visible override, anything else is the declaration solc resolved. Without a
-/// declaration, falls back to names.
+/// `super.f` continues after `owner` in C3 order and a virtual call reaches the visible override.
 pub fn resolve_call<'a>(
     project: &'a Project,
     context: &'a ContractDef,
@@ -192,8 +179,7 @@ pub fn resolve_call<'a>(
     Some(implementation.unwrap_or((declared_in, declared)))
 }
 
-/// Effects of one function with the call chain (`via`) reaching each; direct effects have
-/// an empty chain. Of several chains reaching the same effect, the shortest is kept.
+/// Of several call chains reaching the same effect, the shortest is kept.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Effects {
     pub state_writes: BTreeMap<String, Vec<String>>,
@@ -204,9 +190,8 @@ pub struct Effects {
     pub state_changing_calls: BTreeSet<String>,
     pub events: BTreeMap<String, Vec<String>>,
     pub reverts: BTreeMap<String, Vec<String>>,
-    /// Every callee reached, as written at its call site.
     pub internal_calls: BTreeSet<String>,
-    /// A cycle reached stopped at `MAX_ROUNDS` before converging.
+    /// A cycle stopped at `MAX_ROUNDS` before converging.
     pub incomplete: bool,
 }
 
@@ -234,7 +219,6 @@ impl Effects {
         e
     }
 
-    // Adds a callee's effects as seen from the call site.
     fn lift(&mut self, callee_effects: &Effects, head: &[String], call: &CallSite, callee: &FunctionDef, shares_storage: bool) {
         let via = |v: &Vec<String>| head.iter().chain(v).cloned().collect::<Vec<_>>();
         // a library has no storage of its own: its state paths are constants
@@ -274,7 +258,6 @@ impl Effects {
         self.internal_calls.extend(callee_effects.internal_calls.iter().cloned());
     }
 
-    /// Effects reached through calls, each with its chain.
     pub fn traces(&self) -> Vec<EffectTrace> {
         let mut out = Vec::new();
         let mut push = |kind: EffectKind, item: &str, via: &Vec<String>| {
@@ -293,7 +276,7 @@ impl Effects {
     }
 }
 
-/// (context contract, defining contract, function key).
+/// (context contract, defining contract, function key)
 type EffectKey = (String, String, String);
 
 struct Pending<'a> {
@@ -301,7 +284,7 @@ struct Pending<'a> {
     calls: Vec<(usize, EffectKey, &'a ContractDef, &'a FunctionDef, bool)>,
 }
 
-/// Effects computed per strongly connected component, so every member of a cycle gets all of them.
+/// Per strongly connected component, so every member of a cycle gets all of its effects.
 pub struct EffectEngine<'a> {
     project: &'a Project,
     summaries: &'a HashMap<(String, String), CfgSummary>,
@@ -326,7 +309,6 @@ impl<'a> EffectEngine<'a> {
             .or_else(|| self.summaries.get(&(key.1, key.2)))
     }
 
-    /// Effects of `func` (declared in `owner`) when `context` is the most derived contract.
     pub fn effects(&mut self, context: &'a ContractDef, owner: &'a ContractDef, func: &'a FunctionDef) -> Rc<Effects> {
         let root = (context.key().to_string(), owner.key().to_string(), func.key.clone());
         if let Some(found) = self.memo.get(&root) {

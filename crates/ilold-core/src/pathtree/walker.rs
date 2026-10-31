@@ -5,7 +5,6 @@ use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
 use crate::cfg::types::*;
-use crate::model::common::StateVar;
 use crate::util::push_unique;
 
 use super::config::PruningConfig;
@@ -19,13 +18,10 @@ struct WalkState {
     edge: Option<EdgeIndex>,
 }
 
-/// Enumerates the paths of `cfg`. Reads and writes come from the storage the CFG builder
-/// resolved, so `_state_vars` is no longer consulted.
 pub fn build_path_tree(
     cfg: &CfgGraph,
     contract_name: &str,
     function_name: &str,
-    _state_vars: &[StateVar],
     config: &PruningConfig,
 ) -> PathTree {
     let mut tree = PathTree {
@@ -136,7 +132,6 @@ pub fn build_path_tree(
     tree
 }
 
-/// `a[x].b[y]` -> `a[].b[]`.
 pub fn normalize_path(target: &str) -> String {
     let mut out = String::with_capacity(target.len());
     let mut depth = 0i32;
@@ -161,7 +156,7 @@ pub fn normalize_path(target: &str) -> String {
     out
 }
 
-// state the block reads; reads through `storage` parameters are summarised per function
+// reads through `storage` parameters are summarised per function
 fn collect_reads(reads: &[StorageRef], annotations: &mut PathAnnotations) {
     for read in reads.iter().filter(|r| r.param.is_none()) {
         push_unique(&mut annotations.state_reads, crate::util::target_base_name(&read.path).to_string());

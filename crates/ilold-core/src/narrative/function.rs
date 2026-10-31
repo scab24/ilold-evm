@@ -21,7 +21,7 @@ pub fn build_function_narrative(
     build_function_narrative_capped(contract, function, path_tree, cfg, all_behaviors, usize::MAX)
 }
 
-/// Narrates only the first `max_paths` paths; `paths_omitted` counts the rest.
+/// `paths_omitted` counts the paths not narrated.
 pub fn build_function_narrative_capped(
     contract: &ContractDef,
     function: &FunctionDef,
@@ -176,7 +176,7 @@ pub fn build_function_narrative_capped(
     }
 }
 
-// Effects reached through calls with their chain; the origin is the contract of the last callee.
+// the origin is the contract of the last callee
 fn transitive_effects(behavior: &FunctionBehavior, kind: EffectKind) -> Vec<TransitiveEffect> {
     behavior
         .transitive_effects

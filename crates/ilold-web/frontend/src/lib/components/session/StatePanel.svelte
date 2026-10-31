@@ -18,7 +18,7 @@
     loading = true;
     error = null;
     try {
-      // A read of this contract's session; never a command that takes it over.
+      // a read, never a command that takes the session over
       stateVars = await getSessionState(contract);
     } catch (e: any) {
       error = e.message ?? 'Failed to fetch state';

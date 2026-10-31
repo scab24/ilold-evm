@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-// Three levels with a super chain, a virtual hook called from the base and an
-// inherited modifier that makes a call.
+// A super chain, a virtual hook called from the base and an inherited modifier that makes a call.
 abstract contract Root {
     uint256 internal total;
     uint256 internal tracked;

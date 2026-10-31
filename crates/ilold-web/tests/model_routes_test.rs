@@ -1,6 +1,4 @@
-//! Contract identity on the API: qualified ids, 409 for ambiguous bare names, dependency
-//! contracts hidden from default listings, and inherited members of a derived contract.
-//! Fixture: tests/fixtures/solc/model/project.
+//! Contract identity on the API. Fixture: tests/fixtures/solc/model/project.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -119,12 +117,19 @@ async fn derived_contract_lists_inherited_members_from_dependencies() {
 #[tokio::test]
 async fn session_routes_tell_ambiguous_from_unknown_contracts() {
     let (client, base) = start().await;
+    let candidates = serde_json::json!(["src/core/Token.sol:Token", "src/ext/Token.sol:Token"]);
     for route in ["session/function/Token/mint", "session/trace/Token/mint", "session/slice/mint/held?contract=Token"] {
         let (status, body) = get(&client, format!("{base}/{route}")).await;
         assert_eq!(status, reqwest::StatusCode::CONFLICT, "{route}: {body}");
+        assert_eq!(body["candidates"], candidates, "{route}");
     }
-    let (status, _) = get(&client, format!("{base}/session/function/Nope/mint")).await;
+    let call = serde_json::json!({ "contract": "Token", "command": "Session" });
+    let res = client.post(format!("{base}/cmd")).json(&call).send().await.unwrap();
+    assert_eq!(res.status(), reqwest::StatusCode::CONFLICT);
+    assert_eq!(res.json::<Value>().await.unwrap()["candidates"], candidates);
+    let (status, body) = get(&client, format!("{base}/session/function/Nope/mint")).await;
     assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
+    assert_eq!(body, "Contract 'Nope' not found");
 }
 
 #[tokio::test]
@@ -169,21 +174,27 @@ async fn inherited_functions_can_be_drawn_expanded_and_searched() {
 
     use ilold_web::ws::search::{search_paths, SearchQuery};
     let query = SearchQuery { query: "owner".into(), contract: Some("Vault".into()), function: None };
-    let (results, total) = search_paths(&state, &query, usize::MAX);
+    let (results, total) = search_paths(&state, &query, usize::MAX).unwrap();
     assert!(total > 0 && results.iter().any(|r| r.function == "owner" && r.contract == "Vault"),
         "{:?}", results.iter().map(|r| (&r.contract, &r.function)).collect::<Vec<_>>());
     let query = SearchQuery { query: "owner".into(), contract: Some("Vault".into()), function: Some("owner".into()) };
-    let (results, _) = search_paths(&state, &query, usize::MAX);
+    let (results, _) = search_paths(&state, &query, usize::MAX).unwrap();
     assert!(!results.is_empty() && results.iter().all(|r| r.function == "owner"));
+
+    for (name, error) in [("Nope", "Contract 'Nope' not found"), ("Token", "is ambiguous")] {
+        let query = SearchQuery { query: "mint".into(), contract: Some(name.into()), function: None };
+        let err = search_paths(&state, &query, usize::MAX).unwrap_err();
+        assert!(err.contains(error), "{err}");
+    }
 }
 
 #[tokio::test]
 async fn cfg_blocks_carry_source_lines() {
     let (client, base) = start().await;
     let (_, cfg) = get(&client, format!("{base}/contract/Vault/deposit/cfg")).await;
-    let lines: Vec<u64> = cfg["nodes"].as_array().unwrap().iter()
-        .filter_map(|n| n["data"]["span"]["start_line"].as_u64()).collect();
-    assert!(lines.contains(&20), "{cfg}");
+    let lines: Vec<(u64, &str)> = cfg["nodes"].as_array().unwrap().iter()
+        .filter_map(|n| Some((n["data"]["span"]["start_line"].as_u64()?, n["data"]["file"].as_str()?))).collect();
+    assert!(lines.iter().any(|&(line, file)| line == 20 && file.ends_with("/src/Vault.sol")), "{cfg}");
 }
 
 #[tokio::test]

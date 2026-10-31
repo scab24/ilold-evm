@@ -228,7 +228,7 @@ fn sequences_schema() -> Value {
         "type": "object",
         "properties": {
             "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
-            "depth": { "type": "integer", "description": "Max sequence depth, 0 to 8 (default: the server's)" },
+            "depth": { "type": "integer", "description": "Max sequence depth, 1 to 8 (default: the server's)" },
             "offset": { "type": "integer", "description": "First sequence of the page (default 0)" },
             "limit": { "type": "integer", "description": "Sequences per page (default 100, at most 1000; 0 returns only the functions)" }
         },

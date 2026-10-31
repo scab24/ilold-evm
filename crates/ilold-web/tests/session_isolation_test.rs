@@ -1,6 +1,4 @@
-//! Per-contract session isolation: every contract owns its own ScenarioStore,
-//! so commands naming another contract never drop scenarios, forks or steps.
-//! Uses tests/fixtures/solc/cross (LendingPool, Vault, BasePool, IPool, SafeMath).
+//! Per-contract session isolation. Fixture: tests/fixtures/solc/cross.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -66,7 +64,6 @@ async fn switching_contract_keeps_scenarios_of_both_contracts() {
     cmd(&client, port, "LendingPool", json!({ "Scenario": { "sub": { "Switch": { "name": "alt" } } } })).await;
     cmd(&client, port, "LendingPool", call("withdraw")).await;
 
-    // Another contract gets its own store instead of replacing LendingPool's.
     let added = cmd(&client, port, "Vault", call("depositVia")).await;
     assert_eq!(added["StepAdded"]["step_index"], 0, "{added}");
 
@@ -83,7 +80,6 @@ async fn switching_contract_keeps_scenarios_of_both_contracts() {
     assert_eq!(vault["active"], "main");
     assert_eq!(steps_of(&vault, "main"), ["depositVia"]);
 
-    // Switching back restores the previous contract untouched.
     let view = cmd(&client, port, "LendingPool", json!("Session")).await;
     assert_eq!(view["SessionView"]["contract"], "LendingPool");
     assert_eq!(view["SessionView"]["steps"], json!(["supply", "withdraw"]));
@@ -101,7 +97,6 @@ async fn session_gets_resolve_explicit_contract_and_default_to_last_used() {
     cmd(&client, port, "LendingPool", call("supply")).await;
     cmd(&client, port, "Vault", call("depositVia")).await;
 
-    // Explicit contract wins over the last used one.
     let scenarios = get_json(&client, port, "/api/scenarios?contract=LendingPool").await;
     assert_eq!(scenarios[0]["step_count"], 1);
     let narrative = get_json(&client, port, "/api/session/step/0/narrative?contract=LendingPool").await;
@@ -115,18 +110,16 @@ async fn session_gets_resolve_explicit_contract_and_default_to_last_used() {
     let slice = get(&client, port, "/api/session/slice/supply/balances?contract=LendingPool").await;
     assert_eq!(slice.0, 200, "{}", slice.1);
 
-    // Without a contract, the last contract named by /api/cmd is used (Vault).
+    // without a contract, the last contract named by /api/cmd is used
     let narrative = get_json(&client, port, "/api/session/step/0/narrative").await;
     assert_eq!(narrative["name"], "depositVia", "{narrative}");
     let all = get_json(&client, port, "/api/scenarios/all").await;
     assert_eq!(all["contract"], "Vault");
 
-    // Reads never change ownership: Vault stays the last used contract.
     get_json(&client, port, "/api/session/state?contract=LendingPool").await;
     let all = get_json(&client, port, "/api/scenarios/all").await;
     assert_eq!(all["contract"], "Vault");
 
-    // Unknown contracts are rejected instead of silently reading another session.
     let (status, body) = get(&client, port, "/api/session/state?contract=Nope").await;
     assert_eq!(status, 404, "{body}");
     assert!(body.contains("Nope"), "{body}");
@@ -150,7 +143,6 @@ async fn broadcasts_carry_the_contract() {
     assert_eq!(seen[0], ("session_add_node".to_string(), json!("Vault")));
     assert_eq!(seen[1], ("scenario_created".to_string(), json!("LendingPool")));
 
-    // Switching contracts no longer emits a destructive clear for the previous one.
     let next = tokio::time::timeout(Duration::from_millis(300), ws.next()).await;
     assert!(next.is_err(), "unexpected extra message: {next:?}");
 }
@@ -166,7 +158,6 @@ async fn default_contract_is_shared_and_never_unknown() {
     let all = get_json(&client, port, "/api/scenarios/all").await;
     assert_eq!(all["contract"], expected.as_str());
 
-    // The attached REPL derives the same rule from /api/project.
     let project = get_json(&client, port, "/api/project").await;
     let candidates: Vec<(String, ilold_core::model::contract::ContractKind, Vec<String>)> = project["contracts"]
         .as_array().unwrap().iter()

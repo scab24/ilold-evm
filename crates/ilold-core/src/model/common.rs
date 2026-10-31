@@ -13,7 +13,7 @@ pub struct SourceSpan {
 pub struct Param {
     pub name: String,
     pub type_name: String,
-    /// Declared with data location `storage`: a pointer into the caller's storage.
+    /// A pointer into the caller's storage.
     #[serde(default)]
     pub is_storage: bool,
     #[serde(default)]
@@ -32,7 +32,7 @@ pub struct StateVar {
     pub resolved_types: Vec<super::decl_id::DeclId>,
     #[serde(default)]
     pub id: Option<super::decl_id::DeclId>,
-    /// Getter selector of a public variable; it implements an interface function with it.
+    /// It implements an interface function with this selector.
     #[serde(default)]
     pub selector: Option<String>,
     pub span: SourceSpan,

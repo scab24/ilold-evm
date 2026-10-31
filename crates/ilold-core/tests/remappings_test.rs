@@ -12,8 +12,7 @@ fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// `@scoped/token/` exists only in a nested library's remappings.txt, and the nested
-/// `dep/Dep.sol` import only compiles through its context-scoped remapping.
+/// The nested `dep/Dep.sol` import only compiles through its context-scoped remapping.
 #[test]
 fn nested_library_remappings_compile() {
     let project = SolcFrontend

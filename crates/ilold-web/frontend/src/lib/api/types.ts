@@ -68,7 +68,6 @@ export interface ScenarioStoreReloaded {
 }
 
 
-/** Session patches were dropped for this client; refetch the session. */
 export interface SessionResync {
   type: "session_resync";
 }
@@ -114,7 +113,7 @@ export interface SearchResult {
 
 export interface SearchComplete {
   type: "search_complete";
-  /** Paths that match; only the first ones are streamed when `truncated`. */
+  /** Only the first matches are streamed when `truncated`. */
   total: number;
   truncated: boolean;
 }
@@ -219,13 +218,13 @@ export type GuardKind =
   | "Reentrancy"
   | "Initializer";
 
-/** A revert check on the entry path (Rust `GuardFact`); `via` is empty for the body. */
+/** `via` is empty for the body. */
 export interface GuardFact {
   kind: GuardKind;
   condition: string;
   via: string[];
   span: { file_index: number; start_line: number; start_col: number; end_line: number; end_col: number } | null;
-  /** Taken from a modifier name because the modifier has no code to read. */
+  /** The modifier has no code to read. */
   heuristic: boolean;
 }
 
@@ -235,7 +234,6 @@ export interface TransitiveEffect {
   origin_contract: string;
 }
 
-/** `/api/session/step/{i}/narrative` (Rust `FunctionNarrative`). */
 export interface FunctionNarrative {
   contract: string;
   name: string;

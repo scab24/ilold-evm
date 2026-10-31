@@ -146,7 +146,6 @@
       },
       run: () => {
         setSearchNavigate({ contract: r.contract, func: r.function, pathId: r.path_id });
-        // The contract page opens the path once it shows the result's contract.
         if (page.params.name !== r.contract) goto(`/contract/${encodeURIComponent(r.contract)}`);
       },
     })),

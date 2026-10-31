@@ -1,4 +1,4 @@
-//! Conservative, content-addressed parsed-project snapshot. Never stores compiler artifacts.
+//! Content-addressed parsed-project snapshot; never stores compiler artifacts.
 use std::collections::{BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -22,15 +22,14 @@ const MAX_SOURCES: usize = 20_000;
 const MAX_ENTRIES: usize = 1_000_000;
 const MAX_DECLARATIONS: usize = 262_144;
 const MAX_INPUT: u64 = 256 * 1024 * 1024;
-/// Never compiled by Foundry unless imported; pruned only inside library and remapping trees,
-/// where the import preflight bypasses the cache if an import lands in a pruned directory.
+/// Pruned only inside library and remapping trees; the import preflight bypasses the cache on imports into them.
 const NON_SOURCE_DIRS: &[&str] = &[".git", ".codegraph", "node_modules", "target", "out", "cache",
     "broadcast", "artifacts", "zkout", "coverage"];
 const MAX_COMPILER: u64 = 128 * 1024 * 1024;
 const MAX_SNAPSHOT: u64 = 64 * 1024 * 1024;
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
+pub(crate) fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 
 fn read_bounded(path: &Path, max: u64) -> Result<String, String> {
     if fs::symlink_metadata(path).map_err(|e| e.to_string())?.file_type().is_symlink() {
@@ -57,8 +56,7 @@ fn hash_file(path: &Path, max: u64) -> Result<String, String> {
     Ok(digest(&bytes))
 }
 
-/// Bounded enumeration: Solidity sources and their bytes are limited, other entries only
-/// bound the walk itself. Directories reached from several roots are walked once.
+/// Only Solidity sources and their bytes are limited; other entries bound the walk itself.
 struct Walk { files: BTreeSet<PathBuf>, dirs: HashSet<PathBuf>, entries: usize, bytes: u64 }
 
 impl Walk {
@@ -90,7 +88,6 @@ impl Walk {
     }
 }
 
-/// Full roots, library and remapping trees are included, not just prior compiled files.
 /// A bounded import preflight proves every transitive import is within the enumerated closure.
 pub(super) fn fingerprint(
     root: &Path, paths: &ProjectPathsConfig<SolcLanguage>,
@@ -105,7 +102,7 @@ pub(super) fn fingerprint(
     let compiler_path = solc.solc.canonicalize().map_err(|e| e.to_string())?;
     let compiler = hash_file(&compiler_path, MAX_COMPILER)?;
     let mut walk = Walk { files: BTreeSet::new(), dirs: HashSet::new(), entries: 0, bytes: 0 };
-    // Foundry compiles every source under these roots, so nothing is pruned there.
+    // Foundry compiles every source under these roots, so nothing is pruned there
     for dir in [&paths.sources, &paths.tests, &paths.scripts] {
         walk.walk(dir, false)?;
     }
@@ -114,9 +111,7 @@ pub(super) fn fingerprint(
         walk.walk(dir, true)?;
     }
     let files = walk.files;
-    // Parse only already-bounded bytes. Foundry's graph resolver reads dependencies
-    // before returning its graph, so it cannot enforce a pre-read byte budget here.
-    // The same Foundry path resolver checks import targets without opening source data.
+    // Foundry's graph resolver reads dependencies before returning, so it cannot enforce this byte budget
     let mut total = 0u64;
     let mut sources = Vec::new();
     for file in &files {
@@ -126,8 +121,7 @@ pub(super) fn fingerprint(
         let content = read_bounded(file, MAX_INPUT - (total - len))?;
         sources.push((file.clone(), content));
     }
-    // Follow the import closure of what Foundry compiles: every file under the source roots
-    // plus their transitive imports. Unreachable library files are hashed but never parsed.
+    // unreachable library files are hashed but never parsed
     let index = sources.iter().enumerate().map(|(i, (file, _))| (file.as_path(), i))
         .collect::<std::collections::HashMap<_, _>>();
     let mut pending = sources.iter().enumerate()
@@ -201,13 +195,11 @@ impl Store {
         Ok(Self { base })
     }
 
-    /// Explicit store location, used for injection in tests.
     pub(crate) fn at(base: &Path) -> Self { Self { base: base.to_path_buf() } }
 
-    /// Private per-project directory; derived snapshots live beside `project.json`.
     pub(crate) fn cache_dir(&self, root: &Path) -> Result<PathBuf, String> {
         let base = &self.base;
-    // Reject symlinked cache ancestors (including override) instead of following them.
+    // symlinked cache ancestors, the override included, are rejected instead of followed
     for ancestor in base.ancestors().take_while(|p| p != &Path::new("")) {
         if let Ok(meta) = fs::symlink_metadata(ancestor) {
             if meta.file_type().is_symlink() { return Err("symlinked cache path".into()); }
@@ -248,7 +240,6 @@ impl Store {
     }
 }
 
-/// Reads a whole envelope payload after checking magic, format version, key, length and checksum.
 pub(crate) fn read_envelope(path: &Path, version: &str, key: &str, max: u64) -> Result<Vec<u8>, String> {
     let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
     if !meta.is_file() || meta.len() > max { return Err("invalid snapshot size/type".into()); }
@@ -269,7 +260,6 @@ pub(crate) fn read_envelope(path: &Path, version: &str, key: &str, max: u64) -> 
     Ok(bytes)
 }
 
-/// Serializes into a private temp file within `max` bytes, then atomically renames it over `path`.
 pub(crate) fn write_envelope(path: &Path, version: &str, key: &str, max: u64,
     payload: &impl Serialize) -> Result<(), String> {
     if key.len() != 64 || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -288,7 +278,7 @@ pub(crate) fn write_envelope(path: &Path, version: &str, key: &str, max: u64,
         file.write_all(&[0u8; HEADER]).map_err(|e| e.to_string())?;
         let (len, checksum) = {
             let mut writer = BoundedWriter { file: &mut file, count: 0, max, hash: Sha256::new() };
-            // Buffer serde's small writes; one syscall per token dominates large snapshots.
+            // one syscall per serde token dominates large snapshots
             let mut buffered = std::io::BufWriter::with_capacity(1 << 16, &mut writer);
             serde_json::to_writer(&mut buffered, payload).map_err(|e| e.to_string())?;
             buffered.flush().map_err(|e| e.to_string())?;
@@ -311,9 +301,7 @@ pub(crate) fn write_envelope(path: &Path, version: &str, key: &str, max: u64,
     result
 }
 
-/// The compile closure is never called on a validated hit. Errors are returned unchanged.
-/// `target` is the store, canonical root and key, or the single reason the cache is bypassed.
-/// The flag reports whether the returned project is known to match `key`.
+/// The compile closure is never called on a validated hit; the flag reports whether the project matches `key`.
 pub(super) fn reuse_or_compile<E>(
     target: Result<(&Store, &Path, &str), String>,
     mut unchanged: impl FnMut() -> bool, compile: impl FnOnce() -> Result<Project, E>,
@@ -498,7 +486,6 @@ mod tests {
         fs::write(root.join("lib/dep/node_modules/pkg/Pruned.sol"), "pragma solidity ^0.8.0; contract Pruned {}\n").unwrap();
         // Library files outside the import closure are hashed, but their imports need not resolve.
         fs::write(root.join("lib/dep/src/Unused.sol"), "pragma solidity ^0.8.0; import 'missing/X.sol';\n").unwrap();
-        // Non-Solidity entries no longer count against the source limit.
         for i in 0..5000 { fs::write(root.join(format!("lib/dep/docs/{i}.md")), "doc").unwrap(); }
         let compiler_path = root.join("solc-fixture");
         fs::write(&compiler_path, b"compiler").unwrap();

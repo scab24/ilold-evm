@@ -15,17 +15,14 @@ pub struct BasicBlock {
     pub span: Option<SourceSpan>,
     #[serde(default)]
     pub return_value: Option<String>,
-    /// Storage read while the block runs (conditions it branches on included), resolved
-    /// through declaration ids and storage pointers.
+    /// Conditions it branches on included, resolved through declaration ids and storage pointers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reads: Vec<StorageRef>,
-    /// Revert blocks: what reverts, e.g. `require(x > 0)` or `revert NotAdmin()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revert_reason: Option<String>,
 }
 
-/// A storage location: a path rooted at a state variable (`_reserves[asset].rate`) or, with
-/// `param`, at the `storage` parameter with that index (`reserve.rate`).
+/// With `param`, the path is rooted at the `storage` parameter with that index.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StorageRef {
     pub path: String,
@@ -43,10 +40,9 @@ impl StorageRef {
     }
 }
 
-/// A callee `storage` parameter bound at a call site to the caller's storage location.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageArg {
-    /// Parameter index; the receiver of a `using for` call is parameter 0.
+    /// The receiver of a `using for` call is parameter 0.
     pub param: usize,
     pub place: StorageRef,
 }
@@ -89,7 +85,7 @@ impl BranchEdge {
     }
 }
 
-fn external_kind() -> CallKind { CallKind::External }
+pub(crate) fn external_kind() -> CallKind { CallKind::External }
 fn internal_kind() -> CallKind { CallKind::Internal }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +97,7 @@ pub enum CfgStatement {
         span: Option<SourceSpan>,
         #[serde(default)]
         from_modifier: Option<String>,
-        /// The storage the target denotes; `None` for locals and memory.
+        /// `None` for locals and memory.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         storage: Option<StorageRef>,
     },
@@ -117,10 +113,8 @@ pub enum CfgStatement {
         arguments: String,
         #[serde(default = "external_kind")]
         kind: CallKind,
-        // contract named by the callee's static type (`contract IPool` -> IPool)
         #[serde(default)]
         contract: Option<String>,
-        // call options as (name, value), e.g. ("value", "msg.value") or ("salt", "s")
         #[serde(default)]
         options: Vec<(String, String)>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -135,12 +129,10 @@ pub enum CfgStatement {
         arguments: String,
         #[serde(default = "internal_kind")]
         kind: CallKind,
-        // `super`, the library or the base contract named before the function
         #[serde(default)]
         target: Option<String>,
         #[serde(default)]
         resolved: Option<DeclId>,
-        // the declaration solc resolved, as (contract, function key)
         #[serde(default)]
         declaration: Option<(String, String)>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -165,7 +157,7 @@ pub enum CfgStatement {
         span: Option<SourceSpan>,
         #[serde(default)]
         from_modifier: Option<String>,
-        /// Index of the `storage` parameter `variable` is rooted at; `None` for state.
+        /// `None` for state.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         param: Option<usize>,
     },
@@ -193,7 +185,7 @@ pub enum CfgStatement {
         #[serde(default)]
         from_modifier: Option<String>,
     },
-    /// A modifier the function names but that resolves to no definition; its code is unknown.
+    /// Its code is unknown.
     UnresolvedModifier {
         name: String,
         span: Option<SourceSpan>,
@@ -203,7 +195,6 @@ pub enum CfgStatement {
 }
 
 impl CfgStatement {
-    /// Source location, and the modifier the statement was inlined from.
     pub fn origin(&self) -> (Option<SourceSpan>, Option<&str>) {
         match self {
             Self::Assignment { span, from_modifier, .. }

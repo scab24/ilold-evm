@@ -4,8 +4,7 @@ pragma solidity 0.8.28;
 import {Types} from "./Types.sol";
 import {ReserveLib} from "./ReserveLib.sol";
 
-// External library function: the caller reaches it with DELEGATECALL, so its writes land
-// in the caller's storage.
+// Reached with DELEGATECALL, so its writes land in the caller's storage.
 library SupplyLib {
     using ReserveLib for Types.Reserve;
 

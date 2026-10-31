@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::depgraph::ContractDeps;
-use ilold_core::exploration::commands::CanvasPatch;
+use ilold_core::exploration::commands::{CanvasPatch, ScenarioInfo};
 use ilold_core::callgraph::types::CallGraph;
 use ilold_core::cfg::types::CfgGraph;
 use ilold_core::classify::entry_points::AccessLevel;
@@ -72,6 +72,17 @@ impl ScenarioStore {
 
     pub fn contains(&self, name: &str) -> bool {
         self.sessions.contains_key(name)
+    }
+
+    pub fn infos(&self) -> Vec<ScenarioInfo> {
+        self.order
+            .iter()
+            .map(|name| ScenarioInfo {
+                name: name.clone(),
+                active: name == self.active(),
+                step_count: self.get(name).map(|s| s.steps.len()).unwrap_or(0),
+            })
+            .collect()
     }
 
     pub fn names(&self) -> &[String] {
@@ -166,10 +177,7 @@ impl ScenarioStore {
     }
 }
 
-/// One ScenarioStore per contract. Commands only touch the store of the contract
-/// they name, so switching contracts never drops scenarios, forks or steps.
-/// `current` is the contract named by the most recent `/api/cmd`; session reads
-/// without an explicit contract resolve to it. Derefs to the current store.
+/// One store per contract; `current` is the contract named by the most recent `/api/cmd`.
 pub struct ScenarioRegistry {
     current: String,
     stores: HashMap<String, ScenarioStore>,
@@ -191,7 +199,7 @@ impl ScenarioRegistry {
         self.stores.get(contract)
     }
 
-    /// Store of `contract`, created on first use; it becomes the current contract.
+    /// Created on first use; it becomes the current contract.
     pub fn select(&mut self, contract: &str) -> &mut ScenarioStore {
         self.current = contract.to_string();
         self.stores
@@ -199,7 +207,7 @@ impl ScenarioRegistry {
             .or_insert_with(|| ScenarioStore::new_for_contract(contract))
     }
 
-    /// Replaces the store of `store.contract` (session load) and makes it current.
+    /// Makes it current.
     pub fn replace(&mut self, store: ScenarioStore) {
         self.current = store.contract.clone();
         self.stores.insert(store.contract.clone(), store);
@@ -220,7 +228,6 @@ impl std::ops::DerefMut for ScenarioRegistry {
     }
 }
 
-/// A canvas patch tagged with the contract whose session produced it.
 #[derive(Debug, Clone)]
 pub struct SessionBroadcast {
     pub contract: String,

@@ -1,6 +1,4 @@
-//! Model completeness: qualified contract ids, dependency contracts, inherited members,
-//! storage order, declaration ids, operators and literals, partial compilation and a
-//! read-only analysis of the project. Fixtures: tests/fixtures/solc/model.
+//! Model completeness. Fixtures: tests/fixtures/solc/model.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -103,7 +101,7 @@ fn inherited_functions_follow_visibility_and_skip_getter_implemented_declaration
         .accessible_functions(vault)
         .into_iter()
         .filter(|af| af.is_inherited)
-        .map(|af| (af.origin, af.function.name.clone()))
+        .map(|af| (af.owner.key().to_string(), af.function.name.clone()))
         .collect();
     let expected: BTreeSet<(String, String)> = [
         ("Multicall", "multicall"),
@@ -116,8 +114,7 @@ fn inherited_functions_follow_visibility_and_skip_getter_implemented_declaration
     .iter()
     .map(|(c, f)| (c.to_string(), f.to_string()))
     .collect();
-    // not ADDRESSES (implemented by the public immutable), not deposit (own), not the private
-    // _secret, not the Ownable constructor
+    // not the getter-implemented ADDRESSES, own deposit, private _secret or the Ownable constructor
     assert_eq!(inherited, expected);
 }
 

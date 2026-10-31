@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -22,8 +22,6 @@ use ilold_core::sequence::builder::build_sequence_tree;
 
 use crate::colors::*;
 
-/// Contracts `analyze` prints: the one named by `filter` (key, qualified id or unambiguous
-/// name), otherwise the project contracts, plus dependencies when asked for.
 pub(crate) fn select_contracts<'a>(
     project: &'a Project,
     filter: Option<&str>,
@@ -43,8 +41,7 @@ pub(crate) fn select_contracts<'a>(
     Ok(selected)
 }
 
-/// `--contract` lookup by key, qualified id or unambiguous name. Unknown names suggest close
-/// contract keys; an ambiguous name lists the qualified ids to choose from.
+/// Unknown names suggest close contract keys; an ambiguous name lists the qualified ids.
 fn resolve_contract<'a>(project: &'a Project, name: &str) -> Result<&'a ContractDef> {
     match project.lookup_contract(name) {
         Ok(contract) => Ok(contract),
@@ -75,7 +72,7 @@ pub fn run(
     for warning in &project.warnings {
         eprintln!("{} {warning}", c_warn("warning:"));
     }
-    let hidden = project.contracts.iter().filter(|c| !c.is_listed()).count();
+    let hidden = project.hidden_contracts();
     println!("Parsed {} file(s), {} contract(s) ({} dependency or free-function contract(s){})\n",
         project.source_files.len(), project.contracts.len() - hidden, hidden,
         if include_dependencies { "" } else { " hidden; --include-dependencies lists them" });
@@ -99,7 +96,7 @@ pub fn run(
     Ok(())
 }
 
-pub fn run_deps(path: &PathBuf, contract: Option<&str>, include_dependencies: bool) -> Result<()> {
+pub fn run_deps(path: &Path, contract: Option<&str>, include_dependencies: bool) -> Result<()> {
     let paths = vec![crate::foundry_root(path)?];
     let parser = SolcFrontend;
     let mut project = parser
@@ -169,7 +166,6 @@ pub fn run_deps(path: &PathBuf, contract: Option<&str>, include_dependencies: bo
     Ok(())
 }
 
-/// Unknown `--contract`: names the closest project contracts, or lists them all.
 pub fn contract_not_found<'a>(name: &str, available: impl Iterator<Item = &'a str>) -> anyhow::Error {
     let mut names: Vec<&str> = available.filter(|n| !n.is_empty()).collect();
     names.sort_unstable();
@@ -182,7 +178,7 @@ pub fn contract_not_found<'a>(name: &str, available: impl Iterator<Item = &'a st
     }
 }
 
-/// Candidates equal ignoring case, containing each other, or within a small edit distance.
+/// Equal ignoring case, containing each other, or within a small edit distance.
 pub fn close_matches<'a>(name: &str, candidates: &[&'a str]) -> Vec<&'a str> {
     let needle = name.to_lowercase();
     let limit = (needle.chars().count() / 3).max(1);
@@ -289,7 +285,6 @@ fn print_contract(
 
     let config = PruningConfig::default();
     let mut path_trees: Vec<PathTree> = Vec::new();
-    let combined_state_vars = project.inherited_state_vars(contract);
 
     for func in &contract.functions {
         let display_name = if func.name.is_empty() {
@@ -308,7 +303,7 @@ fn print_contract(
 
         let cfg = CfgBuilder::build_with_project(func, contract, Some(project));
         let pt = build_path_tree(
-            &cfg, contract.key(), &func.key, &combined_state_vars, &config,
+            &cfg, contract.key(), &func.key, &config,
         );
 
         println!("  {} {} {} — {} blocks, {} edges, {} paths ({} happy, {} revert)",

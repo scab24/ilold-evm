@@ -12,7 +12,6 @@ pub trait ProjectParser {
     fn parse(&self, paths: &[PathBuf]) -> Result<Project, ParseError>;
 }
 
-/// Identity of a parsed project whose inputs were validated against the persistent cache.
 /// Present only when the project cache was usable; derived caches must bypass without it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectKey {

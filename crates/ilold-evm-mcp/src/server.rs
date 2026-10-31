@@ -138,7 +138,6 @@ pub async fn dispatch(
         "ilold_trace" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            // the agent inspects this function: canvases showing the contract follow
             let mut q = vec!["highlight=true".to_string()];
             if let Some(d) = arg_u64(arguments, "depth") {
                 q.push(format!("depth={d}"));
@@ -280,7 +279,6 @@ fn arg_u64(arguments: Option<&Value>, key: &str) -> Option<u64> {
         .and_then(|v| v.as_u64())
 }
 
-/// `?k=v&...` for the integer arguments present, in `keys` order.
 fn uint_query(arguments: Option<&Value>, keys: &[&str]) -> String {
     let pairs: Vec<String> = keys.iter()
         .filter_map(|k| arg_u64(arguments, k).map(|v| format!("{k}={v}")))

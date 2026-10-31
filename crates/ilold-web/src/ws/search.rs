@@ -27,32 +27,24 @@ pub struct SearchMatch {
     pub value: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SearchComplete {
-    pub total: usize,
-}
-
-/// Results streamed per search; the completion message reports how many matched in all.
 pub const MAX_SEARCH_RESULTS: usize = 100;
 
-/// The first `limit` matching paths and the number of paths that match.
-pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> (Vec<SearchResult>, usize) {
+pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> Result<(Vec<SearchResult>, usize), String> {
     let q = query.query.to_lowercase();
     let mut results = Vec::new();
     let mut total = 0;
 
-    // (contract reported, function key, tree): a contract filter covers the functions it
-    // inherits, whose trees are keyed by the declaring contract
+    // a contract filter covers its inherited functions, whose trees the declaring contract keys
     let trees: Vec<(&str, &str, &PathTree)> = match &query.contract {
-        Some(name) => match state.project.lookup_contract(name) {
-            Ok(contract) => state.project.accessible_functions(contract).into_iter()
+        Some(name) => {
+            let contract = state.project.find_contract(Some(name))?;
+            state.project.accessible_functions(contract).into_iter()
                 .filter_map(|af| {
                     let tree = state.path_trees.get(&(af.owner.key().to_string(), af.function.key.clone()))?;
                     Some((contract.key(), af.function.key.as_str(), tree))
                 })
-                .collect(),
-            Err(_) => Vec::new(),
-        },
+                .collect()
+        }
         None => state.path_trees.iter().map(|((c, f), tree)| (c.as_str(), f.as_str(), tree)).collect(),
     };
 
@@ -153,5 +145,5 @@ pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> (Vec
         }
     }
 
-    (results, total)
+    Ok((results, total))
 }

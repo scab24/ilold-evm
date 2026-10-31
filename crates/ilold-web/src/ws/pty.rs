@@ -13,7 +13,6 @@ use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct PtyQuery {
-    /// Contract the attached REPL starts on (the page the terminal belongs to).
     #[serde(default)]
     pub contract: Option<String>,
 }
@@ -25,7 +24,7 @@ pub async fn ws_pty_handler(
 ) -> impl IntoResponse {
     let port = state.port;
     let contract_path = state.contract_path.clone();
-    // Only names of analyzed contracts reach the child's argv.
+    // only names of analyzed contracts reach the child's argv
     let contract = match query.contract.as_deref().filter(|name| !name.is_empty()) {
         Some(name) => match state.project.find_contract(Some(name)) {
             Ok(c) => Ok(Some(c.key().to_string())),
@@ -43,7 +42,7 @@ pub async fn ws_pty_handler(
     })
 }
 
-/// PATH positional for `ilold explore --attach`; clap rejects an empty value.
+/// clap rejects an empty PATH value.
 pub fn attach_path(contract_path: &Path) -> PathBuf {
     if contract_path.as_os_str().is_empty() {
         PathBuf::from(".")
@@ -88,8 +87,7 @@ async fn handle_pty_session(
     bridge_pty(socket, cmd).await;
 }
 
-/// Kills and reaps the PTY child however the bridge ends, including when the
-/// connection task itself is dropped.
+/// Kills and reaps the child however the bridge ends, including when its task is dropped.
 struct ChildGuard(Option<Box<dyn Child + Send + Sync>>);
 
 impl ChildGuard {
@@ -113,9 +111,7 @@ fn kill_and_wait(mut child: Box<dyn Child + Send + Sync>) {
     let _ = child.wait();
 }
 
-/// Runs `cmd` in a fresh PTY wired to `socket` (binary frames both ways, JSON
-/// `{"type":"resize"}` text frames). The child never outlives the socket: a
-/// close frame, a dropped connection or a receive error ends it.
+/// The child never outlives the socket: a close frame, a dropped connection or a receive error ends it.
 pub async fn bridge_pty(mut socket: WebSocket, cmd: CommandBuilder) {
     let pty_system = NativePtySystem::default();
     let pair = match pty_system.openpty(PtySize {

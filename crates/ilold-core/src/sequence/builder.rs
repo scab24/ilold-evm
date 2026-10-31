@@ -4,7 +4,7 @@ use crate::pathtree::types::PathTree;
 
 use super::types::*;
 
-/// Public and external functions with a body; interfaces and unimplemented functions run nothing.
+/// Interfaces and unimplemented functions run nothing.
 pub fn build_sequence_tree(
     contract: &ContractDef,
     path_trees: &[PathTree],
