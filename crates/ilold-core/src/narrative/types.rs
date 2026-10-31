@@ -46,14 +46,6 @@ pub struct FunctionNarrative {
     pub guards: Vec<crate::classify::guards::GuardFact>,
 }
 
-impl FunctionNarrative {
-    /// Keeps the first `max` path narratives and counts the rest in `paths_omitted`.
-    pub fn truncate_paths(&mut self, max: usize) {
-        self.paths_omitted += self.paths.len().saturating_sub(max);
-        self.paths.truncate(max);
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransitiveEffect {
     pub via: Vec<String>,

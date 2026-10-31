@@ -6,6 +6,7 @@
   import { toggleTerminal } from '$lib/stores/terminal.svelte';
   import { openInIde } from '$lib/utils/ide-links';
   import { setSearchContext, getSearchNavigate, setSearchNavigate } from '$lib/stores/search.svelte';
+  import type { SearchNavigatePayload } from '$lib/api/types';
   import { togglePalette, setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
   import { getHighlightedFunction, getScenarios, getActiveScenario, getForkOrigins, setSessionContract } from '$lib/stores/session.svelte';
@@ -535,10 +536,13 @@
       ]);
       if (!current()) return;
       if (seq.status === 'fulfilled') seqTree = seq.value;
+      else notifyFailure('load sequences', seq.reason);
       if (analysis.status === 'fulfilled') seqAnalysis = analysis.value;
+      else notifyFailure('load sequence analysis', analysis.reason);
       if (pm.status === 'fulfilled') projectMap = pm.value.contracts;
+      else notifyFailure('load project map', pm.reason);
     } catch (e) {
-      if (current()) error = `Contract "${contractName}" not found`;
+      if (current()) error = e instanceof Error ? e.message : `Contract "${contractName}" not found`;
     }
   }
 
@@ -547,19 +551,23 @@
     if (contractName) untrack(() => loadContract(contractName));
   });
 
-  // Path search results (palette): open the result's contract, then its path.
+  // Path search results (palette): the palette opens the result's contract; once it shows,
+  // open the path. Any other navigation in between drops the request.
+  let navRequest: { nav: SearchNavigatePayload; gen: number } | null = null;
   $effect(() => {
     const nav = getSearchNavigate();
     const loaded = contract?.name;
     if (!nav) return;
+    let stale = false;
     untrack(() => {
-      if (nav.contract !== page.params.name) {
-        goto(`/contract/${encodeURIComponent(nav.contract)}`);
+      if (navRequest?.nav !== nav) navRequest = { nav, gen: loadGen };
+      const onTarget = page.params.name === nav.contract;
+      const allowed = loadGen === navRequest.gen || (loadGen === navRequest.gen + 1 && onTarget);
+      if (!allowed) {
+        setSearchNavigate(null);
         return;
       }
       if (!contract || loaded !== nav.contract) return;
-
-      let stale = false;
 
       (async () => {
         try {
@@ -569,10 +577,7 @@
           }
           if (stale || !contract) return;
 
-          if (!hasPaths(nav.func)) {
-            const paths = await getPaths(contract.name, nav.func);
-            funcPaths = { ...funcPaths, [nav.func]: paths };
-          }
+          if (!hasPaths(nav.func)) await loadPaths(nav.func);
           if (stale || !contract) return;
 
           if (!expandedFuncs.has(nav.func)) {
@@ -600,6 +605,7 @@
         }
       })();
     });
+    return () => { stale = true; };
   });
 
   // The session store follows the contract this page shows.
@@ -626,7 +632,9 @@
 
   function addFuncToCanvas(funcName: string) {
     if (!callgraphRaw || canvasFuncs.has(funcName)) return;
-    const nodeData = callgraphRaw.nodes.find(n => n.data.label === funcName);
+    // the contract's own or inherited function, not a same-named call target elsewhere
+    const named = callgraphRaw.nodes.filter(n => n.data.label === funcName);
+    const nodeData = named.find(n => !n.data.is_external) ?? named[0];
     if (!nodeData) return;
 
     const allFuncs = [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])];
@@ -784,20 +792,28 @@
       : data._type === 'seq-next' ? ((data as any)._funcName || data.label)
       : null;
 
-    if (funcName && contract && !hasPaths(funcName)) {
+    if (funcName && !hasPaths(funcName)) {
       try {
-        const paths = await getPaths(contract.name, funcName);
-        funcPaths = { ...funcPaths, [funcName]: paths };
+        await loadPaths(funcName);
       } catch {}
     }
+  }
+
+  // First page of a function's paths; a response for an earlier load of the page is dropped
+  async function loadPaths(funcName: string) {
+    if (!contract) return;
+    const gen = loadGen;
+    const paths = await getPaths(contract.name, funcName);
+    if (gen === loadGen) funcPaths = { ...funcPaths, [funcName]: paths };
   }
 
   async function loadMorePaths(funcName: string) {
     const current = hasPaths(funcName) ? funcPaths[funcName] : undefined;
     if (!contract || !current?.page?.truncated) return;
+    const gen = loadGen;
     try {
       const next = await getPaths(contract.name, funcName, current.paths.length);
-      if (funcPaths[funcName] !== current) return;
+      if (gen !== loadGen || funcPaths[funcName] !== current) return;
       funcPaths = { ...funcPaths, [funcName]: { ...next, paths: [...current.paths, ...next.paths] } };
     } catch (e) {
       notifyFailure('load paths', e);
@@ -966,6 +982,7 @@
         node_type: n.data.node_type,
         _parentFunc: funcName,
         statements: n.data.statements,
+        span: n.data.span,
       },
     }));
 
@@ -1043,10 +1060,11 @@
     if (!contract) return null;
     const cached = cfgCache.get(funcName);
     if (cached) return cached;
-    const name = contract.name;
+    // a response for an earlier load of the page (A → B → A included) is dropped
+    const gen = loadGen;
     try {
-      const cfg = await getCfg(name, funcName);
-      if (contract?.name !== name) return null;
+      const cfg = await getCfg(contract.name, funcName);
+      if (gen !== loadGen) return null;
       cfgCache.set(funcName, cfg);
       cfgCacheVersion++;
       return cfg;

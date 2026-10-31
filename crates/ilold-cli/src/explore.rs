@@ -13,6 +13,7 @@ use reedline::{
 use ilold_core::classify::entry_points::AccessLevel;
 use ilold_core::exploration::commands::CommandResult;
 use ilold_core::model::project::ContractLookupError;
+use ilold_evm_mcp::encode_component as enc;
 
 use crate::colors::*;
 use crate::fmt;
@@ -42,7 +43,7 @@ pub async fn run(
             .map(|arr| arr.iter().filter_map(|c| c["name"].as_str().map(String::from)).collect())
             .unwrap_or_default();
         for cname in &contract_names {
-            if let Ok(resp) = client.get(format!("{url}/api/contract/{}", cname.replace('/', "%2F"))).send().await {
+            if let Ok(resp) = client.get(format!("{url}/api/contract/{}", enc(cname))).send().await {
                 if let Ok(detail) = resp.json::<serde_json::Value>().await {
                     names_by_contract.insert(cname.clone(), ContractNames::from_detail(&detail));
                 }
@@ -530,23 +531,15 @@ fn handle_input(
         }
 
         "ct" | "contracts" => {
+            let all = arg == "all";
             if let Some(ref state) = state {
-                print_contracts(state, contract, arg == "all");
+                let hidden = state.project.contracts.iter().filter(|c| !c.is_listed()).count();
+                println!("{}", render_contracts(&local_rows(&state.project, all), contract, hidden, all));
             } else {
-                match handle.block_on(async {
-                    let resp = client.get(format!("{base_url}/api/project")).send().await?;
-                    resp.json::<serde_json::Value>().await
-                }) {
+                match send_get(handle, client, &format!("{base_url}/api/project?include_dependencies={all}")) {
                     Ok(info) => {
-                        if let Some(arr) = info["contracts"].as_array() {
-                            println!();
-                            for c in arr {
-                                let name = c["name"].as_str().unwrap_or("?");
-                                let marker = if name == contract { c_ok(" ← current").to_string() } else { String::new() };
-                                println!("  {} {}{}", c_accent("[C]"), name, marker);
-                            }
-                            println!();
-                        }
+                        let hidden = info["dependency_contracts"].as_u64().unwrap_or(0) as usize;
+                        println!("{}", render_contracts(&contract_rows(&info), contract, hidden, all));
                     }
                     Err(e) => eprintln!("  {}", c_danger(&format!("Failed to fetch contracts: {e}"))),
                 }
@@ -807,7 +800,7 @@ fn handle_input(
         }
 
         "v" | "vars" => {
-            match send_get(handle, client, &format!("{base_url}/api/contract/{contract}")) {
+            match send_get(handle, client, &format!("{base_url}/api/contract/{}", enc(contract))) {
                 Ok(val) => print_vars(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -823,7 +816,7 @@ fn handle_input(
                 eprintln!("  {}", c_danger(&format!("info takes one function name; unexpected: '{extra}'")));
                 return InputResult::Continue;
             }
-            match send_get(handle, client, &format!("{base_url}/api/session/function/{contract}/{arg}")) {
+            match send_get(handle, client, &format!("{base_url}/api/session/function/{}/{}?highlight=true", enc(contract), enc(arg))) {
                 Ok(val) => print_narrative(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -855,7 +848,7 @@ fn handle_input(
                         println!("  {}", c_muted(&format!("step {idx} ({func_name}) rebuilt with the given flags")));
                         function_trace_url(base_url, contract, func_name, &parsed)
                     } else {
-                        format!("{base_url}/api/session/step/{idx}/trace?contract={contract}")
+                        format!("{base_url}/api/session/step/{idx}/trace?contract={}&highlight=true", enc(contract))
                     }
                 }
             };
@@ -877,7 +870,7 @@ fn handle_input(
             InputResult::Continue
         }
         "seq" | "sequence" => {
-            match send_get(handle, client, &format!("{base_url}/api/session/sequence?contract={contract}")) {
+            match send_get(handle, client, &format!("{base_url}/api/session/sequence?contract={}", enc(contract))) {
                 Ok(val) => print_sequence_narrative(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -892,7 +885,7 @@ fn handle_input(
                 eprintln!("  {}", c_danger(&e));
                 return InputResult::Continue;
             }
-            match send_get(handle, client, &format!("{base_url}/api/session/timeline/{arg}?contract={contract}")) {
+            match send_get(handle, client, &format!("{base_url}/api/session/timeline/{}?contract={}", enc(arg), enc(contract))) {
                 Ok(val) => match serde_json::from_value::<ilold_core::exploration::timeline::VariableTimeline>(val) {
                     Ok(tl) => print!("{}", fmt::render_variable_timeline(&tl)),
                     Err(e) => eprintln!("  {} Parse VariableTimeline: {}", c_danger("✗"), e),
@@ -929,7 +922,9 @@ fn handle_input(
                 eprintln!("  {}", c_danger(&e));
                 return InputResult::Continue;
             }
-            let mut url = format!("{base_url}/api/session/slice/{func_name}/{var_name}?contract={contract}");
+            let mut url = format!(
+                "{base_url}/api/session/slice/{}/{}?contract={}", enc(func_name), enc(var_name), enc(contract),
+            );
             if let Some(d) = direction {
                 url.push_str(&format!("&direction={d}"));
             }
@@ -954,7 +949,7 @@ fn handle_input(
                     return InputResult::Continue;
                 }
             };
-            match send_get(handle, client, &format!("{base_url}/api/session/step/{idx}/narrative?contract={contract}")) {
+            match send_get(handle, client, &format!("{base_url}/api/session/step/{idx}/narrative?contract={}&highlight=true", enc(contract))) {
                 Ok(val) => print_narrative(&val),
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
@@ -999,6 +994,10 @@ fn handle_input(
                     if let Some(dir) = path.parent() {
                         std::fs::create_dir_all(dir).ok();
                     }
+                    if let Err(e) = check_session_path(&path) {
+                        eprintln!("  {}", c_danger(&e));
+                        return InputResult::Continue;
+                    }
                     match std::fs::write(&path, &json) {
                         Ok(_) => println!("  {} Saved to {}", c_ok("✓"), c_accent(&path.display().to_string())),
                         Err(e) => eprintln!("  {} Write failed: {}", c_danger("✗"), e),
@@ -1021,6 +1020,10 @@ fn handle_input(
                     return InputResult::Continue;
                 }
             };
+            if let Err(e) = check_session_path(&path) {
+                eprintln!("  {}", c_danger(&e));
+                return InputResult::Continue;
+            }
             let json = match std::fs::read_to_string(&path) {
                 Ok(j) => j,
                 Err(e) => {
@@ -1067,7 +1070,7 @@ fn sync_session(
     base_url: &str,
     contract: &str,
 ) -> Option<SessionSnapshot> {
-    let all = send_get(handle, client, &format!("{base_url}/api/scenarios/all?contract={contract}")).ok()?;
+    let all = send_get(handle, client, &format!("{base_url}/api/scenarios/all?contract={}", enc(contract))).ok()?;
     let active = all["active"].as_str()?.to_string();
     let scenarios = all["scenarios"].as_array()?;
     let steps = scenarios
@@ -1240,8 +1243,9 @@ fn parse_trace_args(arg: &str) -> Result<TraceArgs, String> {
 }
 
 fn function_trace_url(base_url: &str, contract: &str, func_name: &str, parsed: &TraceArgs) -> String {
-    let mut url = format!("{base_url}/api/session/trace/{contract}/{func_name}");
-    let mut params: Vec<String> = Vec::new();
+    let mut url = format!("{base_url}/api/session/trace/{}/{}", enc(contract), enc(func_name));
+    // the user is looking at this function: canvases showing the contract follow
+    let mut params: Vec<String> = vec!["highlight=true".into()];
     if let Some(d) = parsed.depth.or(if parsed.interactive { Some(4) } else { None }) {
         params.push(format!("depth={d}"));
     }
@@ -1252,10 +1256,8 @@ fn function_trace_url(base_url: &str, contract: &str, func_name: &str, parsed: &
         let csv = parsed.expand.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
         params.push(format!("expand={csv}"));
     }
-    if !params.is_empty() {
-        url.push('?');
-        url.push_str(&params.join("&"));
-    }
+    url.push('?');
+    url.push_str(&params.join("&"));
     url
 }
 
@@ -1329,16 +1331,34 @@ fn session_stem(name: &str) -> Result<&str, String> {
     let valid = !stem.is_empty()
         && stem.len() <= 64
         && !stem.starts_with('.')
+        && !stem.ends_with('.')
         && stem.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    if valid {
-        Ok(stem)
-    } else {
-        Err(format!(
-            "Invalid session name '{name}': use letters, digits, '-', '_' or '.' (no paths, no leading '.'); \
+    if !valid {
+        return Err(format!(
+            "Invalid session name '{name}': use letters, digits, '-', '_' or '.' (no paths, no leading or trailing '.'); \
              sessions live in {}",
             sessions_dir().display()
-        ))
+        ));
     }
+    // Windows reserves these device names, with any extension
+    let device = stem.split('.').next().unwrap_or(stem).to_ascii_uppercase();
+    let reserved = matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|p| device.strip_prefix(p).is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9'])));
+    if reserved {
+        return Err(format!("Invalid session name '{name}': '{device}' is a reserved device name"));
+    }
+    Ok(stem)
+}
+
+/// Refuses a session file, or a sessions directory, that is a symbolic link: saving or
+/// loading through one would reach outside the sessions directory.
+fn check_session_path(path: &std::path::Path) -> Result<(), String> {
+    for p in [path.parent(), Some(path)].into_iter().flatten() {
+        if std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(format!("Refusing {}: it is a symbolic link", p.display()));
+        }
+    }
+    Ok(())
 }
 
 fn normalize_severity(input: &str) -> Option<&'static str> {
@@ -1436,46 +1456,70 @@ fn print_annotation_result(result: &CommandResult, steps: &[String]) {
     }
 }
 
-/// Project contracts by key; `ct all` adds the dependency contracts loaded for resolution.
-fn print_contracts(state: &std::sync::Arc<ilold_web::state::AppState>, current: &str, include_dependencies: bool) {
-    use ilold_core::model::contract::ContractKind;
-    println!();
-    let listed: Vec<_> = state.project.contracts.iter()
-        .filter(|c| !c.name.is_empty() && (include_dependencies || c.is_listed()))
-        .collect();
-    let max_name = listed.iter().map(|c| c.key().chars().count()).max().unwrap_or(0);
+/// One `ct` line; both REPL modes fill it, from the model or from `/api/project`.
+struct ContractRow {
+    key: String,
+    kind: ilold_core::model::contract::ContractKind,
+    functions: usize,
+    state_vars: usize,
+    inherits: Vec<String>,
+    is_dependency: bool,
+}
 
-    for c in listed {
+/// Project contracts by key; `ct all` adds the dependency contracts loaded for resolution.
+fn local_rows(project: &ilold_core::model::project::Project, include_dependencies: bool) -> Vec<ContractRow> {
+    project.contracts.iter()
+        .filter(|c| !c.name.is_empty() && (include_dependencies || c.is_listed()))
+        .map(|c| ContractRow {
+            key: c.key().to_string(),
+            kind: c.kind,
+            functions: c.functions.iter().filter(|f| !f.name.is_empty()).count(),
+            state_vars: c.state_vars.len(),
+            inherits: c.inherits.clone(),
+            is_dependency: c.is_dependency,
+        })
+        .collect()
+}
+
+/// Rows from a `/api/project` response (attached mode).
+fn contract_rows(info: &serde_json::Value) -> Vec<ContractRow> {
+    info["contracts"].as_array().into_iter().flatten()
+        .filter_map(|c| Some(ContractRow {
+            key: c["name"].as_str().filter(|n| !n.is_empty())?.to_string(),
+            kind: serde_json::from_value(c["kind"].clone()).ok()?,
+            functions: c["functions"].as_u64().unwrap_or(0) as usize,
+            state_vars: c["state_vars"].as_u64().unwrap_or(0) as usize,
+            inherits: serde_json::from_value(c["inherits"].clone()).unwrap_or_default(),
+            is_dependency: c["is_dependency"].as_bool().unwrap_or(false),
+        }))
+        .collect()
+}
+
+fn render_contracts(rows: &[ContractRow], current: &str, hidden: usize, include_dependencies: bool) -> String {
+    use ilold_core::model::contract::ContractKind;
+    use std::fmt::Write;
+    let mut out = String::from("\n");
+    let max_name = rows.iter().map(|c| c.key.chars().count()).max().unwrap_or(0);
+    for c in rows {
         let badge = match c.kind {
             ContractKind::Contract => c_accent("[C]"),
             ContractKind::Interface => c_muted("[I]"),
             ContractKind::Library => c_muted("[L]"),
             ContractKind::Abstract => c_warn("[A]"),
         };
-        let marker = if c.key() == current {
-            c_ok(" ← current").to_string()
-        } else {
-            String::new()
-        };
-        let padded = fmt::pad_right(c.key(), max_name);
-        let details = format!(
-            "{} functions, {} state vars",
-            c.functions.iter().filter(|f| !f.name.is_empty()).count(),
-            c.state_vars.len(),
-        );
-        let inherits = if c.inherits.is_empty() {
-            String::new()
-        } else {
-            format!(", inherits {}", c.inherits.join(", "))
-        };
+        let marker = if c.key == current { c_ok(" ← current").to_string() } else { String::new() };
+        let details = format!("{} functions, {} state vars", c.functions, c.state_vars);
+        let inherits = if c.inherits.is_empty() { String::new() } else { format!(", inherits {}", c.inherits.join(", ")) };
         let dependency = if c.is_dependency { " (dependency)" } else { "" };
-        println!("  {} {}  {}{}{}{}", badge, c_accent(&padded), c_muted(&details), c_muted(&inherits), c_muted(dependency), marker);
+        writeln!(
+            out, "  {} {}  {}{}{}{}",
+            badge, c_accent(&fmt::pad_right(&c.key, max_name)), c_muted(&details), c_muted(&inherits), c_muted(dependency), marker,
+        ).ok();
     }
-    let hidden = state.project.contracts.iter().filter(|c| !c.is_listed()).count();
     if !include_dependencies && hidden > 0 {
-        println!("  {}", c_muted(&format!("{hidden} dependency or free-function contract(s) hidden; `ct all` lists them")));
+        writeln!(out, "  {}", c_muted(&format!("{hidden} dependency or free-function contract(s) hidden; `ct all` lists them"))).ok();
     }
-    println!();
+    out
 }
 
 fn show_deps(
@@ -1499,7 +1543,7 @@ fn show_deps(
         return;
     }
 
-    let url = format!("{base_url}/api/contract/{}/depgraph", name.replace('/', "%2F"));
+    let url = format!("{base_url}/api/contract/{}/depgraph", enc(name));
     let result = handle.block_on(async {
         let resp = client.get(&url).send().await?;
         if !resp.status().is_success() {
@@ -2470,11 +2514,15 @@ mod tests {
     #[test]
     fn function_trace_url_encodes_flags() {
         let t = trace("f --depth 3 --reverts +1 +2").unwrap();
-        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?depth=3&reverts=true&expand=1,2");
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?highlight=true&depth=3&reverts=true&expand=1,2");
         let t = trace("f -i").unwrap();
-        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?depth=4");
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?highlight=true&depth=4");
         let t = trace("f").unwrap();
-        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f");
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?highlight=true");
+        assert_eq!(
+            function_trace_url("http://h", "src/a b.sol:A", "f(uint256[] storage)", &t),
+            "http://h/api/session/trace/src%2Fa%20b.sol:A/f(uint256%5B%5D%20storage)?highlight=true",
+        );
     }
 
     #[test]
@@ -2488,6 +2536,43 @@ mod tests {
         let path = session_file("my-audit").unwrap();
         assert_eq!(path.parent().unwrap(), sessions_dir());
         assert_eq!(path.file_name().unwrap(), "my-audit.json");
+        for reserved in ["con", "NUL", "aux.v1", "Com1", "lpt9.json", "trailing."] {
+            assert!(session_stem(reserved).is_err(), "{reserved:?} accepted");
+        }
+        assert!(session_stem("console").is_ok() && session_stem("com10").is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_sessions_are_refused() {
+        let root = std::env::temp_dir().join(format!("ilold-session-links-{}", std::process::id()));
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("target.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(&real, root.join("linked")).unwrap();
+        std::os::unix::fs::symlink(real.join("target.json"), real.join("alias.json")).unwrap();
+
+        assert!(check_session_path(&real.join("new.json")).is_ok());
+        assert!(check_session_path(&real.join("target.json")).is_ok());
+        let err = check_session_path(&root.join("linked").join("new.json")).unwrap_err();
+        assert!(err.contains("symbolic link"), "{err}");
+        assert!(check_session_path(&real.join("alias.json")).unwrap_err().contains("symbolic link"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn attached_contract_list_shows_each_kind() {
+        let (rt, state, url) = server();
+        let client = reqwest::Client::new();
+        let info = send_get(rt.handle(), &client, &format!("{url}/api/project")).unwrap();
+        colored::control::set_override(false);
+        let attached = render_contracts(&contract_rows(&info), "Vault", info["dependency_contracts"].as_u64().unwrap_or(0) as usize, false);
+        let local = render_contracts(&local_rows(&state.project, false), "Vault", 0, false);
+        for line in ["[I] IPool", "[L] SafeMath", "[A] BasePool", "[C] LendingPool", "[C] Vault"] {
+            assert!(attached.contains(line), "{line} in {attached}");
+        }
+        assert!(attached.contains("← current"));
+        assert_eq!(attached, local);
     }
 
     #[test]

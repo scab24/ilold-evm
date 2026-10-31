@@ -201,3 +201,38 @@ pub enum CfgStatement {
         from_modifier: Option<String>,
     },
 }
+
+impl CfgStatement {
+    /// Source location, and the modifier the statement was inlined from.
+    pub fn origin(&self) -> (Option<SourceSpan>, Option<&str>) {
+        match self {
+            Self::Assignment { span, from_modifier, .. }
+            | Self::ExternalCall { span, from_modifier, .. }
+            | Self::InternalCall { span, from_modifier, .. }
+            | Self::EmitEvent { span, from_modifier, .. }
+            | Self::StateRead { span, from_modifier, .. }
+            | Self::StateWrite { span, from_modifier, .. }
+            | Self::EthTransfer { span, from_modifier, .. }
+            | Self::RequireCheck { span, from_modifier, .. }
+            | Self::AssertCheck { span, from_modifier, .. }
+            | Self::AssemblyBlock { span, from_modifier }
+            | Self::UnresolvedModifier { span, from_modifier, .. } => (*span, from_modifier.as_deref()),
+        }
+    }
+
+    pub(crate) fn span_mut(&mut self) -> &mut Option<SourceSpan> {
+        match self {
+            Self::Assignment { span, .. }
+            | Self::ExternalCall { span, .. }
+            | Self::InternalCall { span, .. }
+            | Self::EmitEvent { span, .. }
+            | Self::StateRead { span, .. }
+            | Self::StateWrite { span, .. }
+            | Self::EthTransfer { span, .. }
+            | Self::RequireCheck { span, .. }
+            | Self::AssertCheck { span, .. }
+            | Self::AssemblyBlock { span, .. }
+            | Self::UnresolvedModifier { span, .. } => span,
+        }
+    }
+}

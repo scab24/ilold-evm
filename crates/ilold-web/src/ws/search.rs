@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use ilold_core::pathtree::types::PathTree;
+
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -39,12 +41,24 @@ pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> (Vec
     let mut results = Vec::new();
     let mut total = 0;
 
-    for ((contract, function), path_tree) in &state.path_trees {
-        if let Some(ref filter_contract) = query.contract {
-            if contract != filter_contract { continue; }
-        }
-        if let Some(ref filter_function) = query.function {
-            if function != filter_function { continue; }
+    // (contract reported, function key, tree): a contract filter covers the functions it
+    // inherits, whose trees are keyed by the declaring contract
+    let trees: Vec<(&str, &str, &PathTree)> = match &query.contract {
+        Some(name) => match state.project.lookup_contract(name) {
+            Ok(contract) => state.project.accessible_functions(contract).into_iter()
+                .filter_map(|af| {
+                    let tree = state.path_trees.get(&(af.owner.key().to_string(), af.function.key.clone()))?;
+                    Some((contract.key(), af.function.key.as_str(), tree))
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        },
+        None => state.path_trees.iter().map(|((c, f), tree)| (c.as_str(), f.as_str(), tree)).collect(),
+    };
+
+    for (contract, function, path_tree) in trees {
+        if query.function.as_deref().is_some_and(|f| f != function) {
+            continue;
         }
 
         for path in path_tree.paths() {
@@ -120,7 +134,7 @@ pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> (Vec
             if function.to_lowercase().contains(&q) {
                 matches.push(SearchMatch {
                     field: "function".into(),
-                    value: function.clone(),
+                    value: function.to_string(),
                 });
             }
 
@@ -128,8 +142,8 @@ pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> (Vec
             total += 1;
             if results.len() < limit {
                 results.push(SearchResult {
-                    contract: contract.clone(),
-                    function: function.clone(),
+                    contract: contract.to_string(),
+                    function: function.to_string(),
                     path_id: path.id,
                     terminal: format!("{:?}", path.terminal),
                     matches,

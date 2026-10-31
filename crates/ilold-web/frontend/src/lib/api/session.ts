@@ -114,7 +114,7 @@ export interface TraceParams {
 }
 
 export async function getFlowTrace(params: TraceParams) {
-  let url = `${BASE}/api/session/trace/${params.contract}/${params.func}`;
+  let url = `${BASE}/api/session/trace/${encodeURIComponent(params.contract)}/${encodeURIComponent(params.func)}`;
   const qs: string[] = [];
   if (params.depth != null) qs.push(`depth=${params.depth}`);
   if (params.reverts) qs.push('reverts=true');

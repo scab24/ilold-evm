@@ -49,12 +49,13 @@
     return t === 'Return' ? 'var(--color-success)' : t === 'Revert' ? 'var(--color-danger)' : 'var(--color-text-muted)';
   }
 
+  const allFunctions = $derived([...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])]);
+
   // Declared visibility from the contract detail; the call graph's is_external only
   // says whether the node belongs to another contract.
   function visibilityOf(node: any): string | null {
     if (node.visibility) return node.visibility;
-    const all = [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])];
-    return all.find((f) => f.name === node.label)?.visibility ?? null;
+    return allFunctions.find((f) => f.name === node.label)?.visibility ?? null;
   }
 
   const inspectorTitle = $derived(
@@ -220,7 +221,7 @@
         {/if}
         <div class="d-actions">
           <div class="d-hint">Click → expand · Shift+click → branch</div>
-          {#if contract?.functions?.some(f => f.name === (selectedNode._funcName || selectedNode.label))}
+          {#if allFunctions.some(f => f.name === (selectedNode._funcName || selectedNode.label))}
             <button class="d-action-btn" onclick={() => onexpandcfg(selectedNode._funcName || selectedNode.label, selectedNode.id)}>
               ▶ Expand CFG
             </button>
@@ -264,6 +265,9 @@
         {@const paths = pathsFor(parentFunc)?.paths || []}
         {@const passingPaths = paths.filter((p: any) => p.nodes.some((n: any) => `cfg:${parentFunc}:b${n.block_id}` === selectedNode.id))}
         <div class="d-row"><span class="d-label">Function</span><span>{parentFunc}</span></div>
+        {#if selectedNode.span}
+          <div class="d-row"><span class="d-label">Lines</span><span>{selectedNode.span.start_line === selectedNode.span.end_line ? selectedNode.span.start_line : `${selectedNode.span.start_line}–${selectedNode.span.end_line}`}</span></div>
+        {/if}
         <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length}{pathsFor(parentFunc)?.page?.truncated ? ' loaded' : ''} paths</span></div>
 
         {#if passingPaths.length > 0}

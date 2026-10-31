@@ -9,7 +9,7 @@ use rmcp::service::{RequestContext, RoleServer};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use crate::client::IloldClient;
+use crate::client::{encode_component, IloldClient};
 use crate::tools;
 
 pub struct EvmMcpServer {
@@ -91,54 +91,55 @@ pub async fn dispatch(
         "ilold_dependency_graph" => client.get("/api/project/depgraph").await,
         "ilold_contract_dependencies" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{}/depgraph", segment(&c))).await
+            client.get(&format!("/api/contract/{}/depgraph", encode_component(&c))).await
         }
         "ilold_contract_detail" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{}", segment(&c))).await
+            client.get(&format!("/api/contract/{}", encode_component(&c))).await
         }
         "ilold_callgraph" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{}/callgraph", segment(&c))).await
+            client.get(&format!("/api/contract/{}/callgraph", encode_component(&c))).await
         }
         "ilold_search" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{}/suggestions", segment(&c))).await
+            client.get(&format!("/api/contract/{}/suggestions", encode_component(&c))).await
         }
         "ilold_sequence_analysis" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{}/analysis", segment(&c))).await
+            client.get(&format!("/api/contract/{}/analysis", encode_component(&c))).await
         }
         "ilold_sequences" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let q = uint_query(arguments, &["depth", "offset", "limit"]);
-            client.get(&format!("/api/contract/{}/sequences{q}", segment(&c))).await
+            client.get(&format!("/api/contract/{}/sequences{q}", encode_component(&c))).await
         }
         "ilold_function_analysis" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/session/function/{}/{f}", segment(&c))).await
+            client.get(&format!("/api/session/function/{}/{}?highlight=true", encode_component(&c), encode_component(&f))).await
         }
         "ilold_cfg" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{}/{f}/cfg", segment(&c))).await
+            client.get(&format!("/api/contract/{}/{}/cfg", encode_component(&c), encode_component(&f))).await
         }
         "ilold_function_paths" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
             let q = uint_query(arguments, &["offset", "limit"]);
-            client.get(&format!("/api/contract/{}/{f}/paths{q}", segment(&c))).await
+            client.get(&format!("/api/contract/{}/{}/paths{q}", encode_component(&c), encode_component(&f))).await
         }
         "ilold_source" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{}/{f}/source", segment(&c))).await
+            client.get(&format!("/api/contract/{}/{}/source", encode_component(&c), encode_component(&f))).await
         }
         "ilold_trace" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            let mut q = Vec::new();
+            // the agent inspects this function: canvases showing the contract follow
+            let mut q = vec!["highlight=true".to_string()];
             if let Some(d) = arg_u64(arguments, "depth") {
                 q.push(format!("depth={d}"));
             }
@@ -146,19 +147,14 @@ pub async fn dispatch(
                 q.push("reverts=true".to_string());
             }
             if let Some(e) = arg_str(arguments, "expand") {
-                q.push(format!("expand={e}"));
+                q.push(format!("expand={}", encode_component(&e)));
             }
-            let qs = if q.is_empty() {
-                String::new()
-            } else {
-                format!("?{}", q.join("&"))
-            };
-            client.get(&format!("/api/session/trace/{}/{f}{qs}", segment(&c))).await
+            client.get(&format!("/api/session/trace/{}/{}?{}", encode_component(&c), encode_component(&f), q.join("&"))).await
         }
         "ilold_entry_points" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             client
-                .post("/api/cmd", json!({ "contract": c, "command": "Functions" }))
+                .post("/api/cmd", json!({ "contract": c, "command": "FunctionsAll" }))
                 .await
         }
         "ilold_who_touches" => {
@@ -173,7 +169,7 @@ pub async fn dispatch(
         }
         "ilold_use" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            if let Err(e) = client.get(&format!("/api/contract/{}", segment(&c))).await {
+            if let Err(e) = client.get(&format!("/api/contract/{}", encode_component(&c))).await {
                 return error_result(format!("contract '{c}' not found: {e}"));
             }
             if let Err(e) = client
@@ -207,14 +203,17 @@ pub async fn dispatch(
         "ilold_timeline" => {
             let c = active!();
             let v = need!(arg_str(arguments, "variable"), "variable");
-            client.get(&format!("/api/session/timeline/{v}?contract={c}")).await
+            client.get(&format!("/api/session/timeline/{}?contract={}", encode_component(&v), encode_component(&c))).await
         }
         "ilold_slice" => {
             let c = active!();
             let f = need!(arg_str(arguments, "function"), "function");
             let v = need!(arg_str(arguments, "variable"), "variable");
             let dir = arg_str(arguments, "direction").unwrap_or_else(|| "both".to_string());
-            client.get(&format!("/api/session/slice/{f}/{v}?direction={dir}&contract={c}")).await
+            client.get(&format!(
+                "/api/session/slice/{}/{}?direction={}&contract={}",
+                encode_component(&f), encode_component(&v), encode_component(&dir), encode_component(&c),
+            )).await
         }
         "ilold_record_finding" => {
             let c = active!();
@@ -265,11 +264,6 @@ fn command_error(value: &Value) -> Option<String> {
     value.get("Error")?.get("message")?.as_str().map(str::to_string)
 }
 
-/// A contract key or qualified id (`src/core/IToken.sol:IToken`) as one URL path segment.
-fn segment(value: &str) -> String {
-    value.replace('%', "%25").replace('/', "%2F").replace('?', "%3F").replace('#', "%23")
-}
-
 fn arg_str(arguments: Option<&Value>, key: &str) -> Option<String> {
     arguments
         .and_then(|v| v.as_object())
@@ -317,7 +311,9 @@ fn error_result(message: String) -> CallToolResult {
 mod tests {
     #[test]
     fn qualified_contract_ids_stay_one_path_segment() {
-        assert_eq!(super::segment("Pool"), "Pool");
-        assert_eq!(super::segment("src/core/IToken.sol:IToken"), "src%2Fcore%2FIToken.sol:IToken");
+        assert_eq!(super::encode_component("Pool"), "Pool");
+        assert_eq!(super::encode_component("src/core/IToken.sol:IToken"), "src%2Fcore%2FIToken.sol:IToken");
+        assert_eq!(super::encode_component("f(uint256[] storage)"), "f(uint256%5B%5D%20storage)");
+        assert_eq!(super::encode_component("a&b=c#d?e+f%"), "a%26b%3Dc%23d%3Fe%2Bf%25");
     }
 }

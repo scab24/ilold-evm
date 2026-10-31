@@ -20,7 +20,7 @@ npm --prefix crates/ilold-web/frontend run build
 cargo build --release
 ```
 
-The binary is at `target/release/ilold` with four subcommands: `analyze`, `context`, `serve`, and `explore`. The frontend build is required **before** Rust builds and is embedded in the binary; `build.rs` does not download or generate frontend dependencies. A missing `frontend/build/index.html` fails the Rust build with the commands to fix it. Rebuild the frontend before rebuilding Rust after UI changes. The built binary serves the UI without the source checkout. A previously installed `ilold` on PATH is not replaced by `cargo build`: run `./target/release/ilold` to test this checkout.
+The binary is at `target/release/ilold` with five subcommands: `analyze`, `context`, `serve`, `explore`, and `evm-mcp` (the [MCP server](docs/guide/src/reference/mcp.md) for LLM agents). `--max-seq-depth` (on `analyze`, `serve` and `explore`) takes 1 to 8, the depths the server serves. The frontend build is required **before** Rust builds and is embedded in the binary; `build.rs` does not download or generate frontend dependencies. A missing `frontend/build/index.html` fails the Rust build with the commands to fix it. Rebuild the frontend before rebuilding Rust after UI changes. The built binary serves the UI without the source checkout. A previously installed `ilold` on PATH is not replaced by `cargo build`: run `./target/release/ilold` to test this checkout.
 
 ## The dependency graph
 

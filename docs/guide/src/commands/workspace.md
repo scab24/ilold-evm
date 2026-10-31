@@ -17,8 +17,10 @@ ilold[→ deposit → withdraw]> save staking-audit
 You can resume this session later with [load](#load), even across different ilold runs, as long as the same contract files are loaded.
 
 The name is a plain file name: letters, digits, `-`, `_` and `.`, not starting
-with `.` (a trailing `.json` is accepted). Paths such as `../x`, `/tmp/x` or
-`a/b` are rejected, so sessions always stay in `~/.ilold/sessions/`.
+or ending with `.` (a trailing `.json` is accepted). Paths such as `../x`, `/tmp/x` or
+`a/b` are rejected, so sessions always stay in `~/.ilold/sessions/`. Windows device
+names (`con`, `nul`, `com1`, `lpt1`, ... with any extension) are rejected too. `save`
+and `load` refuse a sessions directory or session file that is a symbolic link.
 
 ## load
 

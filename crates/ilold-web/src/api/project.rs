@@ -43,7 +43,15 @@ pub struct ContractSummary {
     pub folder: String,
     pub functions: usize,
     pub state_vars: usize,
+    /// Direct bases as written in the source.
     pub inherits: Vec<String>,
+    /// The same bases as route segments (contract keys).
+    pub inherit_keys: Vec<String>,
+}
+
+/// `contract`'s direct bases as route segments.
+pub(crate) fn base_keys(state: &AppState, contract: &ContractDef) -> Vec<String> {
+    state.project.base_keys(contract).into_iter().map(String::from).collect()
 }
 
 pub async fn get_project(
@@ -65,6 +73,7 @@ pub async fn get_project(
             functions: c.functions.len(),
             state_vars: c.state_vars.len(),
             inherits: c.inherits.clone(),
+            inherit_keys: base_keys(&state, c),
         })
         .collect();
 
@@ -89,6 +98,8 @@ pub struct MapContract {
     pub kind: String,
     pub folder: String,
     pub inherits: Vec<String>,
+    /// `inherits` as contract keys.
+    pub inherit_keys: Vec<String>,
     pub functions: Vec<MapFunction>,
     pub state_vars: Vec<MapStateVar>,
 }
@@ -166,6 +177,7 @@ pub async fn get_project_map(
             kind: format!("{:?}", contract.kind),
             folder: state.project.contract_folder(contract),
             inherits: contract.inherits.clone(),
+            inherit_keys: base_keys(&state, contract),
             functions,
             state_vars,
         });

@@ -78,3 +78,14 @@ fn free_function_containers_are_listed_only_with_dependencies() {
     assert!(listed.contains("FreeUser") && !listed.contains("FreeFunctions"), "{listed}");
     assert!(run(&["--include-dependencies"]).contains("FreeFunctions"));
 }
+
+#[test]
+fn sequence_depth_outside_the_served_range_is_a_usage_error() {
+    for depth in ["0", "9"] {
+        let out = analyze(&["--max-seq-depth", depth]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{depth}: {stderr}");
+        assert!(stderr.contains("--max-seq-depth must be between 1 and 8"), "{stderr}");
+    }
+    assert!(analyze(&["--max-seq-depth", "8", "--contract", "Vault"]).status.success());
+}

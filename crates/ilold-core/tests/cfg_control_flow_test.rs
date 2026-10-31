@@ -320,6 +320,38 @@ fn calls_in_emit_revert_and_ternary_are_collected() {
     assert_eq!(counts(&tree), (1, 1, 0));
 }
 
+fn start_line(span: Option<ilold_core::model::common::SourceSpan>) -> Option<u32> {
+    span.map(|s| s.start_line)
+}
+
+#[test]
+fn blocks_and_statements_cite_their_source_lines() {
+    let (cfg, _) = build("emitRevertCalls");
+    for b in cfg.node_weights() {
+        assert!(b.statements.iter().all(|s| s.origin().0.is_some()), "block {} {:?}", b.id, b.statements);
+    }
+    let lines = |id: usize| -> Vec<Option<u32>> {
+        block(&cfg, id).statements.iter().map(|s| start_line(s.origin().0)).collect()
+    };
+    assert_eq!(lines(0), vec![Some(122), Some(122)], "_val call and emit");
+    assert_eq!(start_line(block(&cfg, 0).span), Some(122));
+    assert_eq!(lines(1), vec![Some(123)]);
+    assert_eq!((block(&cfg, 2).kind, start_line(block(&cfg, 2).span)), (Revert, Some(123)));
+    assert_eq!(start_line(block(&cfg, 3).span), Some(124));
+
+    let (cfg, _) = build("requireCalls");
+    let mut revert_lines: Vec<Option<u32>> = cfg.node_weights()
+        .filter(|b| b.kind == Revert).map(|b| start_line(b.span)).collect();
+    revert_lines.sort();
+    assert_eq!(revert_lines, vec![Some(117), Some(118)]);
+
+    // a block of modifier code cites the modifier; the body's own code cites the body
+    let (cfg, _) = build("constructor");
+    assert_eq!(block(&cfg, 0).statements[0].origin(), (block(&cfg, 0).span, Some("guarded")));
+    assert_eq!(start_line(block(&cfg, 0).span), Some(30));
+    assert_eq!(start_line(block(&cfg, 1).span), Some(35));
+}
+
 #[test]
 fn constructor_base_call_is_not_a_modifier() {
     let ctor = function("ControlFlow", "constructor");

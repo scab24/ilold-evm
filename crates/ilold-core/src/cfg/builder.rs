@@ -3,7 +3,7 @@ use petgraph::stable_graph::NodeIndex;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::model::common::Param;
+use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::{
@@ -26,6 +26,8 @@ pub struct CfgBuilder<'p> {
     current_block: NodeIndex,
     // provenance is tagged on top-level statements
     current_modifier: Option<String>,
+    // the statement being processed; what it adds without a narrower span cites it
+    current_span: Option<SourceSpan>,
     scope: Scope,
     // `return` of a function returning a storage pointer does not read the storage
     returns_storage: bool,
@@ -195,6 +197,7 @@ impl<'p> CfgBuilder<'p> {
             next_block_id: 0,
             current_block: NodeIndex::new(0),
             current_modifier: None,
+            current_span: None,
             scope,
             returns_storage: function.returns.len() == 1 && function.returns[0].is_storage,
             closed: HashSet::new(),
@@ -226,6 +229,11 @@ impl<'p> CfgBuilder<'p> {
             builder.add_edge(builder.current_block, ret, BranchEdge::Unconditional);
         }
 
+        for block in builder.graph.node_weights_mut() {
+            if let Some(span) = block_span(&block.statements) {
+                block.span = Some(span);
+            }
+        }
         builder.graph
     }
 
@@ -292,7 +300,11 @@ impl<'p> CfgBuilder<'p> {
         self.graph.add_edge(from, to, edge);
     }
 
-    fn add_stmt_to_current(&mut self, stmt: CfgStatement) {
+    fn add_stmt_to_current(&mut self, mut stmt: CfgStatement) {
+        let span = stmt.span_mut();
+        if span.is_none() {
+            *span = self.current_span;
+        }
         if let Some(block) = self.graph.node_weight_mut(self.current_block) {
             block.statements.push(stmt);
         }
@@ -305,6 +317,12 @@ impl<'p> CfgBuilder<'p> {
         {
             return;
         }
+        let outer = self.current_span.replace(stmt.span);
+        self.process_statement_kind(stmt);
+        self.current_span = outer;
+    }
+
+    fn process_statement_kind(&mut self, stmt: &Statement) {
         match &stmt.kind {
             StatementKind::If { condition, then_body, else_body } => {
                 self.process_if(condition, then_body, else_body.as_deref());
@@ -756,6 +774,7 @@ impl<'p> CfgBuilder<'p> {
         }
         let revert = self.add_block(BlockKind::Revert);
         self.graph[revert].revert_reason = Some(reason);
+        self.graph[revert].span = self.current_span;
         self.add_edge(self.current_block, revert, BranchEdge::Unconditional);
         self.current_block = revert;
     }
@@ -1037,10 +1056,9 @@ impl<'p> CfgBuilder<'p> {
             return;
         }
         let ret = self.add_block(BlockKind::Return);
+        self.graph[ret].span = self.current_span;
         if let Some(expr) = value {
-            if let Some(block) = self.graph.node_weight_mut(ret) {
-                block.return_value = Some(expr_to_string(expr));
-            }
+            self.graph[ret].return_value = Some(expr_to_string(expr));
         }
         self.add_edge(self.current_block, ret, BranchEdge::Unconditional);
         self.current_block = ret;
@@ -1166,6 +1184,7 @@ impl<'p> CfgBuilder<'p> {
 
         let revert = self.add_block(BlockKind::Revert);
         self.graph[revert].revert_reason = Some(format!("{check}({condition})"));
+        self.graph[revert].span = self.current_span;
         self.add_edge(before, revert, BranchEdge::ConditionalFalse { condition });
 
         self.current_block = next;
@@ -1228,6 +1247,15 @@ impl<'p> CfgBuilder<'p> {
 
     // calls and nested writes, in evaluation order
     fn collect_calls(&self, expr: &Expression, stmts: &mut Vec<CfgStatement>) {
+        let start = stmts.len();
+        self.collect_calls_of(expr, stmts);
+        // nested expressions already cited themselves; the rest is this expression's own
+        for stmt in &mut stmts[start..] {
+            stmt.span_mut().get_or_insert(expr.span);
+        }
+    }
+
+    fn collect_calls_of(&self, expr: &Expression, stmts: &mut Vec<CfgStatement>) {
         match &expr.kind {
             ExpressionKind::FunctionCall { callee, arguments, options, call } => {
                 // evaluation order: callee object, options, arguments, then the call itself
@@ -1450,6 +1478,25 @@ impl<'p> CfgBuilder<'p> {
             _ => stmts.push(internal(expr_to_string(callee), None)),
         }
     }
+}
+
+// Lines a block covers: its own code, or the modifier code when it has no other.
+fn block_span(statements: &[CfgStatement]) -> Option<SourceSpan> {
+    let origins: Vec<(SourceSpan, bool)> = statements
+        .iter()
+        .filter_map(|s| match s.origin() {
+            (Some(span), modifier) => Some((span, modifier.is_none())),
+            (None, _) => None,
+        })
+        .collect();
+    let own = origins.iter().any(|(_, own)| *own);
+    let mut spans = origins.into_iter().filter(|(_, o)| *o == own).map(|(span, _)| span);
+    let first = spans.next()?;
+    Some(spans.filter(|s| s.file_index == first.file_index).fold(first, |a, b| {
+        let (start_line, start_col) = (a.start_line, a.start_col).min((b.start_line, b.start_col));
+        let (end_line, end_col) = (a.end_line, a.end_col).max((b.end_line, b.end_col));
+        SourceSpan { file_index: a.file_index, start_line, start_col, end_line, end_col }
+    }))
 }
 
 fn storage_write(place: StorageRef, from_modifier: Option<String>) -> CfgStatement {

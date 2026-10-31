@@ -29,7 +29,7 @@ enum Commands {
         path: PathBuf,
         #[arg(long)]
         contract: Option<String>,
-        #[arg(long, default_value = "3")]
+        #[arg(long, default_value = "3", value_parser = seq_depth)]
         max_seq_depth: usize,
         #[arg(long)]
         verbose: bool,
@@ -54,14 +54,14 @@ enum Commands {
         path: PathBuf,
         #[arg(long, default_value = "8080")]
         port: u16,
-        #[arg(long, default_value = "3")]
+        #[arg(long, default_value = "3", value_parser = seq_depth)]
         max_seq_depth: usize,
     },
     Explore {
         path: PathBuf,
         #[arg(long, default_value = "0")]
         port: u16,
-        #[arg(long, default_value = "3")]
+        #[arg(long, default_value = "3", value_parser = seq_depth)]
         max_seq_depth: usize,
         /// Attach to an existing ilold server URL instead of starting one
         #[arg(long)]
@@ -107,6 +107,15 @@ async fn main() -> Result<()> {
         Commands::EvmMcp { server_url } => {
             ilold_evm_mcp::run(ilold_evm_mcp::Config { server_url }).await
         }
+    }
+}
+
+/// `--max-seq-depth`, bounded like the server's `/sequences?depth=`.
+fn seq_depth(raw: &str) -> Result<usize, String> {
+    const MAX: usize = ilold_web::api::contract::MAX_SEQUENCE_DEPTH;
+    match raw.parse::<usize>() {
+        Ok(depth) if (1..=MAX).contains(&depth) => Ok(depth),
+        _ => Err(format!("--max-seq-depth must be between 1 and {MAX}")),
     }
 }
 

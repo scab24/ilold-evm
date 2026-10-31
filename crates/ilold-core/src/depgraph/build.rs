@@ -60,13 +60,7 @@ fn static_edges(project: &Project, graph: &mut DepGraph, index: &Index) {
         let Some(&from) = index.get(c.key()) else {
             continue;
         };
-        // bases by declaration id, so an aliased or same-named base reaches the right node
-        let parents: Vec<&str> = if c.base_ids.is_empty() {
-            c.inherits.iter().map(String::as_str).collect()
-        } else {
-            c.base_ids.iter().filter_map(|id| project.contract_by_id(*id)).map(|p| p.key()).collect()
-        };
-        for parent in parents {
+        for parent in project.base_keys(c) {
             if let Some(&to) = index.get(parent) {
                 if to != from {
                     edge_mut(graph, from, to).inherits = true;

@@ -18,6 +18,18 @@ pub fn build_function_narrative(
     cfg: &CfgGraph,
     all_behaviors: &[FunctionBehavior],
 ) -> FunctionNarrative {
+    build_function_narrative_capped(contract, function, path_tree, cfg, all_behaviors, usize::MAX)
+}
+
+/// Narrates only the first `max_paths` paths; `paths_omitted` counts the rest.
+pub fn build_function_narrative_capped(
+    contract: &ContractDef,
+    function: &FunctionDef,
+    path_tree: &PathTree,
+    cfg: &CfgGraph,
+    all_behaviors: &[FunctionBehavior],
+    max_paths: usize,
+) -> FunctionNarrative {
     let root_behavior = find_behavior(all_behaviors, contract.key(), &function.key);
     // guards come from the analysis, which reads inherited modifiers and helpers
     let (access, guards) = match root_behavior {
@@ -28,8 +40,10 @@ pub fn build_function_narrative(
         }
     };
 
-    let paths: Vec<PathNarrative> = path_tree
-        .routes()
+    let mut routes = path_tree.routes();
+    let paths: Vec<PathNarrative> = routes
+        .by_ref()
+        .take(max_paths)
         .map(|(id, terminal, nodes)| {
             let mut steps = Vec::new();
 
@@ -88,6 +102,7 @@ pub fn build_function_narrative(
             }
         })
         .collect();
+    let paths_omitted = routes.count();
 
     let unguarded = access.is_unrestricted() && !guards.iter().any(|g| g.kind.is_access());
     let observations = generate_observations(unguarded, path_tree, cfg, all_behaviors, root_behavior);
@@ -142,7 +157,7 @@ pub fn build_function_narrative(
         happy_paths: path_tree.stats.happy_paths,
         revert_paths: path_tree.stats.revert_paths,
         path_stats: path_tree.stats.clone(),
-        paths_omitted: 0,
+        paths_omitted,
         paths,
         observations,
         state_writes: writes,

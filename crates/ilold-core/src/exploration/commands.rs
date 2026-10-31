@@ -8,7 +8,7 @@ use crate::classify::guards::GuardFact;
 use crate::journal::types::{Finding, ReviewStatus, Severity};
 use crate::model::contract::ContractDef;
 use crate::model::project::Project;
-use crate::narrative::function::build_function_narrative;
+use crate::narrative::function::build_function_narrative_capped;
 use crate::narrative::sequence::{build_sequence_narrative, compute_flow_summary};
 use crate::narrative::trace::{build_flow_tree, FlowConfig, FlowTree};
 use crate::narrative::types::{FunctionNarrative, SequenceNarrative};
@@ -400,11 +400,14 @@ fn execute_call(
     trace_config: Option<TraceConfig>,
     timestamp: &str,
 ) -> CommandResult {
+    use crate::model::function::Visibility;
+    let internal = |f: &crate::model::function::FunctionDef| matches!(f.visibility, Visibility::Internal | Visibility::Private);
     let accessible = data.project.accessible_functions(data.contract);
-    // a bare name, a key or a signature; ambiguous names take the first overload
-    let resolved = match accessible.iter().find(|a| {
+    // a bare name, a key or a signature; ambiguous names take the first callable overload
+    let matches = || accessible.iter().filter(|a| {
         a.function.name == func || a.function.key == func || a.function.match_signature() == func
-    }) {
+    });
+    let resolved = match matches().find(|a| !internal(a.function)).or_else(|| matches().next()) {
         Some(af) => af,
         None => return CommandResult::Error {
             message: format!("Function '{}' not found. Use 'functions' or 'funcs-all' to see available.", func),
@@ -432,8 +435,7 @@ fn execute_call(
 
     let function_def = resolved.function;
 
-    use crate::model::function::Visibility;
-    if matches!(function_def.visibility, Visibility::Internal | Visibility::Private) {
+    if internal(function_def) {
         return CommandResult::Error {
             message: format!(
                 "'{}' is {} and cannot be called from outside the contract — \
@@ -663,10 +665,12 @@ fn behaviors_for<'a>(data: &AnalysisData<'a>, owning: &ContractDef, func: &crate
     data.all_sequence_analyses.get(owning.key()).map(|sa| sa.functions.as_slice()).unwrap_or(&[])
 }
 
+/// Narrative of a session step; see [`get_function_info`] for `max_paths`.
 pub fn get_step_narrative(
     session: &ExplorationSession,
     step_index: usize,
     data: &AnalysisData,
+    max_paths: usize,
 ) -> Result<FunctionNarrative, String> {
     let step = session.steps.get(step_index)
         .ok_or_else(|| format!("Step {} not found", step_index))?;
@@ -681,12 +685,14 @@ pub fn get_step_narrative(
 
     let behaviors = behaviors_for(data, owning, func);
 
-    Ok(build_function_narrative(owning, func, pt, cfg, behaviors))
+    Ok(build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths))
 }
 
+/// Narrative of `func_name` with its first `max_paths` paths narrated.
 pub fn get_function_info(
     func_name: &str,
     data: &AnalysisData,
+    max_paths: usize,
 ) -> Result<FunctionNarrative, String> {
     let (owning, func) = data.project
         .resolve_function(data.contract, func_name)
@@ -698,7 +704,7 @@ pub fn get_function_info(
 
     let behaviors = behaviors_for(data, owning, func);
 
-    Ok(build_function_narrative(owning, func, pt, cfg, behaviors))
+    Ok(build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths))
 }
 
 pub fn get_flow_tree(

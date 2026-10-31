@@ -29,7 +29,10 @@ pub struct ContractDetail {
     pub qualified_id: String,
     pub is_dependency: bool,
     pub kind: String,
+    /// Direct bases as written in the source.
     pub inherits: Vec<String>,
+    /// The same bases as route segments (contract keys).
+    pub inherit_keys: Vec<String>,
     pub functions: Vec<FunctionSummary>,
     pub state_vars: Vec<StateVarSummary>,
     pub inherited_functions: Vec<FunctionSummary>,
@@ -198,6 +201,7 @@ pub async fn get_contract(
         is_dependency: contract.is_dependency,
         kind: format!("{:?}", contract.kind),
         inherits: contract.inherits.clone(),
+        inherit_keys: super::project::base_keys(&state, contract),
         functions,
         state_vars,
         inherited_functions,
@@ -226,6 +230,9 @@ pub struct CytoscapeNodeData {
     pub is_external: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub statements: Vec<String>,
+    /// CFG blocks: the source lines the block runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span: Option<SourceSpan>,
 }
 
 #[derive(Serialize)]
@@ -270,6 +277,7 @@ pub async fn get_callgraph(
                     contract: node.contract.clone(),
                     is_external: node.is_external,
                     statements: Vec::new(),
+                    span: None,
                 },
             }
         })
@@ -344,6 +352,7 @@ pub async fn get_cfg(
                     contract: key.0.clone(),
                     is_external: false,
                     statements: stmts,
+                    span: block.span,
                 },
             }
         })
@@ -537,7 +546,7 @@ pub async fn get_search_suggestions(
         }
     }
 
-    let mut ext_calls = std::collections::HashSet::new();
+    let mut ext_calls = std::collections::BTreeSet::new();
     for ((c, _), pt) in &state.path_trees {
         if !origins.contains(c) { continue; }
         for annotations in pt.block_annotations() {
@@ -635,9 +644,19 @@ fn make_block_label(block: &BasicBlock, stmts: &[String]) -> String {
 }
 
 fn truncate_label(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max])
+    match s.char_indices().nth(max) {
+        Some((cut, _)) => format!("{}…", &s[..cut]),
+        None => s.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn labels_are_cut_on_character_boundaries() {
+        assert_eq!(super::truncate_label("short", 24), "short");
+        assert_eq!(super::truncate_label("ñandú", 3), "ñan…");
+        assert_eq!(super::truncate_label("aéb", 2), "aé…");
+        assert_eq!(super::truncate_label(&"é".repeat(30), 24), format!("{}…", "é".repeat(24)));
     }
 }

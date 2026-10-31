@@ -431,17 +431,41 @@ fn behaviors_of_inherited_functions_are_keyed_by_owner() {
 }
 
 #[test]
+fn session_call_by_bare_name_picks_the_callable_overload() {
+    use ilold_core::exploration::commands::{execute_command, AnalysisData, CommandResult, SessionCommand};
+    use ilold_core::exploration::session::ExplorationSession;
+    use ilold_core::parse::ProjectParser;
+
+    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/entry_overload");
+    let project = SolcFrontend.parse(&[file]).expect("parse EntryOverload");
+    let a = ProjectAnalysis::build(&project, &AnalysisParams::new(1));
+    let data = AnalysisData {
+        project: &project,
+        contract: project.contracts.iter().find(|c| c.name == "EntryOverload").unwrap(),
+        cfgs: &a.cfgs,
+        path_trees: &a.path_trees,
+        behaviors: &a.sequence_analyses["EntryOverload"].functions,
+        all_sequence_analyses: &a.sequence_analyses,
+    };
+    let mut session = ExplorationSession::new("EntryOverload", "t");
+    let call = SessionCommand::Call { func: "add".into(), trace_config: None };
+    let result = execute_command(call, &mut session, &data, "0");
+    assert!(matches!(result, CommandResult::StepAdded { .. }), "{result:?}");
+    assert_eq!(session.steps[0].function, "add(uint256)");
+}
+
+#[test]
 fn narratives_and_who_never_mix_functions_sharing_a_key() {
     use ilold_core::classify::entry_points::AccessLevel;
     use ilold_core::exploration::commands::{execute_command, get_function_info, CommandResult, SessionCommand};
     use ilold_core::exploration::session::ExplorationSession;
 
     let data = clash_data();
-    let base = get_function_info("put(uint256)", &data).unwrap();
+    let base = get_function_info("put(uint256)", &data, usize::MAX).unwrap();
     assert!(matches!(base.access, AccessLevel::Restricted { .. }), "{:?}", base.access);
     let items: Vec<&str> = base.transitive_state_writes.iter().map(|e| e.item.as_str()).collect();
     assert_eq!(items, ["bumps"]);
-    let own = get_function_info("put(address)", &data).unwrap();
+    let own = get_function_info("put(address)", &data, usize::MAX).unwrap();
     assert_eq!(own.access, AccessLevel::Public);
     assert!(own.transitive_state_writes.is_empty());
     assert!(own.guards.is_empty());

@@ -202,6 +202,16 @@ impl Project {
         }
     }
 
+    /// Keys of the direct bases of `contract`, by the declarations solc resolved (so aliased
+    /// or same-named bases select the right contract); names as written without ids.
+    pub fn base_keys<'a>(&'a self, contract: &'a ContractDef) -> Vec<&'a str> {
+        if contract.base_ids.is_empty() {
+            contract.inherits.iter().map(String::as_str).collect()
+        } else {
+            contract.base_ids.iter().filter_map(|id| self.contract_by_id(*id)).map(|c| c.key()).collect()
+        }
+    }
+
     /// The contracts of `contract`'s C3 linearization that are in the model, most derived
     /// first. Uses solc `linearizedBaseContracts`; models without it fall back to the
     /// declared bases, right to left, breadth first.

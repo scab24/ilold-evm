@@ -21,16 +21,20 @@ export interface ContractIdentity {
   is_dependency: boolean;
 }
 
-export interface ContractSummary extends ContractIdentity {
+/** Direct bases as written (`inherits`) and as route segments (`inherit_keys`). */
+interface Bases {
+  inherits: string[];
+  inherit_keys: string[];
+}
+
+export interface ContractSummary extends ContractIdentity, Bases {
   kind: string;
   functions: number;
   state_vars: number;
-  inherits: string[];
 }
 
-export interface ContractDetail extends ContractIdentity {
+export interface ContractDetail extends ContractIdentity, Bases {
   kind: string;
-  inherits: string[];
   functions: FunctionSummary[];
   state_vars: StateVarSummary[];
   inherited_functions?: FunctionSummary[];
@@ -68,6 +72,14 @@ export interface CytoscapeGraph {
   edges: { data: CytoscapeEdgeData }[];
 }
 
+export interface SourceSpan {
+  file_index: number;
+  start_line: number;
+  start_col: number;
+  end_line: number;
+  end_col: number;
+}
+
 export interface CytoscapeNodeData {
   id: string;
   label: string;
@@ -75,6 +87,8 @@ export interface CytoscapeNodeData {
   contract: string;
   is_external: boolean;
   statements?: string[];
+  /** CFG blocks: the source lines the block runs. */
+  span?: SourceSpan;
 }
 
 export interface CytoscapeEdgeData {
@@ -103,11 +117,10 @@ export interface ProjectMap {
   relationships: MapRelationship[];
 }
 
-export interface MapContract {
+export interface MapContract extends Bases {
   name: string;
   kind: string;
   folder: string;
-  inherits: string[];
   functions: MapFunction[];
   state_vars: { name: string; type_name: string; is_constant: boolean }[];
 }
@@ -132,9 +145,23 @@ export interface MapRelationship {
 
 const BASE = '';  // same origin in production, proxied in dev
 
+/** The JSON body of a successful response; otherwise throws the server's message
+ *  (a 409 names the candidates to choose from). */
+async function body<T>(res: Response, fallback: string): Promise<T> {
+  if (res.ok) return res.json();
+  const text = await res.text();
+  let message = text;
+  try {
+    const err = JSON.parse(text);
+    if (err?.error) message = err.candidates ? `${err.error}: ${err.candidates.join(', ')}` : err.error;
+  } catch {
+    // plain-text error body
+  }
+  throw new Error(message || `${fallback} (HTTP ${res.status})`);
+}
+
 export async function getProjectMap(): Promise<ProjectMap> {
-  const res = await fetch(`${BASE}/api/project/map`);
-  return res.json();
+  return body(await fetch(`${BASE}/api/project/map`), 'Project map unavailable');
 }
 
 export interface DepGraphNode {
@@ -167,58 +194,47 @@ export interface ProjectDepGraph {
 }
 
 export async function getProjectDepgraph(): Promise<ProjectDepGraph> {
-  const res = await fetch(`${BASE}/api/project/depgraph`);
-  return res.json();
+  return body(await fetch(`${BASE}/api/project/depgraph`), 'Dependency graph unavailable');
 }
 
 export async function getProject(): Promise<ProjectSummary> {
-  const res = await fetch(`${BASE}/api/project`);
-  return res.json();
+  return body(await fetch(`${BASE}/api/project`), 'Project unavailable');
 }
 
 export async function getContract(name: string): Promise<ContractDetail> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(name)}`);
-  if (!res.ok) throw new Error(`Contract ${name} not found`);
-  return res.json();
+  return body(await fetch(`${BASE}/api/contract/${encodeURIComponent(name)}`), `Contract ${name} not found`);
 }
 
 export async function getCallGraph(contractName: string): Promise<CytoscapeGraph> {
   const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/callgraph`);
-  return res.json();
+  return body(res, `No call graph for ${contractName}`);
 }
 
 export async function getCfg(contractName: string, funcName: string): Promise<CytoscapeGraph> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/cfg`);
-  return res.json();
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${encodeURIComponent(funcName)}/cfg`);
+  return body(res, `No CFG for ${funcName}`);
 }
 
 /** One page of a function's paths; `page.truncated` when more follow. */
 export async function getPaths(contractName: string, funcName: string, offset = 0, limit?: number) {
   const params = new URLSearchParams({ offset: String(offset) });
   if (limit !== undefined) params.set('limit', String(limit));
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/paths?${params}`);
-  return res.json();
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${encodeURIComponent(funcName)}/paths?${params}`);
+  return body<any>(res, `No paths for ${funcName}`);
 }
 
 export interface FunctionSourceResponse {
   file_path: string;
   source: string;
-  span: {
-    file_index: number;
-    start_line: number;
-    start_col: number;
-    end_line: number;
-    end_col: number;
-  };
+  span: SourceSpan;
 }
 
 export async function getFunctionSource(
   contractName: string,
   funcName: string,
 ): Promise<FunctionSourceResponse> {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/source`);
-  if (!res.ok) throw new Error(`Source for ${funcName} not found`);
-  return res.json();
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${encodeURIComponent(funcName)}/source`);
+  return body(res, `Source for ${funcName} not found`);
 }
 
 export interface SequenceAnalysis {
@@ -245,12 +261,12 @@ export interface SequenceAnalysis {
 
 export async function getSequenceAnalysis(contractName: string): Promise<SequenceAnalysis> {
   const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/analysis`);
-  return res.json();
+  return body(res, `No sequence analysis for ${contractName}`);
 }
 
 export async function getSearchSuggestions(contractName: string): Promise<SearchSuggestions> {
   const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/suggestions`);
-  return res.json();
+  return body(res, `No suggestions for ${contractName}`);
 }
 
 /** Sequence functions plus one page of sequences; `limit: 0` fetches only the functions. */
@@ -264,6 +280,5 @@ export async function getSequences(
   }
   const query = params.toString();
   const url = `${BASE}/api/contract/${encodeURIComponent(contractName)}/sequences${query ? `?${query}` : ''}`;
-  const res = await fetch(url);
-  return res.json();
+  return body<any>(await fetch(url), `No sequences for ${contractName}`);
 }

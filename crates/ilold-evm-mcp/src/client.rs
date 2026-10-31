@@ -2,6 +2,20 @@ use serde_json::Value;
 
 use crate::error::McpClientError;
 
+/// `value` as one URL path segment or query value: a contract id such as
+/// `src/core/IToken.sol:IToken` or a signature such as `f(uint256[] storage)`.
+pub fn encode_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b':' | b'(' | b')' | b',' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 pub struct IloldClient {
     base_url: String,
     http: reqwest::Client,

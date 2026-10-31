@@ -1,4 +1,5 @@
 import type { Node, Edge } from '@xyflow/svelte';
+import type { SourceSpan } from '$lib/api/rest';
 
 
 export interface FunctionNodeData {
@@ -26,6 +27,7 @@ export interface BlockNodeData {
   node_type: string; // "Entry" | "Return" | "Revert" | "Block" | "LoopCondition"
   _parentFunc: string;
   statements?: string[];
+  span?: SourceSpan;
   _dimmed?: boolean;
 }
 

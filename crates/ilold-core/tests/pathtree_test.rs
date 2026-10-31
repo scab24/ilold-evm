@@ -208,7 +208,7 @@ fn stored_tree_round_trips_with_identical_paths() {
 
 #[test]
 fn narrative_carries_path_stats_and_counts_the_paths_it_omits() {
-    use ilold_core::narrative::function::build_function_narrative;
+    use ilold_core::narrative::function::{build_function_narrative, build_function_narrative_capped};
 
     let project = SolcFrontend.parse(&[fixture_path("uniswap_v2_pair/src/uniswap_v2_pair.sol")]).unwrap();
     let contract = project.contracts.iter().find(|c| c.name == "UniswapV2Pair").unwrap();
@@ -219,13 +219,23 @@ fn narrative_carries_path_stats_and_counts_the_paths_it_omits() {
     let total = pt.stats.total_paths;
     assert!(total > 100, "{:?}", pt.stats);
 
-    let mut n = build_function_narrative(contract, sqrt_fn, &pt, &cfg, &[]);
+    let n = build_function_narrative(contract, sqrt_fn, &pt, &cfg, &[]);
     assert_eq!(n.path_stats, pt.stats);
     assert_eq!((n.paths.len(), n.paths_omitted), (total, 0));
 
-    n.truncate_paths(100);
-    assert_eq!((n.paths.len(), n.paths_omitted), (100, total - 100));
-    assert!(n.paths.iter().enumerate().all(|(i, p)| p.id == i));
-    n.truncate_paths(100);
-    assert_eq!(n.paths_omitted, total - 100);
+    let capped = build_function_narrative_capped(contract, sqrt_fn, &pt, &cfg, &[], 100);
+    assert_eq!((capped.paths.len(), capped.paths_omitted), (100, total - 100));
+    assert!(capped.paths.iter().enumerate().all(|(i, p)| p.id == i));
+    assert_eq!(
+        serde_json::to_value(&capped.paths).unwrap(),
+        serde_json::to_value(&n.paths[..100]).unwrap(),
+        "capping narrates the same first paths"
+    );
+    let mut rest = serde_json::to_value(&capped).unwrap();
+    let mut full = serde_json::to_value(&n).unwrap();
+    for v in [&mut rest, &mut full] {
+        v.as_object_mut().unwrap().remove("paths");
+        v.as_object_mut().unwrap().remove("paths_omitted");
+    }
+    assert_eq!(rest, full);
 }
