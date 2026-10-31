@@ -30,6 +30,12 @@ pub struct FunctionNarrative {
     pub transitive_external_calls: Vec<TransitiveEffect>,
     #[serde(default)]
     pub transitive_events: Vec<TransitiveEffect>,
+    /// Reverts here or in a callee (path counts only cover this function's own code).
+    #[serde(default)]
+    pub can_revert: bool,
+    /// Where it can revert: own checks with an empty `via`, then those reached through calls.
+    #[serde(default)]
+    pub revert_sources: Vec<TransitiveEffect>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

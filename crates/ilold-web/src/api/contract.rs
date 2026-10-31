@@ -437,7 +437,12 @@ pub async fn get_sequence_analysis(
     Path(name): Path<String>,
 ) -> Result<Json<SequenceAnalysis>, Response> {
     let contract = route_contract(&state, &name)?;
-    let analysis = analyze_sequences(&state.path_trees, contract.key());
+    // the project analysis carries transitive effects and the inherited functions
+    let analysis = state
+        .sequence_analyses
+        .get(contract.key())
+        .cloned()
+        .unwrap_or_else(|| analyze_sequences(&state.path_trees, contract.key()));
     Ok(Json(analysis))
 }
 
@@ -554,6 +559,7 @@ fn summarize_stmt(stmt: &CfgStatement) -> String {
             }
         }
         CfgStatement::AssemblyBlock { .. } => "assembly { ... }".into(),
+        CfgStatement::UnresolvedModifier { name, .. } => format!("{name} (unresolved modifier)"),
     }
 }
 

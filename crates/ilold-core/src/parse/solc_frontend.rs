@@ -140,6 +140,9 @@ impl SolcFrontend {
                     }
                 }
             }
+            if let Some(free) = map_free_functions(&ast.nodes, &index, &relative, is_dependency) {
+                contracts.push(free);
+            }
 
             source_files.push(SourceFile { path: path_str, content });
         }
@@ -764,6 +767,38 @@ fn map_contract(node: &Node, index: &LineIndex, path: &str, is_dependency: bool)
     })
 }
 
+/// Name of the library-like container that holds a source file's free functions.
+pub const FREE_FUNCTIONS: &str = "FreeFunctions";
+
+/// The file-level functions of one source unit as a library named [`FREE_FUNCTIONS`], so that
+/// calls to them (also through `using {f} for T`) resolve like internal library calls.
+fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependency: bool) -> Option<ContractDef> {
+    let free: Vec<&Node> = nodes.iter().filter(|n| n.node_type == NodeType::FunctionDefinition).collect();
+    let first = free.first()?;
+    let mut functions: Vec<FunctionDef> = free.iter().map(|n| map_function(n, index)).collect();
+    assign_function_keys(&mut functions);
+    let name = FREE_FUNCTIONS.to_string();
+    Some(ContractDef {
+        id: None,
+        linearized_bases: Vec::new(),
+        qualified_id: format!("{path}:{name}"),
+        key: name.clone(),
+        is_dependency,
+        name,
+        kind: ContractKind::Library,
+        functions,
+        modifiers: Vec::new(),
+        state_vars: Vec::new(),
+        structs: Vec::new(),
+        enums: Vec::new(),
+        events: Vec::new(),
+        errors: Vec::new(),
+        inherits: Vec::new(),
+        base_ids: Vec::new(),
+        span: span_of(first, index),
+    })
+}
+
 // overloads are keyed by signature so they never collide
 // Constructor, receive and fallback keep their bare name as key; a regular function that
 // shares one of those names is always keyed by its signature (`fallback()`).
@@ -901,6 +936,8 @@ fn map_struct(node: &Node, index: &LineIndex) -> StructDef {
         .map(|m| Param {
             name: m.attribute::<String>("name").unwrap_or_default(),
             type_name: type_string(m),
+            is_storage: false,
+            id: m.id.map(|id| DeclId(id as isize)),
         })
         .collect();
     StructDef {
@@ -955,6 +992,8 @@ fn params_from_list(list: &Node) -> Vec<Param> {
         .map(|p| Param {
             name: p.attribute::<String>("name").unwrap_or_default(),
             type_name: type_string(p),
+            is_storage: p.attribute::<String>("storageLocation").as_deref() == Some("storage"),
+            id: p.id.map(|id| DeclId(id as isize)),
         })
         .collect()
 }
@@ -1062,6 +1101,7 @@ fn map_var_decl(node: &Node, index: &LineIndex) -> StatementKind {
             type_name,
             initial_value,
             is_storage_ref,
+            id: d.get("id").and_then(|id| id.as_i64()).map(|id| DeclId(id as isize)),
         };
     }
 
@@ -1071,6 +1111,7 @@ fn map_var_decl(node: &Node, index: &LineIndex) -> StatementKind {
         type_name: "tuple".into(),
         initial_value,
         is_storage_ref: false,
+        id: None,
     }
 }
 

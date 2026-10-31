@@ -1,13 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph, CfgStatement};
 use crate::classify::entry_points::{classify_function, AccessLevel};
 use crate::model::contract::ContractDef;
 use crate::model::function::FunctionDef;
-use crate::model::project::Project;
 use crate::narrative::types::TransitiveEffect;
 use crate::pathtree::types::{PathTree, TerminalKind};
-use crate::sequence::analysis::{FunctionBehavior, SequenceAnalysis};
+use crate::sequence::analysis::{EffectKind, FunctionBehavior};
 
 use super::types::*;
 
@@ -17,8 +16,6 @@ pub fn build_function_narrative(
     path_tree: &PathTree,
     cfg: &CfgGraph,
     all_behaviors: &[FunctionBehavior],
-    project: &Project,
-    all_sequence_analyses: &HashMap<String, SequenceAnalysis>,
 ) -> FunctionNarrative {
     let access = classify_function(function, contract);
 
@@ -85,7 +82,7 @@ pub fn build_function_narrative(
         .collect();
 
     let observations = generate_observations(
-        &access, path_tree, cfg, all_behaviors, &function.name, &contract.state_vars,
+        &access, path_tree, cfg, all_behaviors, &function.name,
     );
 
     let mut writes = HashSet::new();
@@ -118,22 +115,21 @@ pub fn build_function_narrative(
     let mut events: Vec<String> = events_set.into_iter().collect();
     events.sort();
 
-    let root_behavior = all_behaviors.iter().find(|b| b.name == function.name);
-
-    let (transitive_writes, transitive_reads, transitive_external, transitive_events) =
-        if let Some(root) = root_behavior {
-            collect_transitive_effects(
-                root,
-                contract,
-                project,
-                all_sequence_analyses,
-                &writes,
-                &reads,
-                &calls,
-            )
-        } else {
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
-        };
+    let root_behavior = all_behaviors
+        .iter()
+        .find(|b| b.name == function.key)
+        .or_else(|| all_behaviors.iter().find(|b| b.name == function.name));
+    let traced = |kind: EffectKind| -> Vec<TransitiveEffect> {
+        root_behavior.map(|b| transitive_effects(b, kind)).unwrap_or_default()
+    };
+    let mut revert_sources: Vec<TransitiveEffect> = root_behavior
+        .map(|b| b.revert_sources.iter().map(|r| TransitiveEffect {
+            via: Vec::new(),
+            item: r.clone(),
+            origin_contract: contract.key().to_string(),
+        }).collect())
+        .unwrap_or_default();
+    revert_sources.extend(traced(EffectKind::Revert));
 
     FunctionNarrative {
         contract: contract.key().to_string(),
@@ -150,39 +146,32 @@ pub fn build_function_narrative(
         internal_calls: internal,
         modifiers: function.modifiers.iter().map(|m| m.name.clone()).collect(),
         events,
-        transitive_state_writes: transitive_writes,
-        transitive_state_reads: transitive_reads,
-        transitive_external_calls: transitive_external,
-        transitive_events,
+        transitive_state_writes: traced(EffectKind::StateWrite),
+        transitive_state_reads: traced(EffectKind::StateRead),
+        transitive_external_calls: traced(EffectKind::ExternalCall),
+        transitive_events: traced(EffectKind::Event),
+        can_revert: root_behavior.map_or(path_tree.stats.revert_paths > 0, |b| b.can_revert),
+        revert_sources,
     }
 }
 
-fn collect_transitive_effects(
-    root: &FunctionBehavior,
-    _root_contract: &ContractDef,
-    _project: &Project,
-    _all: &HashMap<String, SequenceAnalysis>,
-    _direct_writes: &[String],
-    _direct_reads: &[String],
-    _direct_external: &[String],
-) -> (Vec<TransitiveEffect>, Vec<TransitiveEffect>, Vec<TransitiveEffect>, Vec<TransitiveEffect>) {
-    fn map_to_effects(items: &[String]) -> Vec<TransitiveEffect> {
-        items
-            .iter()
-            .map(|item| TransitiveEffect {
-                via: vec!["(transitive)".to_string()],
-                item: item.clone(),
-                origin_contract: String::new(),
-            })
-            .collect()
-    }
-
-    (
-        map_to_effects(&root.transitive_state_writes),
-        map_to_effects(&root.transitive_state_reads),
-        map_to_effects(&root.transitive_external_calls),
-        map_to_effects(&root.transitive_events),
-    )
+// Effects reached through calls with their chain; the origin is the contract of the last callee.
+fn transitive_effects(behavior: &FunctionBehavior, kind: EffectKind) -> Vec<TransitiveEffect> {
+    behavior
+        .transitive_effects
+        .iter()
+        .filter(|e| e.kind == kind)
+        .map(|e| TransitiveEffect {
+            via: e.via.clone(),
+            item: e.item.clone(),
+            origin_contract: e
+                .via
+                .last()
+                .and_then(|callee| callee.split_once("::"))
+                .map(|(contract, _)| contract.to_string())
+                .unwrap_or_default(),
+        })
+        .collect()
 }
 
 fn statement_to_step(stmt: &CfgStatement, branch: Option<BranchDirection>) -> Option<NarrativeStep> {
@@ -241,6 +230,12 @@ fn statement_to_step(stmt: &CfgStatement, branch: Option<BranchDirection>) -> Op
             detail: None,
             branch: None,
         }),
+        CfgStatement::UnresolvedModifier { name, .. } => Some(NarrativeStep {
+            step_type: StepType::InternalCall,
+            description: format!("modifier {name} (unresolved, not inlined)"),
+            detail: None,
+            branch: None,
+        }),
         CfgStatement::Assignment { .. } => None,
     }
 }
@@ -256,7 +251,6 @@ fn branch_direction(edge: &Option<BranchEdge>) -> Option<BranchDirection> {
 fn check_cei_violation(
     path: &crate::pathtree::types::ExecutionPath,
     cfg: &CfgGraph,
-    state_vars: &[crate::model::common::StateVar],
 ) -> Option<(String, String)> {
     let mut seen_external_call: Option<String> = None;
 
@@ -283,12 +277,9 @@ fn check_cei_violation(
                         return Some((call.clone(), variable.clone()));
                     }
                 }
-                CfgStatement::Assignment { target, .. } => {
-                    let base = crate::util::target_base_name(target);
-                    if state_vars.iter().any(|sv| sv.name == base) {
-                        if let Some(call) = &seen_external_call {
-                            return Some((call.clone(), target.clone()));
-                        }
+                CfgStatement::Assignment { target, storage: Some(_), .. } => {
+                    if let Some(call) = &seen_external_call {
+                        return Some((call.clone(), target.clone()));
                     }
                 }
                 _ => {}
@@ -304,14 +295,13 @@ fn generate_observations(
     cfg: &CfgGraph,
     all_behaviors: &[FunctionBehavior],
     function_name: &str,
-    state_vars: &[crate::model::common::StateVar],
 ) -> Vec<Observation> {
     let mut obs = Vec::new();
 
     for path in &path_tree.paths {
         if path.terminal == TerminalKind::Revert { continue; }
 
-        if let Some((call, write)) = check_cei_violation(path, cfg, state_vars) {
+        if let Some((call, write)) = check_cei_violation(path, cfg) {
             obs.push(Observation {
                 kind: ObservationKind::WriteAfterExternalCall,
                 description: format!(

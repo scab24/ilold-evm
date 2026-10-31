@@ -80,7 +80,7 @@ pub fn run(
         let key = (contract.key().to_string(), func.key.clone());
         let cfg = cfgs.get(&key).ok_or_else(|| anyhow::anyhow!("No CFG for {}", func_name))?;
         let pt = pt_map.get(&key).ok_or_else(|| anyhow::anyhow!("No paths for {}", func_name))?;
-        let narrative = build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses);
+        let narrative = build_function_narrative(contract, func, pt, cfg, &analysis.functions);
         print_function(&narrative);
         return Ok(());
     }
@@ -89,7 +89,7 @@ pub fn run(
         let key = (contract.key().to_string(), func.key.clone());
         let cfg = cfgs.get(&key)?;
         let pt = pt_map.get(&key)?;
-        Some(build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses))
+        Some(build_function_narrative(contract, func, pt, cfg, &analysis.functions))
     }).collect();
     print_overview(contract, &narratives);
     Ok(())

@@ -360,12 +360,11 @@ fn execute_functions_all(data: &AnalysisData) -> CommandResult {
                 classify_function(af.function, data.contract)
             };
 
-            let behavior = if af.is_inherited {
+            // inherited functions are analysed as this contract runs them
+            let behavior = data.behaviors.iter().find(|b| b.name == af.function.key).or_else(|| {
                 data.all_sequence_analyses.get(&af.origin)
-                    .and_then(|sa| sa.functions.iter().find(|b| b.name == af.function.name))
-            } else {
-                data.behaviors.iter().find(|b| b.name == af.function.name)
-            };
+                    .and_then(|sa| sa.functions.iter().find(|b| b.name == af.function.key))
+            });
 
             let writes_state = behavior
                 .map(|b| !b.effective_state_writes().is_empty())
@@ -548,16 +547,21 @@ fn execute_status(
 fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     let var_lower = variable.to_lowercase();
 
-    let mut contract_set: std::collections::HashSet<String> = std::collections::HashSet::new();
-    contract_set.insert(data.contract.key().to_string());
+    // the contract's own analysis first: it lists inherited functions as this contract runs them
+    let mut contract_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for af in data.project.accessible_functions(data.contract) {
         if af.is_inherited {
             contract_set.insert(af.origin);
         }
     }
-    let mut contract_names: Vec<String> = contract_set.into_iter().collect();
-    contract_names.sort();
+    contract_set.remove(data.contract.key());
+    let contract_names: Vec<String> =
+        std::iter::once(data.contract.key().to_string()).chain(contract_set).collect();
 
+    let accessible = data.project.accessible_functions(data.contract);
+    let origin_of = |func_key: &str| -> Option<&str> {
+        accessible.iter().find(|af| af.function.key == func_key).map(|af| af.origin.as_str())
+    };
     let access_for = |func_name: &str, contract_name: &str| -> AccessLevel {
         data.all_classifications.get(contract_name)
             .and_then(|classifs| classifs.iter().find(|(n, _)| n == func_name).map(|(_, a)| a.clone()))
@@ -584,10 +588,8 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
 
     let mut writers: Vec<(String, AccessLevel)> = Vec::new();
     let mut readers: Vec<(String, AccessLevel)> = Vec::new();
-    let mut seen_writers: std::collections::HashSet<(String, String)> =
-        std::collections::HashSet::new();
-    let mut seen_readers: std::collections::HashSet<(String, String)> =
-        std::collections::HashSet::new();
+    let mut seen_writers: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_readers: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for contract_name in &contract_names {
         let behaviors = match data.all_sequence_analyses.get(contract_name) {
@@ -620,12 +622,12 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
                     base == var_lower
                 });
 
-            let key = (contract_name.clone(), b.name.clone());
-            if writes && seen_writers.insert(key.clone()) {
-                writers.push((b.name.clone(), access_for(&b.name, contract_name)));
+            let origin = origin_of(&b.name).unwrap_or(contract_name);
+            if writes && seen_writers.insert(b.name.clone()) {
+                writers.push((b.name.clone(), access_for(&b.name, origin)));
             }
-            if reads && !writes && seen_readers.insert(key) {
-                readers.push((b.name.clone(), access_for(&b.name, contract_name)));
+            if reads && !writes && seen_readers.insert(b.name.clone()) {
+                readers.push((b.name.clone(), access_for(&b.name, origin)));
             }
         }
     }
@@ -637,6 +639,15 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     }
 
     CommandResult::VariableInfo { variable: variable.to_string(), writers, readers }
+}
+
+/// Behaviors that describe `func` as `data.contract` runs it: the contract's own analysis
+/// lists inherited functions too; the defining contract's is a fallback.
+fn behaviors_for<'a>(data: &AnalysisData<'a>, owning: &ContractDef, func: &crate::model::function::FunctionDef) -> &'a [FunctionBehavior] {
+    if data.behaviors.iter().any(|b| b.name == func.key) {
+        return data.behaviors;
+    }
+    data.all_sequence_analyses.get(owning.key()).map(|sa| sa.functions.as_slice()).unwrap_or(&[])
 }
 
 pub fn get_step_narrative(
@@ -655,15 +666,9 @@ pub fn get_step_narrative(
     let cfg = data.cfgs.get(&key).ok_or("No CFG")?;
     let pt = data.path_trees.get(&key).ok_or("No paths")?;
 
-    let behaviors: &[FunctionBehavior] = if owning.key() == data.contract.key() {
-        data.behaviors
-    } else {
-        data.all_sequence_analyses.get(owning.key())
-            .map(|sa| sa.functions.as_slice())
-            .unwrap_or(&[])
-    };
+    let behaviors = behaviors_for(data, owning, func);
 
-    Ok(build_function_narrative(owning, func, pt, cfg, behaviors, data.project, data.all_sequence_analyses))
+    Ok(build_function_narrative(owning, func, pt, cfg, behaviors))
 }
 
 pub fn get_function_info(
@@ -678,15 +683,9 @@ pub fn get_function_info(
     let cfg = data.cfgs.get(&key).ok_or_else(|| format!("No CFG for {}::{}", owning.name, func_name))?;
     let pt = data.path_trees.get(&key).ok_or("No paths")?;
 
-    let behaviors: &[FunctionBehavior] = if owning.key() == data.contract.key() {
-        data.behaviors
-    } else {
-        data.all_sequence_analyses.get(owning.key())
-            .map(|sa| sa.functions.as_slice())
-            .unwrap_or(&[])
-    };
+    let behaviors = behaviors_for(data, owning, func);
 
-    Ok(build_function_narrative(owning, func, pt, cfg, behaviors, data.project, data.all_sequence_analyses))
+    Ok(build_function_narrative(owning, func, pt, cfg, behaviors))
 }
 
 pub fn get_flow_tree(

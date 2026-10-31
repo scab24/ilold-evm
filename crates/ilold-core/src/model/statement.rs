@@ -63,6 +63,9 @@ pub enum StatementKind {
         initial_value: Option<Expression>,
         #[serde(default)]
         is_storage_ref: bool,
+        /// solc id of the declared variable; identifiers referring to it carry the same id.
+        #[serde(default)]
+        id: Option<super::decl_id::DeclId>,
     },
     TryCatch {
         expression: Expression,

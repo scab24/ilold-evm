@@ -13,6 +13,11 @@ pub struct SourceSpan {
 pub struct Param {
     pub name: String,
     pub type_name: String,
+    /// Declared with data location `storage`: a pointer into the caller's storage.
+    #[serde(default)]
+    pub is_storage: bool,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

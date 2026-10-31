@@ -15,7 +15,7 @@ use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclEntry, DeclTable};
 use crate::model::project::{Project, SourceFile};
 
-const VERSION: &str = "ilold-project-v6-foundry-0.21-sha256";
+const VERSION: &str = "ilold-project-v7-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
 const MAX_SOURCES: usize = 20_000;

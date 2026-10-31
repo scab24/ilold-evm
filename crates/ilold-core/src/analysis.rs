@@ -1,5 +1,5 @@
 //! Whole-project derived analysis shared by the web server and the CLI commands.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::callgraph::builder::build_call_graph;
 use crate::callgraph::types::CallGraph;
@@ -7,12 +7,15 @@ use crate::cfg::builder::CfgBuilder;
 use crate::cfg::types::CfgGraph;
 use crate::classify::entry_points::{classify_all, AccessLevel};
 use crate::depgraph::ContractDeps;
+use crate::model::contract::ContractDef;
+use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::parse::ProjectKey;
 use crate::pathtree::config::PruningConfig;
 use crate::pathtree::types::PathTree;
 use crate::pathtree::walker::build_path_tree;
-use crate::sequence::analysis::{analyze_project, analyze_sequences, SequenceAnalysis};
+use crate::sequence::analysis::{apply_effects, direct_behaviors, transitions, SequenceAnalysis};
+use crate::sequence::effects::{summarize, CfgSummary, EffectEngine};
 use crate::sequence::builder::build_sequence_tree;
 use crate::sequence::types::SequenceTree;
 
@@ -45,66 +48,89 @@ impl ProjectAnalysis {
         let config = &params.pruning;
         let mut cfgs = HashMap::new();
         let mut path_trees = HashMap::new();
+        let mut summaries: HashMap<(String, String), CfgSummary> = HashMap::new();
         let mut call_graphs = HashMap::new();
         let mut sequence_trees = HashMap::new();
         let mut sequence_analyses = HashMap::new();
         let mut classifications = HashMap::new();
 
-        // Dependency contracts are analysed only as bases of project contracts, where their
-        // functions are reachable through the derived contract; nothing else of them is built.
-        let inherited_dependencies: std::collections::HashSet<&str> = project
+        // Every function of the project contracts and of the dependency contracts they inherit;
+        // other dependency functions (libraries, free functions) only once project code calls them.
+        let inherited_dependencies: HashSet<&str> = project
             .project_contracts()
             .flat_map(|c| project.linearization(c))
             .filter(|c| c.is_dependency)
             .map(|c| c.key())
             .collect();
-
-        for contract in &project.contracts {
-            if contract.is_dependency && !inherited_dependencies.contains(contract.key()) {
-                continue;
-            }
-            let contract_key = contract.key().to_string();
-            let mut contract_path_trees = Vec::new();
-            let combined_state_vars = project.inherited_state_vars(contract);
-
-            for func in &contract.functions {
-                // overloads have distinct keys, so they never overwrite each other
-                let key = (contract_key.clone(), func.key.clone());
-
-                if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(project)) {
-                    let pt = build_path_tree(
-                        &cfg,
-                        &contract_key,
-                        &func.key,
-                        &combined_state_vars,
-                        config,
-                    );
-                    contract_path_trees.push(pt.clone());
-                    path_trees.insert(key.clone(), pt);
-                    cfgs.insert(key, cfg);
+        let mut pending: VecDeque<(&ContractDef, &FunctionDef)> = project
+            .contracts
+            .iter()
+            .filter(|c| !c.is_dependency || inherited_dependencies.contains(c.key()))
+            .flat_map(|c| c.functions.iter().map(move |f| (c, f)))
+            .collect();
+        let mut queued: HashSet<(String, String)> =
+            pending.iter().map(|(c, f)| (c.key().to_string(), f.key.clone())).collect();
+        while let Some((contract, func)) = pending.pop_front() {
+            let key = (contract.key().to_string(), func.key.clone());
+            let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(project)) else { continue };
+            let summary = summarize(&cfg, &project.decl_table);
+            for (callee_contract, callee_key) in summary.calls.iter().filter_map(|c| c.declaration.as_ref()) {
+                let Some(&i) = project.contract_index.get(callee_contract) else { continue };
+                let owner = &project.contracts[i];
+                let Some(callee) = owner.functions.iter().find(|f| &f.key == callee_key) else { continue };
+                if owner.is_dependency && queued.insert((owner.key().to_string(), callee.key.clone())) {
+                    pending.push_back((owner, callee));
                 }
             }
-            if contract.is_dependency {
-                continue;
-            }
+            let state_vars = project.inherited_state_vars(contract);
+            path_trees.insert(key.clone(), build_path_tree(&cfg, &key.0, &key.1, &state_vars, config));
+            summaries.insert(key.clone(), summary);
+            cfgs.insert(key, cfg);
+        }
 
-            let cg = build_call_graph(project, contract);
-            call_graphs.insert(contract_key.clone(), cg);
-
-            let st = build_sequence_tree(contract, &contract_path_trees, params.max_seq_depth);
-            sequence_trees.insert(contract_key.clone(), st);
-
-            let pt_map: HashMap<(String, String), PathTree> = contract_path_trees
+        let mut engine = EffectEngine::new(project, &summaries);
+        for contract in project.project_contracts() {
+            let contract_key = contract.key().to_string();
+            let own: HashMap<(String, String), PathTree> = path_trees
                 .iter()
-                .map(|pt| ((pt.contract.clone(), pt.function.clone()), pt.clone()))
+                .filter(|((c, _), _)| c == &contract_key)
+                .map(|(k, pt)| (k.clone(), pt.clone()))
                 .collect();
-            let analysis = analyze_sequences(&pt_map, &contract_key);
-            sequence_analyses.insert(contract_key.clone(), analysis);
+            let contract_path_trees: Vec<PathTree> = contract
+                .functions
+                .iter()
+                .filter_map(|f| own.get(&(contract_key.clone(), f.key.clone())).cloned())
+                .collect();
+
+            call_graphs.insert(contract_key.clone(), build_call_graph(project, contract));
+            sequence_trees.insert(
+                contract_key.clone(),
+                build_sequence_tree(contract, &contract_path_trees, params.max_seq_depth),
+            );
+
+            // own functions, then the inherited ones as this contract runs them
+            let mut functions = direct_behaviors(&own, &contract_key);
+            for af in project.accessible_functions(contract).into_iter().filter(|af| af.is_inherited) {
+                if functions.iter().any(|b| b.name == af.function.key) {
+                    continue;
+                }
+                let key = (af.owner.key().to_string(), af.function.key.clone());
+                let Some(pt) = path_trees.get(&key) else { continue };
+                let single = HashMap::from([(key.clone(), pt.clone())]);
+                functions.extend(direct_behaviors(&single, &key.0));
+            }
+            functions.sort_by(|a, b| a.name.cmp(&b.name));
+            for behavior in &mut functions {
+                let Some((owner, func)) = owner_of(project, contract, &behavior.name) else { continue };
+                let Some(summary) = summaries.get(&(owner.key().to_string(), func.key.clone())) else { continue };
+                let effects = engine.effects(contract, owner, func);
+                apply_effects(behavior, summary, &effects);
+            }
+            let transitions = transitions(&functions);
+            sequence_analyses.insert(contract_key.clone(), SequenceAnalysis { functions, transitions });
 
             classifications.insert(contract_key, classify_all(contract));
         }
-
-        analyze_project(project, &mut sequence_analyses);
 
         let dep_graph = ContractDeps::from_call_graphs(project, &call_graphs);
 
@@ -124,4 +150,16 @@ impl ProjectAnalysis {
     pub fn load_or_build(project: &Project, key: Option<&ProjectKey>, params: &AnalysisParams) -> Self {
         crate::analysis_cache::load_or_build_from_env(key, params, || Self::build(project, params))
     }
+}
+
+/// The function a behavior of `contract` describes: its own, or the inherited one it runs.
+fn owner_of<'a>(project: &'a Project, contract: &'a ContractDef, key: &str) -> Option<(&'a ContractDef, &'a FunctionDef)> {
+    if let Some(f) = contract.functions.iter().find(|f| f.key == key) {
+        return Some((contract, f));
+    }
+    project
+        .accessible_functions(contract)
+        .into_iter()
+        .find(|af| af.is_inherited && af.function.key == key)
+        .map(|af| (af.owner, af.function))
 }

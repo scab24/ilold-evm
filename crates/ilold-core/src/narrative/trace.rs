@@ -663,6 +663,19 @@ fn stmt_to_flow_node(
                 children: Vec::new(),
             })
         }
+        // shown as a call that cannot be expanded: the modifier's code is unknown
+        CfgStatement::UnresolvedModifier { name, from_modifier, .. } => Some(FlowNode {
+            step_id: next_id(counter),
+            depth,
+            kind: FlowKind::InternalCall {
+                function: format!("modifier {name}"),
+                origin: "unresolved".into(),
+                depth_limited: true,
+                ops_count: 0,
+            },
+            from_modifier: from_modifier.clone(),
+            children: Vec::new(),
+        }),
     }
 }
 

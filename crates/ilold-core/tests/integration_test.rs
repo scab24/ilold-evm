@@ -219,7 +219,6 @@ fn local_variable_mutations_are_not_state_writes() {
 fn write_after_external_call_is_observed() {
     use ilold_core::narrative::function::build_function_narrative;
     use ilold_core::narrative::types::ObservationKind;
-    use std::collections::HashMap;
 
     let parser = SolcFrontend;
     let project = parser.parse(&[fixture_path("solc/statements/src/Stmts.sol")]).unwrap();
@@ -235,7 +234,7 @@ fn write_after_external_call_is_observed() {
         &PruningConfig::default(),
     );
 
-    let narrative = build_function_narrative(contract, f, &tree, &cfg, &[], &project, &HashMap::new());
+    let narrative = build_function_narrative(contract, f, &tree, &cfg, &[]);
     let observed = narrative
         .observations
         .iter()

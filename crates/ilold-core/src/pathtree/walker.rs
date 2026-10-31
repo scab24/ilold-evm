@@ -6,7 +6,6 @@ use petgraph::Direction;
 
 use crate::cfg::types::*;
 use crate::model::common::StateVar;
-use crate::model::expression::AssignOperator;
 
 use super::config::PruningConfig;
 use super::types::*;
@@ -20,11 +19,13 @@ struct WalkState {
     edge_taken: Option<BranchEdge>,
 }
 
+/// Enumerates the paths of `cfg`. Reads and writes come from the storage the CFG builder
+/// resolved, so `_state_vars` is no longer consulted.
 pub fn build_path_tree(
     cfg: &CfgGraph,
     contract_name: &str,
     function_name: &str,
-    state_vars: &[StateVar],
+    _state_vars: &[StateVar],
     config: &PruningConfig,
 ) -> PathTree {
     let mut paths: Vec<ExecutionPath> = Vec::new();
@@ -117,24 +118,14 @@ pub fn build_path_tree(
             }
         }
 
-        if let Some(
-            BranchEdge::ConditionalTrue { condition } | BranchEdge::ConditionalFalse { condition },
-        ) = &state.edge_taken
-        {
-            scan_reads(condition, state_vars, &mut annotations);
-        }
-
         path.push(PathNode {
             block_id: block.id,
             block_kind: block.kind,
             branch_taken: state.edge_taken,
         });
 
-        collect_annotations(&block.statements, state_vars, &mut annotations);
-
-        if let Some(rv) = &block.return_value {
-            scan_reads(rv, state_vars, &mut annotations);
-        }
+        collect_reads(&block.reads, &mut annotations);
+        collect_annotations(&block.statements, &mut annotations);
 
         match block.kind {
             BlockKind::Return => {
@@ -219,7 +210,8 @@ pub fn build_path_tree(
     }
 }
 
-fn normalize_path(target: &str) -> String {
+/// `a[x].b[y]` -> `a[].b[]`.
+pub fn normalize_path(target: &str) -> String {
     let mut out = String::with_capacity(target.len());
     let mut depth = 0i32;
     for ch in target.chars() {
@@ -243,102 +235,36 @@ fn normalize_path(target: &str) -> String {
     out
 }
 
-fn expression_mentions_var(expr: &str, name: &str) -> bool {
-    if name.is_empty() {
-        return false;
+fn push_unique(list: &mut Vec<String>, item: String) {
+    if !list.contains(&item) {
+        list.push(item);
     }
-    let bytes = expr.as_bytes();
-    let nb = name.as_bytes();
-    let mut i = 0;
-    while i + nb.len() <= bytes.len() {
-        if &bytes[i..i + nb.len()] == nb {
-            let before_ok = i == 0 || !is_ident_char(bytes[i - 1]);
-            let after_idx = i + nb.len();
-            let after_ok = after_idx >= bytes.len() || !is_ident_char(bytes[after_idx]);
-            if before_ok && after_ok {
-                return true;
-            }
-        }
-        i += 1;
-    }
-    false
 }
 
-fn is_ident_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
+// state the block reads; reads through `storage` parameters are summarised per function
+fn collect_reads(reads: &[StorageRef], annotations: &mut PathAnnotations) {
+    for read in reads.iter().filter(|r| r.param.is_none()) {
+        push_unique(&mut annotations.state_reads, crate::util::target_base_name(&read.path).to_string());
+        push_unique(&mut annotations.state_read_paths, normalize_path(&read.path));
+    }
 }
 
-fn extract_qualified_paths(expr: &str, name: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    if name.is_empty() {
-        return out;
-    }
-    let bytes = expr.as_bytes();
-    let nb = name.as_bytes();
-    let mut i = 0;
-    while i + nb.len() <= bytes.len() {
-        if &bytes[i..i + nb.len()] == nb {
-            let before_ok = i == 0 || !is_ident_char(bytes[i - 1]);
-            let after_idx = i + nb.len();
-            let after_ok = after_idx >= bytes.len() || !is_ident_char(bytes[after_idx]);
-            if before_ok && after_ok {
-                let mut end = after_idx;
-                loop {
-                    if end < bytes.len() && bytes[end] == b'[' {
-                        let mut depth = 1i32;
-                        end += 1;
-                        while end < bytes.len() && depth > 0 {
-                            match bytes[end] {
-                                b'[' => depth += 1,
-                                b']' => depth -= 1,
-                                _ => {}
-                            }
-                            end += 1;
-                        }
-                        continue;
-                    }
-                    if end < bytes.len() && bytes[end] == b'.' {
-                        let mut j = end + 1;
-                        while j < bytes.len() && is_ident_char(bytes[j]) {
-                            j += 1;
-                        }
-                        if j > end + 1 {
-                            end = j;
-                            continue;
-                        }
-                    }
-                    break;
-                }
-                let raw = &expr[i..end];
-                let norm = normalize_path(raw);
-                if !out.contains(&norm) {
-                    out.push(norm);
-                }
-                i = end;
-                continue;
-            }
-        }
-        i += 1;
-    }
-    out
+fn record_write(path: &str, annotations: &mut PathAnnotations) {
+    annotations.state_writes.push(path.to_string());
+    push_unique(&mut annotations.state_write_paths, normalize_path(path));
 }
 
-fn collect_annotations(
-    statements: &[CfgStatement],
-    state_vars: &[StateVar],
-    annotations: &mut PathAnnotations,
-) {
+fn collect_annotations(statements: &[CfgStatement], annotations: &mut PathAnnotations) {
     for stmt in statements {
         match stmt {
-            CfgStatement::ExternalCall { target, function, arguments, kind, .. } => {
+            CfgStatement::ExternalCall { target, function, kind, .. } => {
                 annotations.external_calls.push(ExternalCallInfo {
                     target: target.clone(),
                     function: function.clone(),
                     kind: *kind,
                 });
-                scan_reads(arguments, state_vars, annotations);
             }
-            CfgStatement::InternalCall { function, arguments, target, declaration, .. } => {
+            CfgStatement::InternalCall { function, target, declaration, .. } => {
                 let call = match target {
                     Some(target) => format!("{target}.{function}"),
                     None => function.clone(),
@@ -348,68 +274,32 @@ fn collect_annotations(
                     declaration: declaration.clone(),
                 });
                 annotations.internal_calls.push(call);
-                scan_reads(arguments, state_vars, annotations);
             }
-            CfgStatement::EmitEvent { event, arguments, .. } => {
+            CfgStatement::EmitEvent { event, .. } => {
                 annotations.events_emitted.push(event.clone());
-                scan_reads(arguments, state_vars, annotations);
             }
             CfgStatement::EthTransfer { to, .. } => {
                 annotations.eth_transfers.push(to.clone());
             }
             CfgStatement::RequireCheck { condition, .. } => {
                 annotations.require_checks.push(condition.clone());
-                scan_reads(condition, state_vars, annotations);
             }
             CfgStatement::AssertCheck { condition, .. } => {
                 annotations.require_checks.push(format!("assert: {condition}"));
-                scan_reads(condition, state_vars, annotations);
             }
             CfgStatement::AssemblyBlock { .. } => {
                 annotations.has_assembly = true;
             }
-            CfgStatement::Assignment { target, value, operator, .. } => {
-                let base_name = crate::util::target_base_name(target);
-                if state_vars.iter().any(|sv| sv.name == base_name) {
-                    annotations.state_writes.push(target.clone());
-                    let normalized = normalize_path(target);
-                    if !annotations.state_write_paths.contains(&normalized) {
-                        annotations.state_write_paths.push(normalized);
-                    }
-                }
-                scan_reads(value, state_vars, annotations);
-                if !matches!(operator, AssignOperator::Assign) {
-                    scan_reads(target, state_vars, annotations);
-                }
+            CfgStatement::UnresolvedModifier { .. } => {}
+            CfgStatement::Assignment { storage: Some(place), .. } if place.param.is_none() => {
+                record_write(&place.path, annotations);
             }
-            CfgStatement::StateWrite { variable, .. } => {
-                annotations.state_writes.push(variable.clone());
-                let normalized = normalize_path(variable);
-                if !annotations.state_write_paths.contains(&normalized) {
-                    annotations.state_write_paths.push(normalized);
-                }
-            }
+            CfgStatement::Assignment { .. } => {}
+            CfgStatement::StateWrite { variable, param: None, .. } => record_write(variable, annotations),
+            CfgStatement::StateWrite { .. } => {}
             CfgStatement::StateRead { variable, .. } => {
                 annotations.state_reads.push(variable.clone());
-                let normalized = normalize_path(variable);
-                if !annotations.state_read_paths.contains(&normalized) {
-                    annotations.state_read_paths.push(normalized);
-                }
-            }
-        }
-    }
-}
-
-fn scan_reads(text: &str, state_vars: &[StateVar], annotations: &mut PathAnnotations) {
-    for sv in state_vars {
-        if expression_mentions_var(text, &sv.name) {
-            if !annotations.state_reads.contains(&sv.name) {
-                annotations.state_reads.push(sv.name.clone());
-            }
-            for path in extract_qualified_paths(text, &sv.name) {
-                if !annotations.state_read_paths.contains(&path) {
-                    annotations.state_read_paths.push(path);
-                }
+                push_unique(&mut annotations.state_read_paths, normalize_path(variable));
             }
         }
     }

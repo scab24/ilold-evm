@@ -218,3 +218,120 @@ fn aave_model_completeness() {
     let msg_sender: Vec<String> = edges_from(&pool_cg, |_| true).into_iter().filter(|e| e.contains("_msgSender")).collect();
     println!("== Pool edges to _msgSender: {} e.g. {:?}", msg_sender.len(), msg_sender.first());
 }
+
+fn files_size(dir: &std::path::Path) -> u64 {
+    snapshot(dir).iter().filter(|(p, _)| p.extension().is_some_and(|e| e == "json")).map(|(_, (len, _))| len).sum()
+}
+
+/// State and revert flow through Aave's logic libraries.
+/// `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check aave_state_flow -- --ignored --nocapture`
+#[test]
+#[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
+fn aave_state_flow() {
+    use ilold_core::sequence::analysis::{EffectKind, FunctionBehavior};
+
+    let root = PathBuf::from(std::env::var("ILOLD_AAVE_ROOT").expect("ILOLD_AAVE_ROOT"));
+    let (project, key) = SolcFrontend.parse_project_keyed(&root).expect("parse aave");
+    let params = AnalysisParams::new(1);
+    let started = std::time::Instant::now();
+    let analysis = ProjectAnalysis::build(&project, &params);
+    println!("== analysis build {:.2?}: {} cfgs, {} path trees", started.elapsed(), analysis.cfgs.len(), analysis.path_trees.len());
+
+    // persisted snapshot size, and the part of it this model adds
+    // inside the isolated cache directory of the run
+    let store = PathBuf::from(std::env::var("ILOLD_PROJECT_CACHE_DIR").expect("ILOLD_PROJECT_CACHE_DIR")).join("state-flow-measure");
+    let _ = ilold_core::analysis_cache::load_or_build_with(Some(&store), key.as_ref(), &params, || {
+        ProjectAnalysis::build(&project, &params)
+    });
+    println!("== snapshot json under the store: {} bytes (key present: {})", files_size(&store), key.is_some());
+    let mut added = 0usize;
+    let mut dependency_functions = 0usize;
+    for ((c, _), cfg) in &analysis.cfgs {
+        let contract = project.lookup_contract(c).unwrap();
+        let inherited = project.project_contracts().any(|p| project.linearization(p).iter().any(|l| l.key() == contract.key()));
+        if contract.is_dependency && !inherited {
+            dependency_functions += 1;
+            added += serde_json::to_vec(&cfg.node_weights().collect::<Vec<_>>()).unwrap().len();
+        }
+        for block in cfg.node_weights() {
+            added += serde_json::to_vec(&block.reads).unwrap().len() * usize::from(!block.reads.is_empty());
+            added += block.revert_reason.as_ref().map_or(0, |r| r.len() + 18);
+            for stmt in &block.statements {
+                added += match stmt {
+                    CfgStatement::InternalCall { storage_args, .. } | CfgStatement::ExternalCall { storage_args, .. }
+                        if !storage_args.is_empty() => serde_json::to_vec(storage_args).unwrap().len(),
+                    CfgStatement::Assignment { storage: Some(s), .. } => serde_json::to_vec(s).unwrap().len(),
+                    _ => 0,
+                };
+            }
+        }
+    }
+    for ((c, _), pt) in &analysis.path_trees {
+        let contract = project.lookup_contract(c).unwrap();
+        let inherited = project.project_contracts().any(|p| project.linearization(p).iter().any(|l| l.key() == contract.key()));
+        if contract.is_dependency && !inherited {
+            added += serde_json::to_vec(pt).unwrap().len();
+        }
+    }
+    for sa in analysis.sequence_analyses.values() {
+        for b in &sa.functions {
+            added += serde_json::to_vec(&(&b.transitive_effects, &b.revert_sources, &b.storage_param_writes, &b.storage_param_reads, &b.unresolved_modifiers)).unwrap().len();
+        }
+    }
+    println!("== bytes added by the state-flow model (estimate): {added}; dependency functions analysed because called: {dependency_functions}");
+
+    let behavior = |contract: &str, key: &str| -> &FunctionBehavior {
+        analysis.sequence_analyses[contract].functions.iter().find(|b| b.name == key)
+            .unwrap_or_else(|| panic!("{contract}::{key}"))
+    };
+    let traces = |b: &FunctionBehavior, kind: EffectKind| -> Vec<String> {
+        b.transitive_effects.iter().filter(|e| e.kind == kind)
+            .map(|e| format!("{} via {}", e.item, e.via.join(" -> "))).collect()
+    };
+    for name in ["supply", "withdraw", "borrow", "repay", "liquidationCall", "flashLoan"] {
+        let b = behavior("Pool", name);
+        let writes = &b.transitive_state_write_paths;
+        println!("== Pool.{name}: direct writes {:?}, can_revert {}, read_only {}", b.state_writes, b.can_revert, b.read_only);
+        println!("   transitive write paths ({}): {:?}", writes.len(), writes);
+        for t in traces(b, EffectKind::StateWrite).iter().take(4) {
+            println!("   write {t}");
+        }
+        let reverts = traces(b, EffectKind::Revert);
+        println!("   revert sources: {} e.g. {:?}", reverts.len(), reverts.iter().take(3).collect::<Vec<_>>());
+        assert!(writes.iter().any(|w| w.starts_with("_reserves[].")), "{name}: {writes:?}");
+        assert!(writes.iter().any(|w| w.starts_with("_usersConfig[]")), "{name}: {writes:?}");
+        assert!(b.can_revert && !reverts.is_empty(), "{name}");
+        assert!(!b.read_only, "{name}");
+    }
+    let supply = behavior("Pool", "supply");
+    let index = supply.transitive_effects.iter()
+        .find(|e| e.kind == EffectKind::StateWrite && e.item == "_reserves[].liquidityIndex").expect("liquidityIndex");
+    println!("== Pool.supply _reserves[].liquidityIndex via {:?}", index.via);
+    assert_eq!(index.via.first().map(String::as_str), Some("SupplyLogic::executeSupply"));
+    let collateral = supply.transitive_effects.iter()
+        .find(|e| e.kind == EffectKind::StateWrite && e.item == "_usersConfig[].data").expect("_usersConfig data");
+    println!("== Pool.supply _usersConfig[].data via {:?}", collateral.via);
+    println!("== Pool.supply events {:?} external {:?}", supply.transitive_events, supply.transitive_external_calls);
+
+    for (name, modifier) in [("initReserve", "modifier onlyPoolConfigurator"), ("rescueTokens", "modifier onlyPoolAdmin")] {
+        let b = behavior("Pool", name);
+        let reverts = traces(b, EffectKind::Revert);
+        println!("== Pool.{name}: can_revert {} direct {:?}\n   {:?}", b.can_revert, b.revert_sources, reverts.iter().take(4).collect::<Vec<_>>());
+        assert!(b.can_revert);
+        assert!(b.transitive_effects.iter().any(|e| e.kind == EffectKind::Revert && e.via.first().map(String::as_str) == Some(modifier)), "{name}");
+    }
+    let init = behavior("Pool", "initReserve");
+    println!("== Pool.initReserve writes {:?} transitive {:?}", init.state_write_paths, init.transitive_state_write_paths);
+
+    let transfer = behavior("AToken", "transfer");
+    println!("== AToken.transfer transitive external {:?}", transfer.transitive_external_calls);
+    assert!(transfer.transitive_external_calls.iter().any(|c| c == "POOL.finalizeTransfer"), "{:?}", transfer.transitive_external_calls);
+
+    let execute = behavior("SupplyLogic", "executeSupply");
+    println!("== SupplyLogic.executeSupply direct param writes {:?}", execute.storage_param_writes);
+    let params_written: Vec<String> = traces(execute, EffectKind::StorageParamWrite);
+    println!("   through callees ({}): {:?}", params_written.len(), params_written.iter().take(5).collect::<Vec<_>>());
+    assert!(execute.state_writes.is_empty());
+    assert!(params_written.iter().any(|w| w.starts_with("reservesData[].liquidityIndex")));
+    assert!(params_written.iter().any(|w| w.starts_with("userConfig.data")));
+}

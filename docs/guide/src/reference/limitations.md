@@ -22,6 +22,30 @@ When a statement is included in a forward slice, its lexical ancestors (enclosin
 
 Tuple destructuring assignments such as `(a, b) = foo()` may not be recognized as DEFs depending on how the Solidity frontend lowers them. If the frontend does not emit a top-level `Assignment` node, the individual targets (`a`, `b`) are treated as USEs only. This can cause a backward slice to miss the destructuring as a definition point for `a` or `b`.
 
+## Effects across calls
+
+State reads and writes are resolved through compiler declarations, so a local
+that shadows a state variable is never reported as state. Effects of callees --
+internal functions, internal library functions and library delegatecalls --
+are reported as transitive effects with the call chain (`via`) that reaches
+them, including helpers called from modifiers. A library parameter declared
+`storage` is bound at each call site to the caller's argument, so
+`reserve.liquidityIndex = x` inside a library becomes a write of
+`_reserves[].liquidityIndex` in the calling contract. Inherited functions are
+analysed as the derived contract runs them, overrides included.
+
+Boundaries:
+
+- Path trees stay per function: `revert_paths` counts only the function's own
+  code. `can_revert` and the revert sources include reverts in callees.
+- A storage pointer follows the last assignment in source order, not each
+  branch separately. A function returning a storage pointer is followed one
+  level deep, and only when all its returns agree on the location.
+- Recursive calls contribute their effects once; chains deeper than 24 calls
+  are cut.
+- Writes inside inline assembly and calls through `address.call` or `this.f()`
+  into the same contract are not followed.
+
 ## Timeline tracks state mutations only
 
 The `timeline` command tracks writes to state variables across session steps. Local variable assignments within a function body are recorded separately (`local_entries`) but are not visible in the default timeline output. If you need to trace a local variable, use `slice` within the specific function instead.

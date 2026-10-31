@@ -218,7 +218,9 @@ fn analysis_builds_dependencies_only_through_derived_contracts() {
     let pt = |c: &str, f: &str| analysis.path_trees.contains_key(&(c.to_string(), f.to_string()));
     assert!(pt("Multicall", "multicall"), "inherited dependency functions are analysed");
     assert!(pt("Context", "_msgSender"));
-    assert!(!pt("Math", "max"), "a dependency library that nothing inherits is not analysed");
+    // a dependency library that nothing inherits is analysed only where project code calls it
+    assert!(pt("Math", "max"), "Vault.deposit calls Math.max");
+    assert!(!analysis.sequence_analyses.contains_key("Math"), "no behaviors listed for dependencies");
     assert!(!analysis.call_graphs.contains_key("Multicall"), "no call graph for dependencies");
     assert!(!analysis.sequence_trees.contains_key("Multicall"), "no sequences for dependencies");
     assert!(pt("src/ext/Token.sol:Token", "mint") && pt("src/core/Token.sol:Token", "mint"));
