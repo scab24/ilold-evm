@@ -129,6 +129,9 @@ fn print_function(n: &FunctionNarrative) {
     }
     println!("  {} {} ({} return, {} revert)",
         c_muted("Paths:"), n.total_paths, c_ok(&n.happy_paths.to_string()), c_danger(&n.revert_paths.to_string()));
+    if let Some(note) = n.path_stats.truncation_note() {
+        println!("  {}", c_warn(&note));
+    }
     if !n.state_writes.is_empty() {
         println!("  {} {}", c_muted("Writes:"), c_warn(&n.state_writes.join(", ")));
     }

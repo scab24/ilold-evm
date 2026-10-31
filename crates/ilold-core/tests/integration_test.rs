@@ -121,8 +121,8 @@ fn state_access(fn_name: &str) -> (Vec<String>, Vec<String>) {
         &contract.state_vars,
         &PruningConfig::default(),
     );
-    let reads: Vec<String> = tree.paths.iter().flat_map(|p| p.annotations.state_reads.clone()).collect();
-    let writes: Vec<String> = tree.paths.iter().flat_map(|p| p.annotations.state_writes.clone()).collect();
+    let reads: Vec<String> = tree.paths().flat_map(|p| p.annotations.state_reads.clone()).collect();
+    let writes: Vec<String> = tree.paths().flat_map(|p| p.annotations.state_writes.clone()).collect();
     (reads, writes)
 }
 
@@ -167,7 +167,7 @@ fn array_push_is_not_an_external_call() {
         &PruningConfig::default(),
     );
 
-    let has_external = tree.paths.iter().any(|p| !p.annotations.external_calls.is_empty());
+    let has_external = tree.paths().any(|p| !p.annotations.external_calls.is_empty());
     assert!(!has_external, "array push must not be classified as an external call");
 }
 
@@ -258,8 +258,8 @@ fn value_call_options_resolve_the_real_callee() {
         &PruningConfig::default(),
     );
 
-    let detects_call = tree.paths.iter().any(|p| p.annotations.external_calls.iter().any(|c| c.function == "call"));
-    let leaks_placeholder = tree.paths.iter().any(|p| {
+    let detects_call = tree.paths().any(|p| p.annotations.external_calls.iter().any(|c| c.function == "call"));
+    let leaks_placeholder = tree.paths().any(|p| {
         p.annotations.internal_calls.iter().any(|c| c.contains("/*"))
             || p.annotations.external_calls.iter().any(|c| c.function.contains("/*"))
     });
@@ -295,8 +295,8 @@ fn method_named_push_is_an_external_call_not_a_write() {
     let cfg = CfgBuilder::build(f, vault);
     let tree = build_path_tree(&cfg, &vault.name, &f.name, &vault.state_vars, &PruningConfig::default());
 
-    let calls_push = tree.paths.iter().any(|p| p.annotations.external_calls.iter().any(|c| c.function == "push"));
-    let writes_pool = tree.paths.iter().any(|p| p.annotations.state_writes.iter().any(|w| w == "pool"));
+    let calls_push = tree.paths().any(|p| p.annotations.external_calls.iter().any(|c| c.function == "push"));
+    let writes_pool = tree.paths().any(|p| p.annotations.state_writes.iter().any(|w| w == "pool"));
 
     assert!(calls_push, "pool.push() (resolved contract method) must be an external call");
     assert!(!writes_pool, "pool.push() must not be recorded as a write to `pool`");

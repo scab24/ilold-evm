@@ -317,6 +317,9 @@ fn print_contract(
             pt.stats.total_paths,
             c_ok(&pt.stats.happy_paths.to_string()),
             c_danger(&pt.stats.revert_paths.to_string()));
+        if let Some(note) = pt.stats.truncation_note() {
+            println!("    {}", c_warn(&note));
+        }
 
         if verbose {
             for node in cfg.node_indices() {
@@ -364,12 +367,12 @@ fn print_contract(
 
             println!("  {} {} total ({} functions: {} state-changing, {} read-only)",
                 c_muted(&format!("Sequences (depth {}):", max_seq_depth)),
-                st.sequences.len(),
+                st.sequence_count(max_seq_depth),
                 st.functions.len(), state_changing, read_only);
 
             if verbose {
                 for d in 1..=max_seq_depth {
-                    let count = st.sequences.iter().filter(|s| s.depth == d).count();
+                    let count = st.sequence_count(d) - st.sequence_count(d - 1);
                     println!("    {} {} sequences", c_muted(&format!("depth {}:", d)), count);
                 }
                 println!();

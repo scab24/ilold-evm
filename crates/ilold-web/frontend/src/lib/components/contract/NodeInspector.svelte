@@ -12,6 +12,7 @@
     contract: { name: string; functions?: any[]; inherited_functions?: any[] };
     lookupBlock: (blockId: string) => { statements: string[]; node_type: string } | null;
     onpathselect: (funcName: string, path: any) => void;
+    onloadmorepaths: (funcName: string) => void;
     onexpandcfg: (funcName: string, nodeId?: string) => void;
   }
 
@@ -26,12 +27,22 @@
     contract,
     lookupBlock,
     onpathselect,
+    onloadmorepaths,
     onexpandcfg,
   }: Props = $props();
 
   // Keys are Solidity names; own-property lookup so names like `constructor` never hit Object.prototype
   function pathsFor(funcName: string): any {
     return funcPaths && Object.hasOwn(funcPaths, funcName) ? funcPaths[funcName] : undefined;
+  }
+
+  // mirrors PathTreeStats::truncation_note on the server
+  function truncationCauses(s: any): string {
+    const causes: string[] = [];
+    if (s.depth_cutoff) causes.push(`${s.depth_cutoff} depth cutoffs`);
+    if (s.loop_cutoff) causes.push(`${s.loop_cutoff} loop cutoffs`);
+    if (s.cap_reached) causes.push(`path cap reached (${s.paths_dropped} branches dropped)`);
+    return causes.join(', ');
   }
 
   function termColor(t: string): string {
@@ -87,7 +98,11 @@
         {#if pathsFor(selectedNode.label)}
           {@const fp = pathsFor(selectedNode.label)}
           {@const fpPaths = Array.isArray(fp.paths) ? fp.paths : []}
-          <div class="d-row"><span class="d-label">Paths</span><span>{fp.stats?.total_paths ?? fpPaths.length} ({fp.stats?.happy_paths ?? 0} return, {fp.stats?.revert_paths ?? 0} revert)</span></div>
+          {@const cutoffs = (fp.stats?.loop_cutoff ?? 0) + (fp.stats?.depth_cutoff ?? 0)}
+          <div class="d-row"><span class="d-label">Paths</span><span>{fp.stats?.total_paths ?? fpPaths.length} ({fp.stats?.happy_paths ?? 0} return, {fp.stats?.revert_paths ?? 0} revert{cutoffs ? `, ${cutoffs} cut off` : ''})</span></div>
+          {#if fp.stats?.truncated}
+            <div class="d-hint" style="color:var(--color-warning)">Truncated: {truncationCauses(fp.stats)}</div>
+          {/if}
 
           <Collapsible title="Paths" count={fp.stats?.total_paths ?? fpPaths.length} open={true}>
             {#each fpPaths as path}
@@ -104,6 +119,11 @@
                 {/if}
               </button>
             {/each}
+            {#if fp.page?.truncated}
+              <button class="d-path" onclick={() => onloadmorepaths(selectedNode.label)}>
+                Showing {fpPaths.length} of {fp.page.total} · load more
+              </button>
+            {/if}
           </Collapsible>
 
           {#if selectedPath}
@@ -244,7 +264,7 @@
         {@const paths = pathsFor(parentFunc)?.paths || []}
         {@const passingPaths = paths.filter((p: any) => p.nodes.some((n: any) => `cfg:${parentFunc}:b${n.block_id}` === selectedNode.id))}
         <div class="d-row"><span class="d-label">Function</span><span>{parentFunc}</span></div>
-        <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length} paths</span></div>
+        <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length}{pathsFor(parentFunc)?.page?.truncated ? ' loaded' : ''} paths</span></div>
 
         {#if passingPaths.length > 0}
           <div class="d-section-label">Select a path to explore</div>

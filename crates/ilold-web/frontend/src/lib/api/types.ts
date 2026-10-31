@@ -114,7 +114,9 @@ export interface SearchResult {
 
 export interface SearchComplete {
   type: "search_complete";
+  /** Paths that match; only the first ones are streamed when `truncated`. */
   total: number;
+  truncated: boolean;
 }
 
 export interface SearchError {

@@ -66,13 +66,12 @@ fn tree(contract_name: &str, key: &str) -> PathTree {
 }
 
 fn internal_calls(t: &PathTree) -> BTreeSet<String> {
-    t.paths.iter().flat_map(|p| p.annotations.internal_calls.iter().cloned()).collect()
+    t.paths().flat_map(|p| p.annotations.internal_calls).collect()
 }
 
 fn external_calls(t: &PathTree) -> BTreeSet<(String, String, CallKind)> {
-    t.paths
-        .iter()
-        .flat_map(|p| p.annotations.external_calls.iter())
+    t.paths()
+        .flat_map(|p| p.annotations.external_calls)
         .map(|c| (c.target.clone(), c.function.clone(), c.kind))
         .collect()
 }
@@ -235,7 +234,7 @@ fn path_annotations_split_internal_and_external_calls() {
     );
 
     let builtins = tree("Caller", "builtins");
-    assert!(!builtins.paths.is_empty());
+    assert!(!builtins.paths().next().is_none());
     assert!(internal_calls(&builtins).is_empty(), "{:?}", internal_calls(&builtins));
     assert!(external_calls(&builtins).is_empty(), "{:?}", external_calls(&builtins));
 
@@ -320,7 +319,7 @@ fn strings(items: &[&str]) -> Vec<String> {
 fn overloaded_internal_callees_keep_their_own_effects() {
     let t = tree("Ledger", "moveTwo");
     let targets: BTreeSet<InternalCallTarget> =
-        t.paths.iter().flat_map(|p| p.annotations.internal_call_targets.iter().cloned()).collect();
+        t.paths().flat_map(|p| p.annotations.internal_call_targets).collect();
     assert_eq!(
         targets,
         BTreeSet::from([InternalCallTarget {

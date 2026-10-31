@@ -12,8 +12,9 @@ use ilold_core::model::common::SourceSpan;
 use ilold_core::model::contract::ContractDef;
 use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
-use ilold_core::pathtree::types::PathTree;
-use ilold_core::sequence::types::SequenceTree;
+use ilold_core::pathtree::types::PathTreePage;
+use ilold_core::sequence::types::SequencePage;
+use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
 
 use crate::state::AppState;
 
@@ -49,6 +50,8 @@ pub struct FunctionSummary {
     pub path_count: usize,
     pub happy_paths: usize,
     pub revert_paths: usize,
+    /// The enumeration hit a cutoff or the path cap; counts cover only the paths found.
+    pub paths_truncated: bool,
     pub modifiers: Vec<String>,
     pub access: AccessLevel,
     /// Access and state guards read from code, as this contract runs the function.
@@ -123,6 +126,7 @@ pub async fn get_contract(
                 path_count: pt.map(|p| p.stats.total_paths).unwrap_or(0),
                 happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
                 revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
+                paths_truncated: pt.is_some_and(|p| p.stats.truncated),
                 modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
                 access,
                 guards,
@@ -165,6 +169,7 @@ pub async fn get_contract(
                 path_count: pt.map(|p| p.stats.total_paths).unwrap_or(0),
                 happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
                 revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
+                paths_truncated: pt.is_some_and(|p| p.stats.truncated),
                 modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
                 access,
                 guards,
@@ -409,39 +414,61 @@ fn slice_lines(src: &str, start_1based: usize, end_1based: usize) -> String {
 }
 
 
+#[derive(Deserialize)]
+pub struct PageQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+// larger limits are clamped; the response's `page` reports the one applied
+fn page_window(offset: Option<usize>, limit: Option<usize>) -> (usize, usize) {
+    (offset.unwrap_or(0), limit.unwrap_or(DEFAULT_PAGE_LIMIT).min(MAX_PAGE_LIMIT))
+}
+
 pub async fn get_paths(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-) -> Result<Json<PathTree>, Response> {
+    Query(query): Query<PageQuery>,
+) -> Result<Json<PathTreePage>, Response> {
     let (owning, func) = route_function(&state, &contract_name, &func_name)?;
 
     let key = (owning.key().to_string(), func.key.clone());
+    let (offset, limit) = page_window(query.offset, query.limit);
     state
         .path_trees
         .get(&key)
-        .cloned()
-        .map(Json)
+        .map(|pt| Json(pt.page(offset, limit)))
         .ok_or_else(|| StatusCode::NOT_FOUND.into_response())
 }
 
 
+/// Deepest sequence depth served; the count grows as functions^depth.
+pub const MAX_SEQUENCE_DEPTH: usize = 8;
+
 #[derive(Deserialize)]
 pub struct SequenceQuery {
     pub depth: Option<usize>,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
 }
 
 pub async fn get_sequences(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-    Query(_query): Query<SequenceQuery>,
-) -> Result<Json<SequenceTree>, Response> {
+    Query(query): Query<SequenceQuery>,
+) -> Result<Json<SequencePage>, Response> {
     let contract = route_contract(&state, &name)?;
-    state
+    let tree = state
         .sequence_trees
         .get(contract.key())
-        .cloned()
-        .map(Json)
-        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+    let depth = query.depth.unwrap_or(tree.max_depth);
+    if depth > MAX_SEQUENCE_DEPTH {
+        let message = format!("depth must be at most {MAX_SEQUENCE_DEPTH}");
+        return Err((StatusCode::BAD_REQUEST, message).into_response());
+    }
+    let (offset, limit) = page_window(query.offset, query.limit);
+    Ok(Json(tree.page(depth, offset, limit)))
 }
 
 
@@ -513,8 +540,8 @@ pub async fn get_search_suggestions(
     let mut ext_calls = std::collections::HashSet::new();
     for ((c, _), pt) in &state.path_trees {
         if !origins.contains(c) { continue; }
-        for path in &pt.paths {
-            for call in &path.annotations.external_calls {
+        for annotations in pt.block_annotations() {
+            for call in &annotations.external_calls {
                 ext_calls.insert(format!("{}.{}", call.target, call.function));
             }
         }

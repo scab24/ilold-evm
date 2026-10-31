@@ -281,7 +281,7 @@ pub async fn get_step_detail(
         let session = store.active_session();
         let data = build_analysis_data(&state, &store.contract)?;
         get_step_narrative(session, step_index, &data)
-            .map(Json)
+            .map(narrated)
             .map_err(|e| (StatusCode::NOT_FOUND, e))
     })
 }
@@ -348,10 +348,17 @@ pub async fn get_function_detail(
 ) -> Result<Json<FunctionNarrative>, (StatusCode, String)> {
     let data = build_analysis_data(&state, &contract_name)?;
 
-    let narrative = get_function_info(&func_name, &data)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    get_function_info(&func_name, &data)
+        .map(narrated)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))
+}
 
-    Ok(Json(narrative))
+/// Path narratives a response carries; the path pages hold every path.
+pub const MAX_NARRATIVE_PATHS: usize = 100;
+
+fn narrated(mut narrative: FunctionNarrative) -> Json<FunctionNarrative> {
+    narrative.truncate_paths(MAX_NARRATIVE_PATHS);
+    Json(narrative)
 }
 
 #[derive(Deserialize)]

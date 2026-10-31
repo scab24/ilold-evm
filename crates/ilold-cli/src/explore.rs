@@ -1877,7 +1877,7 @@ fn print_narrative(val: &serde_json::Value) {
     }
 
     enum Section<'a> {
-        Paths { total: u64, happy: u64, revert: u64 },
+        Paths { total: u64, happy: u64, revert: u64, note: Option<String> },
         StringList { label: &'a str, label_color: SectionColor, items: Vec<String> },
         Transitive(Vec<(String, TransitiveGroup)>),
         Observations(Vec<String>),
@@ -1898,7 +1898,10 @@ fn print_narrative(val: &serde_json::Value) {
     if let Some(total) = val.get("total_paths").and_then(|v| v.as_u64()) {
         let happy = val.get("happy_paths").and_then(|v| v.as_u64()).unwrap_or(0);
         let revert = val.get("revert_paths").and_then(|v| v.as_u64()).unwrap_or(0);
-        sections.push(Section::Paths { total, happy, revert });
+        let note = val.get("path_stats")
+            .and_then(|v| serde_json::from_value::<ilold_core::pathtree::types::PathTreeStats>(v.clone()).ok())
+            .and_then(|stats| stats.truncation_note());
+        sections.push(Section::Paths { total, happy, revert, note });
     }
 
     let collect_strs = |key: &str| -> Vec<String> {
@@ -1996,11 +1999,14 @@ fn print_narrative(val: &serde_json::Value) {
         let branch = if last { "└──" } else { "├──" };
         let cont = if last { "   " } else { "│  " };
         match section {
-            Section::Paths { total, happy, revert } => {
+            Section::Paths { total, happy, revert, note } => {
                 println!(
                     "  {} {} path(s): {} happy, {} revert",
                     c_muted(branch), total, c_ok(&happy.to_string()), c_danger(&revert.to_string())
                 );
+                if let Some(note) = note {
+                    println!("  {}    {}", c_muted(cont), c_warn(note));
+                }
             }
             Section::StringList { label, label_color, items } => {
                 println!("  {} {}:", c_muted(branch), color(label_color, label));

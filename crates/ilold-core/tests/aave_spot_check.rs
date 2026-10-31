@@ -77,10 +77,10 @@ fn aave_call_resolution() {
     let cfg = CfgBuilder::build_with_project(permit, owner, Some(&project));
     let pt = build_path_tree(&cfg, &owner.name, &permit.key, &project.inherited_state_vars(owner),
         &PruningConfig::default());
-    let mut internal: Vec<&String> = pt.paths.iter().flat_map(|p| &p.annotations.internal_calls).collect();
+    let mut internal: Vec<String> = pt.paths().flat_map(|p| p.annotations.internal_calls).collect();
     internal.sort();
     internal.dedup();
-    let mut external: Vec<String> = pt.paths.iter().flat_map(|p| &p.annotations.external_calls)
+    let mut external: Vec<String> = pt.paths().flat_map(|p| p.annotations.external_calls)
         .map(|c| format!("{}.{} {:?}", c.target, c.function, c.kind)).collect();
     external.sort();
     external.dedup();
@@ -422,5 +422,83 @@ fn aave_access_guards() {
     for f in ["supply", "withdraw", "borrow", "repay", "flashLoan"] {
         assert!(!guards("Pool", "Pool", f).iter().any(|g| g.kind.is_access()), "Pool.{f}: {:?}", guards("Pool", "Pool", f));
         assert_eq!(access("Pool", f), AccessLevel::Public, "Pool.{f}");
+    }
+}
+
+fn json_len<T: serde::Serialize + ?Sized>(value: &T) -> usize { serde_json::to_vec(value).unwrap().len() }
+
+fn graph_json_len<N: serde::Serialize, E: serde::Serialize, Ty: petgraph::EdgeType, Ix: petgraph::graph::IndexType>(
+    g: &petgraph::stable_graph::StableGraph<N, E, Ty, Ix>,
+) -> usize {
+    json_len(&g.node_weights().collect::<Vec<_>>()) + json_len(&g.edge_weights().collect::<Vec<_>>())
+}
+
+/// Snapshot bytes per component, the default /paths and /sequences payloads of Pool and IPool,
+/// and how the heaviest functions report their truncated path enumeration.
+/// `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check aave_sizes -- --ignored --nocapture`
+#[test]
+#[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
+fn aave_sizes() {
+    use ilold_core::util::DEFAULT_PAGE_LIMIT;
+
+    let root = PathBuf::from(std::env::var("ILOLD_AAVE_ROOT").expect("ILOLD_AAVE_ROOT"));
+    let (project, key) = SolcFrontend.parse_project_keyed(&root).expect("parse aave");
+    // the depth `ilold serve` and `explore` use by default
+    let params = AnalysisParams::new(3);
+    let started = std::time::Instant::now();
+    let analysis = ProjectAnalysis::build(&project, &params);
+    println!("== analysis build {:.2?}", started.elapsed());
+
+    let cfgs: usize = analysis.cfgs.values().map(graph_json_len).sum();
+    let call_graphs: usize = analysis.call_graphs.values().map(graph_json_len).sum();
+    let dep = &analysis.dep_graph.graph;
+    let dep_graph = json_len(&dep.node_weights().collect::<Vec<_>>()) + json_len(&dep.edge_weights().collect::<Vec<_>>());
+    let path_trees: usize = analysis.path_trees.values().map(|pt| json_len(pt)).sum();
+    let sequence_trees: usize = analysis.sequence_trees.values().map(|st| json_len(st)).sum();
+    let sequence_analyses: usize = analysis.sequence_analyses.values().map(|sa| json_len(sa)).sum();
+    let classifications: usize = analysis.classifications.values().map(|c| json_len(c)).sum();
+    println!("== components (bytes): cfgs {cfgs}, path_trees {path_trees}, call_graphs {call_graphs}, dep_graph {dep_graph}, \
+        sequence_trees {sequence_trees}, sequence_analyses {sequence_analyses}, classifications {classifications}");
+
+    let store = PathBuf::from(std::env::var("ILOLD_PROJECT_CACHE_DIR").expect("ILOLD_PROJECT_CACHE_DIR")).join("size-measure");
+    let started = std::time::Instant::now();
+    let _ = ilold_core::analysis_cache::load_or_build_with(Some(&store), key.as_ref(), &params, || {
+        ProjectAnalysis::build(&project, &params)
+    });
+    let snapshot = files_size(&store);
+    println!("== snapshot file: {snapshot} bytes (load or build + publish {:.2?})", started.elapsed());
+    assert!(snapshot > 0 && snapshot < 64 * 1024 * 1024, "snapshot {snapshot} bytes");
+
+    for name in ["Pool", "IPool"] {
+        let contract = project.contracts.iter().find(|c| c.name == name && !c.is_dependency).unwrap();
+        let trees: Vec<_> = analysis.path_trees.iter().filter(|((c, _), _)| c == contract.key()).map(|(_, pt)| pt).collect();
+        let first_pages: usize = trees.iter().map(|pt| json_len(&pt.page(0, DEFAULT_PAGE_LIMIT))).sum();
+        let all_paths: usize = trees.iter().map(|pt| json_len(&pt.page(0, usize::MAX))).sum();
+        let tree = &analysis.sequence_trees[contract.key()];
+        let functions_only = json_len(&tree.page(params.max_seq_depth, 0, 0));
+        let first_sequences = json_len(&tree.page(params.max_seq_depth, 0, DEFAULT_PAGE_LIMIT));
+        println!("== {name}: /paths first page of every function {first_pages} bytes (all pages {all_paths}); \
+            /sequences?limit=0 {functions_only} bytes, first page {first_sequences} bytes of {} sequences",
+            tree.sequence_count(params.max_seq_depth));
+    }
+    let ipool = project.contracts.iter().find(|c| c.name == "IPool" && !c.is_dependency).unwrap();
+    assert_eq!(analysis.sequence_trees[ipool.key()].sequence_count(3), 0, "an interface runs no sequences");
+
+    for (contract, function) in [
+        ("BorrowEngine", "_configBorrowSide"),
+        ("EModeEngine", "_configEModeCategories"),
+        ("CollateralEngine", "_configCollateralSide"),
+        ("RateEngine", "_configRateStrategies"),
+        ("ERC20AaveLMUpgradeable", "_claimRewardsOnBehalf"),
+    ] {
+        let (k, pt) = analysis.path_trees.iter()
+            .find(|((c, f), _)| project.lookup_contract(c).is_ok_and(|d| d.name == contract) && f.starts_with(function))
+            .unwrap_or_else(|| panic!("{contract}::{function}"));
+        let s = &pt.stats;
+        println!("== {}::{}: stored {} bytes, all paths {} bytes, {}", k.0, k.1, json_len(pt), json_len(&pt.page(0, usize::MAX)),
+            serde_json::to_string(s).unwrap());
+        assert_eq!(s.happy_paths + s.revert_paths + s.loop_cutoff + s.depth_cutoff, s.total_paths);
+        assert_eq!(s.truncated, s.cap_reached || s.loop_cutoff + s.depth_cutoff > 0);
+        assert!(!s.cap_reached || s.total_paths == params.pruning.max_paths && s.paths_dropped > 0);
     }
 }

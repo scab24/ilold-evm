@@ -30,9 +30,14 @@ pub struct SearchComplete {
     pub total: usize,
 }
 
-pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> {
+/// Results streamed per search; the completion message reports how many matched in all.
+pub const MAX_SEARCH_RESULTS: usize = 100;
+
+/// The first `limit` matching paths and the number of paths that match.
+pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> (Vec<SearchResult>, usize) {
     let q = query.query.to_lowercase();
     let mut results = Vec::new();
+    let mut total = 0;
 
     for ((contract, function), path_tree) in &state.path_trees {
         if let Some(ref filter_contract) = query.contract {
@@ -42,7 +47,7 @@ pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> 
             if function != filter_function { continue; }
         }
 
-        for path in &path_tree.paths {
+        for path in path_tree.paths() {
             let mut matches = Vec::new();
 
             for check in &path.annotations.require_checks {
@@ -119,7 +124,9 @@ pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> 
                 });
             }
 
-            if !matches.is_empty() {
+            if matches.is_empty() { continue; }
+            total += 1;
+            if results.len() < limit {
                 results.push(SearchResult {
                     contract: contract.clone(),
                     function: function.clone(),
@@ -132,5 +139,5 @@ pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> 
         }
     }
 
-    results
+    (results, total)
 }

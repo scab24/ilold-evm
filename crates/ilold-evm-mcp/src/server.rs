@@ -111,9 +111,7 @@ pub async fn dispatch(
         }
         "ilold_sequences" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            let q = arg_u64(arguments, "depth")
-                .map(|d| format!("?depth={d}"))
-                .unwrap_or_default();
+            let q = uint_query(arguments, &["depth", "offset", "limit"]);
             client.get(&format!("/api/contract/{}/sequences{q}", segment(&c))).await
         }
         "ilold_function_analysis" => {
@@ -129,7 +127,8 @@ pub async fn dispatch(
         "ilold_function_paths" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{}/{f}/paths", segment(&c))).await
+            let q = uint_query(arguments, &["offset", "limit"]);
+            client.get(&format!("/api/contract/{}/{f}/paths{q}", segment(&c))).await
         }
         "ilold_source" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
@@ -285,6 +284,14 @@ fn arg_u64(arguments: Option<&Value>, key: &str) -> Option<u64> {
         .and_then(|v| v.as_object())
         .and_then(|o| o.get(key))
         .and_then(|v| v.as_u64())
+}
+
+/// `?k=v&...` for the integer arguments present, in `keys` order.
+fn uint_query(arguments: Option<&Value>, keys: &[&str]) -> String {
+    let pairs: Vec<String> = keys.iter()
+        .filter_map(|k| arg_u64(arguments, k).map(|v| format!("{k}={v}")))
+        .collect();
+    if pairs.is_empty() { String::new() } else { format!("?{}", pairs.join("&")) }
 }
 
 fn arg_bool(arguments: Option<&Value>, key: &str) -> bool {

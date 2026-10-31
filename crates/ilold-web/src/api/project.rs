@@ -101,6 +101,7 @@ pub struct MapFunction {
     pub path_count: usize,
     pub happy_paths: usize,
     pub revert_paths: usize,
+    pub paths_truncated: bool,
     pub has_external_calls: bool,
 }
 
@@ -136,8 +137,7 @@ pub async fn get_project_map(
                 let key = (contract.key().to_string(), f.key.clone());
                 let pt = state.path_trees.get(&key);
                 let has_ext = pt
-                    .map(|p| p.paths.iter().any(|path| !path.annotations.external_calls.is_empty()))
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.block_annotations().any(|a| !a.external_calls.is_empty()));
                 MapFunction {
                     name: f.name.clone(),
                     visibility: format!("{:?}", f.visibility),
@@ -145,6 +145,7 @@ pub async fn get_project_map(
                     path_count: pt.map(|p| p.stats.total_paths).unwrap_or(0),
                     happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
                     revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
+                    paths_truncated: pt.is_some_and(|p| p.stats.truncated),
                     has_external_calls: has_ext,
                 }
             })

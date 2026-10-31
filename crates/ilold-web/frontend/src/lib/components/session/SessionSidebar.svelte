@@ -20,6 +20,7 @@
     contractDetail = null,
     lookupBlock = () => null,
     onpathselect = () => {},
+    onloadmorepaths = () => {},
     onexpandcfg = () => {},
   }: {
     contract: string;
@@ -33,6 +34,7 @@
     contractDetail?: { name: string; functions?: any[]; inherited_functions?: any[] } | null;
     lookupBlock?: (blockId: string) => { statements: string[]; node_type: string } | null;
     onpathselect?: (funcName: string, path: any) => void;
+    onloadmorepaths?: (funcName: string) => void;
     onexpandcfg?: (funcName: string, nodeId?: string) => void;
   } = $props();
 
@@ -235,6 +237,7 @@
           contract={contractDetail}
           {lookupBlock}
           {onpathselect}
+          {onloadmorepaths}
           {onexpandcfg}
         />
       {/if}

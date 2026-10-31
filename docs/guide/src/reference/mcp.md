@@ -42,7 +42,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `ilold_contract_detail` | `contract` | Functions (visibility, mutability, modifiers, params, path stats), state variables, inheritance, inherited members. |
+| `ilold_contract_detail` | `contract` | Functions (visibility, mutability, modifiers, params, path counts and `paths_truncated`), state variables, inheritance, inherited members. |
 | `ilold_entry_points` | `contract` | Externally callable functions with their access level (public, or restricted) and guards read from code: `kind` (`CallerEquals`, `RoleCheck`, `TxOrigin`, or `AccessByName` when only a modifier name was available; `Pause`, `Reentrancy`, `Initializer` for state guards), `condition`, `via`, `span`, `heuristic`. |
 | `ilold_search` | `contract` | Searchable names in a contract: functions, state variables, events, external-call targets. |
 
@@ -50,8 +50,8 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. |
-| `ilold_function_paths` | `contract`, `function` | Enumerated execution paths with per-path annotations and terminal kind (return/revert). |
+| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert, `path_stats` with cutoffs and truncation; the first 100 narrated, `paths_omitted` counts the rest), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. |
+| `ilold_function_paths` | `contract`, `function`, `offset`, `limit` (optional) | One page of the execution paths with per-path annotations and terminal kind, plus the path stats (cutoffs, `cap_reached`, `truncated`); `page.truncated` means more paths follow. |
 | `ilold_trace` | `contract`, `function`, `depth` (optional), `reverts` (optional), `expand` (optional) | Execution tree with modifier bodies inlined and external calls resolved to their real target. |
 | `ilold_callgraph` | `contract` | Function call edges of the contract as the most derived contract (own and inherited functions, `super` and virtual dispatch resolved), with call kinds (internal, library internal/delegatecall, external, `this`, low-level, transfer/send, creation) and call counts. |
 | `ilold_cfg` | `contract`, `function` | Control flow graph: basic blocks and branch edges. |
@@ -70,7 +70,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 | Tool | Parameters | Returns |
 | --- | --- | --- |
 | `ilold_sequence_analysis` | `contract` | Per-function behavior and the transition matrix: state shared between functions and conditions affected. |
-| `ilold_sequences` | `contract`, `depth` (optional) | Transaction sequence tree up to a depth. |
+| `ilold_sequences` | `contract`, `depth`, `offset`, `limit` (optional) | Callable functions and one page of the transaction sequences up to a depth (none for interfaces); `limit` 0 returns only the functions. |
 
 ### Session and findings (stateful)
 

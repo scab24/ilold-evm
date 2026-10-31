@@ -76,7 +76,7 @@ Returns the function narrative for a specific session step.
 
 **Path params:** `index` -- zero-based step index.
 
-**Response:** `FunctionNarrative` with paths, state writes, external calls, and conditions.
+**Response:** `FunctionNarrative` with paths, state writes, external calls, and conditions; paths are capped as in `GET /api/session/function/{contract}/{func}`.
 
 ### GET /api/session/step/{index}/trace
 
@@ -122,7 +122,7 @@ Returns a FlowTree for the given function, computed on demand from the current a
 | `reverts` | boolean | false | Include revert paths in the tree |
 | `expand` | string | empty | Comma-separated step IDs to force-inline beyond max depth (e.g., `17,24`) |
 
-**Response:** `FlowTree` with nested step nodes representing the execution flow.
+**Response:** `FlowTree` with nested step nodes representing the execution flow, and `path_stats` (see [Path stats](#path-stats)) for the traced function.
 
 ### GET /api/session/function/{contract}/{func}
 
@@ -130,7 +130,7 @@ Returns a function narrative without requiring a session step. Useful for inspec
 
 **Path params:** `contract` -- contract name, `func` -- function name.
 
-**Response:** `FunctionNarrative` with paths, state effects, and behavioral summary.
+**Response:** `FunctionNarrative` with paths, state effects, and behavioral summary. `path_stats` holds the [path stats](#path-stats); the response narrates at most the first 100 paths step by step and `paths_omitted` counts the rest (every path is in `GET /api/contract/{name}/{func}/paths`).
 
 ## Contract query endpoints
 
@@ -148,7 +148,7 @@ Returns a project summary: file count, the listed contracts (`name`, `display_na
 
 ### GET /api/project/map
 
-Returns the full project map with the listed contracts, their functions (with path counts and external call flags), state variables, and cross-contract relationships extracted from call graphs.
+Returns the full project map with the listed contracts, their functions (with path counts, `paths_truncated` and external call flags), state variables, and cross-contract relationships extracted from call graphs.
 
 ### GET /api/project/depgraph
 
@@ -156,7 +156,7 @@ Returns the contract dependency graph in Cytoscape-compatible JSON. Nodes carry 
 
 ### GET /api/contract/{name}
 
-Returns contract detail: name, `display_name`, `qualified_id`, `is_dependency`, kind, inheritance chain, functions (with path stats), state variables, and inherited functions and state variables. Inherited functions are the public, external and internal functions of the linearization that the contract does not override; private functions and base constructors are not inherited, and an interface function implemented by a public state variable getter is not listed. Inherited state variables are in storage layout order, most base contract first (slot numbers are not computed). Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
+Returns contract detail: name, `display_name`, `qualified_id`, `is_dependency`, kind, inheritance chain, functions (with `path_count`, `happy_paths`, `revert_paths` and `paths_truncated`), state variables, and inherited functions and state variables. Inherited functions are the public, external and internal functions of the linearization that the contract does not override; private functions and base constructors are not inherited, and an interface function implemented by a public state variable getter is not listed. Inherited state variables are in storage layout order, most base contract first (slot numbers are not computed). Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
 
 Signatures are `name(type,...)`:
 
@@ -196,13 +196,21 @@ Returns the contract's neighbourhood in the dependency graph: the contract itsel
 
 Returns the control flow graph for a function in Cytoscape-compatible JSON format. Nodes represent basic blocks (entry, normal, return, revert, assembly, loop). Edges represent control flow transitions.
 
+### Pages
+
+Long lists are served one page at a time. `?offset=` (default 0) selects the first item and `?limit=` the page size (default 100, at most 1000; a larger limit is clamped). The response carries `page`: `{"offset", "limit", "total", "truncated"}`, where `limit` is the size applied, `total` counts every item and `truncated` is true when items follow the page.
+
+### Path stats
+
+Path enumeration cuts a path off when it reaches a loop condition a fourth time (`LoopCutoff`) or more than 32 blocks after the entry (`DepthCutoff`), and stops after 10,000 paths. Every path ends in one category, so `happy_paths` (return) + `revert_paths` + `loop_cutoff` + `depth_cutoff` = `total_paths`. `cap_reached` means the 10,000-path cap stopped the walk with `paths_dropped` unexplored branches left, each holding at least one more path. `truncated` is true when any path was cut off or dropped: the paths then do not cover every execution. `max_depth_reached` is the longest path seen.
+
 ### GET /api/contract/{name}/{func}/paths
 
-Returns the path tree for a function. Contains all execution paths with stats (total, happy, revert) and per-path annotations (state writes, external calls, events). `internal_calls` lists JUMPs (`f`, `super.f`, `Base.f`, `Library.f` for internal library functions), and `internal_call_targets` repeats them in the same order with the `declaration` solc resolved (`[contract, key]`). `external_calls` lists everything that leaves the frame, each with its call `kind`.
+Returns one [page](#pages) of the function's paths, by id, with the [path stats](#path-stats) of the whole tree. Each path has its nodes, terminal kind (`Return`, `Revert`, `LoopCutoff`, `DepthCutoff`) and annotations (state writes, external calls, events); a cut-off path stops before running its last node. `internal_calls` lists JUMPs (`f`, `super.f`, `Base.f`, `Library.f` for internal library functions), and `internal_call_targets` repeats them in the same order with the `declaration` solc resolved (`[contract, key]`). `external_calls` lists everything that leaves the frame, each with its call `kind`.
 
 ### GET /api/contract/{name}/sequences
 
-Returns the sequence tree for a contract, showing function interaction patterns.
+Returns the functions a transaction sequence can call (public and external functions with a body; none for an interface) and one [page](#pages) of the sequences of 1 to `?depth=` calls (0 to 8, default the server's `--max-seq-depth`), shortest first and each depth in lexicographic order. There are `n + n^2 + ... + n^depth` of them for `n` functions; they are generated per request. `?limit=0` returns only the functions. A depth above 8 is `400 Bad Request`.
 
 ### GET /api/contract/{name}/analysis
 
@@ -222,6 +230,7 @@ Upgrades to a WebSocket connection. The server pushes JSON messages when session
 - `session_remove_node`: the last step was removed
 - `session_clear`: all steps were cleared
 - `scenario_created`, `scenario_switched`, `scenario_deleted`, `scenario_forked`, `scenario_store_reloaded`: scenario lifecycle events
+- `search_result`, then `search_complete` with `total` and `truncated`: the answer to a `search` message streams the first 100 matching paths, `total` counts every match
 - `session_resync` (no `contract`): the client fell behind and messages were dropped; refetch the session with `GET /api/scenarios/all?contract=<name>`
 
 ### GET /ws/pty

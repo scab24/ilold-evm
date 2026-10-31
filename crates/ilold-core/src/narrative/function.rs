@@ -6,7 +6,7 @@ use crate::classify::guards::function_guards;
 use crate::model::contract::ContractDef;
 use crate::model::function::FunctionDef;
 use crate::narrative::types::TransitiveEffect;
-use crate::pathtree::types::{PathTree, TerminalKind};
+use crate::pathtree::types::{PathNode, PathTree, TerminalKind};
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
 
 use super::types::*;
@@ -29,12 +29,11 @@ pub fn build_function_narrative(
     };
 
     let paths: Vec<PathNarrative> = path_tree
-        .paths
-        .iter()
-        .map(|path| {
+        .routes()
+        .map(|(id, terminal, nodes)| {
             let mut steps = Vec::new();
 
-            for node in &path.nodes {
+            for node in nodes {
                 let block = cfg
                     .node_indices()
                     .find(|&n| cfg[n].id == node.block_id)
@@ -83,8 +82,8 @@ pub fn build_function_narrative(
             }
 
             PathNarrative {
-                id: path.id,
-                terminal: path.terminal,
+                id,
+                terminal,
                 steps,
             }
         })
@@ -98,16 +97,16 @@ pub fn build_function_narrative(
     let mut calls = HashSet::new();
     let mut internal = HashSet::new();
     let mut events_set = HashSet::new();
-    for p in &path_tree.paths {
-        for w in &p.annotations.state_writes { writes.insert(w.clone()); }
-        for r in &p.annotations.state_reads { reads.insert(r.clone()); }
-        for c in &p.annotations.external_calls {
+    for a in path_tree.block_annotations() {
+        for w in &a.state_writes { writes.insert(w.clone()); }
+        for r in &a.state_reads { reads.insert(r.clone()); }
+        for c in &a.external_calls {
             calls.insert(format!("{}.{}", c.target, c.function));
         }
-        for ic in &p.annotations.internal_calls {
+        for ic in &a.internal_calls {
             internal.insert(ic.clone());
         }
-        for ev in &p.annotations.events_emitted {
+        for ev in &a.events_emitted {
             events_set.insert(ev.clone());
         }
     }
@@ -142,6 +141,8 @@ pub fn build_function_narrative(
         total_paths: path_tree.stats.total_paths,
         happy_paths: path_tree.stats.happy_paths,
         revert_paths: path_tree.stats.revert_paths,
+        path_stats: path_tree.stats.clone(),
+        paths_omitted: 0,
         paths,
         observations,
         state_writes: writes,
@@ -253,13 +254,13 @@ fn branch_direction(edge: &Option<BranchEdge>) -> Option<BranchDirection> {
     }
 }
 
-fn check_cei_violation(
-    path: &crate::pathtree::types::ExecutionPath,
+fn check_cei_violation<'a>(
+    nodes: impl Iterator<Item = &'a PathNode>,
     cfg: &CfgGraph,
 ) -> Option<(String, String)> {
     let mut seen_external_call: Option<String> = None;
 
-    for node in &path.nodes {
+    for node in nodes {
         let block = cfg
             .node_indices()
             .find(|&n| cfg[n].id == node.block_id)
@@ -303,15 +304,15 @@ fn generate_observations(
 ) -> Vec<Observation> {
     let mut obs = Vec::new();
 
-    for path in &path_tree.paths {
-        if path.terminal == TerminalKind::Revert { continue; }
+    for (id, terminal, nodes) in path_tree.routes() {
+        if terminal == TerminalKind::Revert { continue; }
 
-        if let Some((call, write)) = check_cei_violation(path, cfg) {
+        if let Some((call, write)) = check_cei_violation(nodes, cfg) {
             obs.push(Observation {
                 kind: ObservationKind::WriteAfterExternalCall,
                 description: format!(
                     "Path #{}: external call {} then writes {}",
-                    path.id, call, write,
+                    id, call, write,
                 ),
             });
             break;
@@ -319,9 +320,8 @@ fn generate_observations(
     }
 
     let my_writes: HashSet<&str> = path_tree
-        .paths
-        .iter()
-        .flat_map(|p| p.annotations.state_writes.iter().map(|s| s.as_str()))
+        .block_annotations()
+        .flat_map(|a| a.state_writes.iter().map(|s| s.as_str()))
         .collect();
 
     for behavior in all_behaviors {

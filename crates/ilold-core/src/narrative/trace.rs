@@ -11,6 +11,7 @@ use crate::model::decl_id::DeclId;
 use crate::model::expression::AssignOperator;
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
+use crate::pathtree::types::PathTreeStats;
 
 const CANONICAL_WALK_SAFETY_CAP: usize = 32;
 
@@ -22,6 +23,9 @@ pub struct FlowTree {
     pub modifiers: Vec<String>,
     pub max_depth: usize,
     pub root: FlowNode,
+    /// Path enumeration of the traced function, when the analysis has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_stats: Option<PathTreeStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,6 +187,7 @@ fn build_canonical_tree(
         modifiers: function.modifiers.iter().map(|m| m.name.clone()).collect(),
         max_depth: config.max_depth,
         root,
+        path_stats: None,
     }
 }
 
@@ -856,6 +861,7 @@ mod tests {
             modifiers: Vec::new(),
             max_depth: 4,
             root,
+            path_stats: None,
         }
     }
 

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::classify::entry_points::AccessLevel;
-use crate::pathtree::types::TerminalKind;
+use crate::pathtree::types::{PathTreeStats, TerminalKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionNarrative {
@@ -12,6 +12,12 @@ pub struct FunctionNarrative {
     pub total_paths: usize,
     pub happy_paths: usize,
     pub revert_paths: usize,
+    /// Path enumeration counters, including cutoffs and truncation.
+    #[serde(default)]
+    pub path_stats: PathTreeStats,
+    /// Paths of the function not narrated in `paths`.
+    #[serde(default)]
+    pub paths_omitted: usize,
     pub paths: Vec<PathNarrative>,
     pub observations: Vec<Observation>,
     pub state_writes: Vec<String>,
@@ -38,6 +44,14 @@ pub struct FunctionNarrative {
     pub revert_sources: Vec<TransitiveEffect>,
     #[serde(default)]
     pub guards: Vec<crate::classify::guards::GuardFact>,
+}
+
+impl FunctionNarrative {
+    /// Keeps the first `max` path narratives and counts the rest in `paths_omitted`.
+    pub fn truncate_paths(&mut self, max: usize) {
+        self.paths_omitted += self.paths.len().saturating_sub(max);
+        self.paths.truncate(max);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

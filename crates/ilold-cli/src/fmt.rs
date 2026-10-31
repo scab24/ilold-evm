@@ -79,7 +79,9 @@ pub fn render_flow_tree(tree: &FlowTree) -> String {
         format!("modifiers: {}", tree.modifiers.join(", "))
     };
     let depth = format!("max inlining depth: {}", tree.max_depth);
-    let lines: Vec<&str> = vec![&title, &mods, &depth];
+    let mut lines: Vec<&str> = vec![&title, &mods, &depth];
+    let note = tree.path_stats.as_ref().and_then(|s| s.truncation_note()).map(|n| format!("paths {n}"));
+    lines.extend(note.as_deref());
     out.push_str(&header_box(&lines));
     out.push('\n');
     out.push('\n');
@@ -562,6 +564,7 @@ mod tests {
             signature: "f()".into(),
             modifiers: vec![],
             max_depth: 2,
+            path_stats: None,
             root: FlowNode {
                 step_id: 0,
                 depth: 0,

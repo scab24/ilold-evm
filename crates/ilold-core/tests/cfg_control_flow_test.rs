@@ -97,7 +97,7 @@ fn calls_in_order(cfg: &CfgGraph) -> Vec<String> {
 }
 
 fn counts(tree: &PathTree) -> (usize, usize, usize) {
-    let cutoffs = tree.paths.iter().filter(|p| p.terminal == TerminalKind::LoopCutoff).count();
+    let cutoffs = tree.paths().filter(|p| p.terminal == TerminalKind::LoopCutoff).count();
     (tree.stats.happy_paths, tree.stats.revert_paths, cutoffs)
 }
 

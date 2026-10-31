@@ -25,7 +25,7 @@ enum ServerMessage {
     #[serde(rename = "search_result")]
     SearchResult(search::SearchResult),
     #[serde(rename = "search_complete")]
-    SearchComplete { total: usize },
+    SearchComplete { total: usize, truncated: bool },
     #[serde(rename = "error")]
     Error { message: String },
     #[serde(rename = "session_add_node")]
@@ -121,15 +121,15 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
 
                 match parsed {
                     ClientMessage::Search(query) => {
-                        let results = search::search_paths(&state, &query);
-                        let total = results.len();
+                        let (results, total) = search::search_paths(&state, &query, search::MAX_SEARCH_RESULTS);
+                        let truncated = results.len() < total;
 
                         for result in results {
                             let msg = ServerMessage::SearchResult(result);
                             if !send_json(&mut socket, &msg).await { break; }
                         }
 
-                        let complete = ServerMessage::SearchComplete { total };
+                        let complete = ServerMessage::SearchComplete { total, truncated };
                         if !send_json(&mut socket, &complete).await { break; }
                     }
                 }

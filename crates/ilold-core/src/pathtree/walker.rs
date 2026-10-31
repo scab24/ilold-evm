@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use petgraph::stable_graph::NodeIndex;
+use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
@@ -13,11 +13,10 @@ use super::types::*;
 
 struct WalkState {
     node: NodeIndex,
-    path: Vec<PathNode>,
-    annotations: PathAnnotations,
+    path: Vec<u32>,
     depth: usize,
     loop_counts: HashMap<usize, usize>,
-    edge_taken: Option<BranchEdge>,
+    edge: Option<EdgeIndex>,
 }
 
 /// Enumerates the paths of `cfg`. Reads and writes come from the storage the CFG builder
@@ -29,186 +28,112 @@ pub fn build_path_tree(
     _state_vars: &[StateVar],
     config: &PruningConfig,
 ) -> PathTree {
-    let mut paths: Vec<ExecutionPath> = Vec::new();
-    let mut paths_pruned: usize = 0;
-    let mut max_depth_reached: usize = 0;
-    let mut next_path_id: usize = 0;
+    let mut tree = PathTree {
+        contract: contract_name.to_string(),
+        function: function_name.to_string(),
+        nodes: Vec::new(),
+        blocks: BTreeMap::new(),
+        paths: Vec::new(),
+        stats: PathTreeStats::default(),
+    };
+    // one table entry per CFG edge taken (the entry block has none)
+    let mut node_ids: HashMap<Option<EdgeIndex>, u32> = HashMap::new();
 
-    let entry = match cfg.node_indices().find(|&n| cfg[n].kind == BlockKind::Entry) {
-        Some(n) => n,
-        None => {
-            return PathTree {
-                contract: contract_name.to_string(),
-                function: function_name.to_string(),
-                paths: Vec::new(),
-                stats: PathTreeStats {
-                    total_paths: 0,
-                    paths_pruned: 0,
-                    max_depth_reached: 0,
-                    revert_paths: 0,
-                    happy_paths: 0,
-                },
-            };
-        }
+    let Some(entry) = cfg.node_indices().find(|&n| cfg[n].kind == BlockKind::Entry) else {
+        return tree;
     };
 
     let mut stack: Vec<WalkState> = vec![WalkState {
         node: entry,
         path: Vec::new(),
-        annotations: PathAnnotations::default(),
         depth: 0,
         loop_counts: HashMap::new(),
-        edge_taken: None,
+        edge: None,
     }];
 
     while let Some(state) = stack.pop() {
-        if paths.len() >= config.max_paths {
-            paths_pruned += 1;
-            continue;
+        if tree.paths.len() >= config.max_paths {
+            tree.stats.cap_reached = true;
+            tree.stats.paths_dropped = stack.len() + 1;
+            break;
         }
 
         let block = &cfg[state.node];
         let mut path = state.path;
-        let mut annotations = state.annotations;
         let mut loop_counts = state.loop_counts;
         let depth = state.depth;
+        tree.stats.max_depth_reached = tree.stats.max_depth_reached.max(depth);
 
-        if depth > max_depth_reached {
-            max_depth_reached = depth;
-        }
-
-        if depth > config.max_depth {
-            paths_pruned += 1;
-            path.push(PathNode {
+        let node = *node_ids.entry(state.edge).or_insert_with(|| {
+            tree.nodes.push(PathNode {
                 block_id: block.id,
                 block_kind: block.kind,
-                branch_taken: state.edge_taken,
+                branch_taken: state.edge.map(|e| cfg[e].clone()),
             });
-            let id = next_path_id;
-            next_path_id += 1;
-            paths.push(ExecutionPath {
-                id,
-                nodes: path,
-                terminal: TerminalKind::DepthCutoff,
-                annotations,
-                depth,
-            });
-            continue;
-        }
+            (tree.nodes.len() - 1) as u32
+        });
+        path.push(node);
 
         if block.kind == BlockKind::LoopCondition {
-            let count = loop_counts.entry(block.id).or_insert(0);
-            *count += 1;
-            if *count > config.max_loop_unroll {
-                paths_pruned += 1;
-                path.push(PathNode {
-                    block_id: block.id,
-                    block_kind: block.kind,
-                    branch_taken: state.edge_taken,
-                });
-                let id = next_path_id;
-                next_path_id += 1;
-                paths.push(ExecutionPath {
-                    id,
-                    nodes: path,
-                    terminal: TerminalKind::LoopCutoff,
-                    annotations,
-                    depth,
-                });
-                continue;
-            }
+            *loop_counts.entry(block.id).or_insert(0) += 1;
         }
-
-        path.push(PathNode {
-            block_id: block.id,
-            block_kind: block.kind,
-            branch_taken: state.edge_taken,
-        });
-
-        collect_reads(&block.reads, &mut annotations);
-        collect_annotations(&block.statements, &mut annotations);
-
-        match block.kind {
-            BlockKind::Return => {
-                let id = next_path_id;
-                next_path_id += 1;
-                paths.push(ExecutionPath {
-                    id,
-                    nodes: path,
-                    terminal: TerminalKind::Return,
-                    annotations,
-                    depth,
-                });
-                continue;
-            }
-            BlockKind::Revert => {
-                let id = next_path_id;
-                next_path_id += 1;
-                paths.push(ExecutionPath {
-                    id,
-                    nodes: path,
-                    terminal: TerminalKind::Revert,
-                    annotations,
-                    depth,
-                });
-                continue;
-            }
-            _ => {}
-        }
-
-        let edges: Vec<_> = cfg
-            .edges_directed(state.node, Direction::Outgoing)
-            .map(|e| (e.target(), e.weight().clone()))
-            .collect();
-
-        if edges.is_empty() {
-            if block.kind == BlockKind::Entry && block.statements.is_empty() {
-                continue;
-            }
-            let id = next_path_id;
-            next_path_id += 1;
-            paths.push(ExecutionPath {
-                id,
-                nodes: path,
-                terminal: TerminalKind::Return,
-                annotations,
-                depth,
-            });
+        let cutoff = if depth > config.max_depth {
+            Some(TerminalKind::DepthCutoff)
+        } else if loop_counts.get(&block.id).is_some_and(|&count| count > config.max_loop_unroll) {
+            Some(TerminalKind::LoopCutoff)
+        } else {
+            None
+        };
+        if let Some(terminal) = cutoff {
+            tree.paths.push(StoredPath { nodes: path, terminal });
             continue;
         }
 
-        for (i, (target, edge)) in edges.into_iter().enumerate() {
-            let (p, a, lc) = if i == 0 {
-                (path.clone(), annotations.clone(), loop_counts.clone())
-            } else {
-                (path.clone(), annotations.clone(), loop_counts.clone())
-            };
+        tree.blocks.entry(block.id).or_insert_with(|| {
+            let mut annotations = PathAnnotations::default();
+            collect_reads(&block.reads, &mut annotations);
+            collect_annotations(&block.statements, &mut annotations);
+            annotations
+        });
+
+        let terminal = match block.kind {
+            BlockKind::Return => Some(TerminalKind::Return),
+            BlockKind::Revert => Some(TerminalKind::Revert),
+            _ => None,
+        };
+        let edges: Vec<_> = cfg.edges_directed(state.node, Direction::Outgoing).map(|e| (e.target(), e.id())).collect();
+        if edges.is_empty() && block.kind == BlockKind::Entry && block.statements.is_empty() {
+            continue;
+        }
+        if terminal.is_some() || edges.is_empty() {
+            tree.paths.push(StoredPath { nodes: path, terminal: terminal.unwrap_or(TerminalKind::Return) });
+            continue;
+        }
+
+        for (target, edge) in edges {
             stack.push(WalkState {
                 node: target,
-                path: p,
-                annotations: a,
+                path: path.clone(),
                 depth: depth + 1,
-                loop_counts: lc,
-                edge_taken: Some(edge),
+                loop_counts: loop_counts.clone(),
+                edge: Some(edge),
             });
         }
     }
 
-    let revert_paths = paths.iter().filter(|p| p.terminal == TerminalKind::Revert).count();
-    let happy_paths = paths.iter().filter(|p| p.terminal == TerminalKind::Return).count();
-
-    PathTree {
-        contract: contract_name.to_string(),
-        function: function_name.to_string(),
-        paths,
-        stats: PathTreeStats {
-            total_paths: next_path_id,
-            paths_pruned,
-            max_depth_reached,
-            revert_paths,
-            happy_paths,
-        },
+    tree.blocks.retain(|_, annotations| *annotations != PathAnnotations::default());
+    let stats = &mut tree.stats;
+    for path in &tree.paths {
+        match path.terminal {
+            TerminalKind::Return => stats.happy_paths += 1,
+            TerminalKind::Revert => stats.revert_paths += 1,
+            TerminalKind::LoopCutoff => stats.loop_cutoff += 1,
+            TerminalKind::DepthCutoff => stats.depth_cutoff += 1,
+        }
     }
+    stats.total_paths = tree.paths.len();
+    stats.truncated = stats.cap_reached || stats.loop_cutoff + stats.depth_cutoff > 0;
+    tree
 }
 
 /// `a[x].b[y]` -> `a[].b[]`.
@@ -293,7 +218,7 @@ fn collect_annotations(statements: &[CfgStatement], annotations: &mut PathAnnota
             CfgStatement::StateWrite { variable, param: None, .. } => record_write(variable, annotations),
             CfgStatement::StateWrite { .. } => {}
             CfgStatement::StateRead { variable, .. } => {
-                annotations.state_reads.push(variable.clone());
+                push_unique(&mut annotations.state_reads, variable.clone());
                 push_unique(&mut annotations.state_read_paths, normalize_path(variable));
             }
         }

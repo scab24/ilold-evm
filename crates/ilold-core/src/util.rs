@@ -48,3 +48,26 @@ pub fn target_base_name(target: &str) -> &str {
     let base = target.split('[').next().unwrap_or(target);
     base.split('.').next().unwrap_or(base)
 }
+
+/// Window over a long list in an API response; `truncated` when items lie past it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct Page {
+    pub offset: usize,
+    pub limit: usize,
+    pub total: usize,
+    pub truncated: bool,
+}
+
+impl Page {
+    pub fn new(offset: usize, limit: usize, total: usize) -> Self {
+        Self { offset, limit, total, truncated: offset.saturating_add(limit) < total }
+    }
+
+    pub fn range(&self) -> std::ops::Range<usize> {
+        self.offset.min(self.total)..self.offset.saturating_add(self.limit).min(self.total)
+    }
+}
+
+/// Items a page holds when a request names no limit, and at most.
+pub const DEFAULT_PAGE_LIMIT: usize = 100;
+pub const MAX_PAGE_LIMIT: usize = 1000;

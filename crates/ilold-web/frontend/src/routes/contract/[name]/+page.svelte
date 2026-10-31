@@ -357,6 +357,10 @@
     };
   }
 
+  function sameJson(a: unknown, b: unknown): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
   $effect(() => {
     const scenarios = getScenarios();
     const forkOrigins = getForkOrigins();
@@ -366,13 +370,17 @@
     const tree = composeScenarioTree(scenarios, forkOrigins);
 
     untrack(() => {
-      const toRemove = new Set<string>();
-      for (const n of getNodes()) {
-        if (n.id.startsWith('session:')) toRemove.add(n.id);
-      }
-      if (toRemove.size > 0) removeNodesById(toRemove);
+      const isSession = (id: string) => id.startsWith('session:');
+      const otherNodes = getNodes().filter((n) => !isSession(n.id));
+      const otherEdges = getEdges().filter((e) => !isSession(e.source) && !isSession(e.target));
+      const previousNodes = new Map(getNodes().filter((n) => isSession(n.id)).map((n) => [n.id, n]));
+      const previousEdges = new Map(getEdges().filter((e) => isSession(e.source) || isSession(e.target)).map((e) => [e.id, e]));
 
       if (tree.nodes.length === 0) {
+        if (previousNodes.size > 0) {
+          setNodes(otherNodes);
+          setEdges(otherEdges);
+        }
         sessionVisCount = 0;
         return;
       }
@@ -411,7 +419,11 @@
           } as GraphNodeData,
         } as Node<GraphNodeData>;
       });
-      addNodes(composedNodes);
+      // unchanged steps keep their node objects, so a new step does not re-render the others
+      setNodes([...otherNodes, ...composedNodes.map((n) => {
+        const previous = previousNodes.get(n.id);
+        return previous && sameJson([previous.position, previous.data], [n.position, n.data]) ? previous : n;
+      })]);
 
       const nodeScenarios = new Map<string, string[]>(
         tree.nodes.map((n) => [n.id, n._scenariosPassingThrough]),
@@ -443,7 +455,11 @@
           data: { _type: 'session-path', _scenario: ce._scenario, _forkEdge: isFork },
         };
       });
-      addEdges(composedEdges);
+      setEdges([...otherEdges, ...composedEdges.map((e) => {
+        const previous = previousEdges.get(e.id);
+        const content = (edge: Edge) => [edge.source, edge.target, edge.style, edge.animated, edge.data];
+        return previous && sameJson(content(previous), content(e)) ? previous : e;
+      })]);
 
       sessionVisCount = tree.nodes.length;
     });
@@ -513,7 +529,7 @@
       callgraphRaw = callgraphData;
       contract = detail;
       const [seq, analysis, pm] = await Promise.allSettled([
-        getSequences(contractName),
+        getSequences(contractName, { depth: 1, limit: 0 }),
         getSequenceAnalysis(contractName),
         getProjectMap(),
       ]);
@@ -562,14 +578,17 @@
           if (!expandedFuncs.has(nav.func)) {
             await toggleFuncExpand(nav.func);
           }
-          if (stale) return;
+          if (stale || !contract) return;
 
           const funcNode = getNodes().find(
             n => n.data._type === 'function' && n.data.label === nav.func
           );
           if (funcNode) {
             selectedNode = { ...funcNode.data, id: funcNode.id };
-            const path = (hasPaths(nav.func) ? funcPaths[nav.func] : undefined)?.paths?.find((p: any) => p.id === nav.pathId);
+            // the result may lie past the loaded page
+            const inPage = (hasPaths(nav.func) ? funcPaths[nav.func] : undefined)?.paths?.find((p: any) => p.id === nav.pathId);
+            const path = inPage ?? (await getPaths(contract.name, nav.func, nav.pathId, 1)).paths?.[0];
+            if (stale) return;
             if (path) selectPath(nav.func, path);
             if (flowApi) {
               await tick();
@@ -770,6 +789,18 @@
         const paths = await getPaths(contract.name, funcName);
         funcPaths = { ...funcPaths, [funcName]: paths };
       } catch {}
+    }
+  }
+
+  async function loadMorePaths(funcName: string) {
+    const current = hasPaths(funcName) ? funcPaths[funcName] : undefined;
+    if (!contract || !current?.page?.truncated) return;
+    try {
+      const next = await getPaths(contract.name, funcName, current.paths.length);
+      if (funcPaths[funcName] !== current) return;
+      funcPaths = { ...funcPaths, [funcName]: { ...next, paths: [...current.paths, ...next.paths] } };
+    } catch (e) {
+      notifyFailure('load paths', e);
     }
   }
 
@@ -1310,6 +1341,7 @@
           contractDetail={{ name: contract.name, functions: contract.functions, inherited_functions: contract.inherited_functions }}
           {lookupBlock}
           onpathselect={selectPath}
+          onloadmorepaths={loadMorePaths}
           onexpandcfg={(funcName, nodeId) => toggleFuncExpand(funcName, nodeId)}
         />
       {/if}

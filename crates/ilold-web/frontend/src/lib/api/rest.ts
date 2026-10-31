@@ -192,8 +192,11 @@ export async function getCfg(contractName: string, funcName: string): Promise<Cy
   return res.json();
 }
 
-export async function getPaths(contractName: string, funcName: string) {
-  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/paths`);
+/** One page of a function's paths; `page.truncated` when more follow. */
+export async function getPaths(contractName: string, funcName: string, offset = 0, limit?: number) {
+  const params = new URLSearchParams({ offset: String(offset) });
+  if (limit !== undefined) params.set('limit', String(limit));
+  const res = await fetch(`${BASE}/api/contract/${encodeURIComponent(contractName)}/${funcName}/paths?${params}`);
   return res.json();
 }
 
@@ -250,10 +253,17 @@ export async function getSearchSuggestions(contractName: string): Promise<Search
   return res.json();
 }
 
-export async function getSequences(contractName: string, depth?: number) {
-  const url = depth
-    ? `${BASE}/api/contract/${encodeURIComponent(contractName)}/sequences?depth=${depth}`
-    : `${BASE}/api/contract/${encodeURIComponent(contractName)}/sequences`;
+/** Sequence functions plus one page of sequences; `limit: 0` fetches only the functions. */
+export async function getSequences(
+  contractName: string,
+  options: { depth?: number; offset?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const query = params.toString();
+  const url = `${BASE}/api/contract/${encodeURIComponent(contractName)}/sequences${query ? `?${query}` : ''}`;
   const res = await fetch(url);
   return res.json();
 }

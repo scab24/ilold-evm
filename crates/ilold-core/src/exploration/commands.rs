@@ -721,7 +721,9 @@ pub fn get_flow_tree(
         include_reverts,
         expand_set,
     };
-    Ok(build_flow_tree(owning, func, cfg, data.project, data.cfgs, &config))
+    let mut tree = build_flow_tree(owning, func, cfg, data.project, data.cfgs, &config);
+    tree.path_stats = data.path_trees.get(&key).map(|pt| pt.stats.clone());
+    Ok(tree)
 }
 
 pub fn get_sequence_narrative(

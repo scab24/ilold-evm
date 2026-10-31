@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::model::function::FunctionDef;
-use crate::pathtree::types::{InternalCallTarget, PathTree, TerminalKind};
+use crate::pathtree::types::{InternalCallTarget, PathTree};
 
 use super::effects::{CfgSummary, Effects};
 
@@ -185,14 +185,14 @@ pub fn direct_behaviors(
         let mut internal_calls = HashSet::new();
         let mut internal_call_targets = HashSet::new();
         let mut events = HashSet::new();
-        let mut has_return = false;
-        let mut has_revert = false;
+        let has_return = pt.stats.happy_paths > 0;
+        let has_revert = pt.stats.revert_paths > 0;
 
-        for path in &pt.paths {
-            for check in &path.annotations.require_checks {
+        for annotations in pt.block_annotations() {
+            for check in &annotations.require_checks {
                 preconditions.insert(check.clone());
             }
-            for write in &path.annotations.state_writes {
+            for write in &annotations.state_writes {
                 let base = write
                     .split(|c| c == '[' || c == '.')
                     .next()
@@ -200,10 +200,10 @@ pub fn direct_behaviors(
                     .to_string();
                 state_writes.insert(base);
             }
-            for write in &path.annotations.state_write_paths {
+            for write in &annotations.state_write_paths {
                 state_write_paths.insert(write.clone());
             }
-            for read in &path.annotations.state_reads {
+            for read in &annotations.state_reads {
                 let base = read
                     .split(|c| c == '[' || c == '.')
                     .next()
@@ -211,25 +211,20 @@ pub fn direct_behaviors(
                     .to_string();
                 state_reads.insert(base);
             }
-            for read in &path.annotations.state_read_paths {
+            for read in &annotations.state_read_paths {
                 state_read_paths.insert(read.clone());
             }
-            for call in &path.annotations.external_calls {
+            for call in &annotations.external_calls {
                 external_calls.insert(format!("{}.{}", call.target, call.function));
             }
-            for ic in &path.annotations.internal_calls {
+            for ic in &annotations.internal_calls {
                 internal_calls.insert(ic.clone());
             }
-            for target in &path.annotations.internal_call_targets {
+            for target in &annotations.internal_call_targets {
                 internal_call_targets.insert(target.clone());
             }
-            for event in &path.annotations.events_emitted {
+            for event in &annotations.events_emitted {
                 events.insert(event.clone());
-            }
-            match path.terminal {
-                TerminalKind::Return => has_return = true,
-                TerminalKind::Revert => has_revert = true,
-                _ => {}
             }
         }
 

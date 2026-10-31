@@ -48,14 +48,16 @@ fn test_staking_sequence_count_depth_2() {
         println!("  [{}] {} (read_only={}, paths={})", i, f.name, f.read_only, f.path_count);
     }
 
-    let depth_1 = st.sequences.iter().filter(|s| s.depth == 1).count();
-    let depth_2 = st.sequences.iter().filter(|s| s.depth == 2).count();
-    println!("\nSequences: {} total (depth 1: {}, depth 2: {})", st.sequences.len(), depth_1, depth_2);
+    let sequences = st.page(2, 0, usize::MAX).sequences;
+    let depth_1 = sequences.iter().filter(|s| s.depth == 1).count();
+    let depth_2 = sequences.iter().filter(|s| s.depth == 2).count();
+    println!("\nSequences: {} total (depth 1: {}, depth 2: {})", sequences.len(), depth_1, depth_2);
 
     assert_eq!(st.functions.len(), 8, "Should have 8 public/external functions (excluding constructor)");
     assert_eq!(depth_1, 8);
     assert_eq!(depth_2, 64);
-    assert_eq!(st.sequences.len(), 72, "Total should be 8 + 64 = 72");
+    assert_eq!(sequences.len(), 72, "Total should be 8 + 64 = 72");
+    assert_eq!(st.sequence_count(2), 72);
 }
 
 // REQ-SEQ-1: read_only flag correct
@@ -101,7 +103,8 @@ fn test_has_state_change_flag() {
     let earned_idx = st.functions.iter().position(|f| f.name == "earned").unwrap();
     let reward_idx = st.functions.iter().position(|f| f.name == "rewardPerToken").unwrap();
 
-    let read_only_seq = st.sequences.iter().find(|s| {
+    let sequences = st.page(2, 0, usize::MAX).sequences;
+    let read_only_seq = sequences.iter().find(|s| {
         s.depth == 2 && s.steps == vec![earned_idx, reward_idx]
     });
 
@@ -111,9 +114,45 @@ fn test_has_state_change_flag() {
 
     // A sequence with deposit should have has_state_change = true
     let deposit_idx = st.functions.iter().position(|f| f.name == "deposit").unwrap();
-    let deposit_seq = st.sequences.iter().find(|s| {
+    let deposit_seq = sequences.iter().find(|s| {
         s.depth == 1 && s.steps == vec![deposit_idx]
     }).unwrap();
 
     assert!(deposit_seq.has_state_change, "deposit should have state change");
+}
+
+#[test]
+fn sequences_are_generated_for_the_requested_depth_and_paged() {
+    let (project, path_trees) = build_staking_path_trees();
+    let staking = project.contracts.iter().find(|c| c.name == "Staking").unwrap();
+    let st = build_sequence_tree(staking, &path_trees, 3);
+    let n = st.functions.len();
+
+    let shallow = st.page(1, 0, 100);
+    assert_eq!((shallow.max_depth, shallow.page.total, shallow.page.truncated), (1, n, false));
+    assert_eq!(shallow.sequences.len(), n);
+    assert_eq!(st.sequence_count(3), n + n * n + n * n * n);
+
+    let page = st.page(2, n, 3);
+    let steps: Vec<Vec<usize>> = page.sequences.iter().map(|s| s.steps.clone()).collect();
+    assert_eq!(steps, vec![vec![0, 0], vec![0, 1], vec![0, 2]]);
+    assert!(page.sequences.iter().all(|s| s.depth == 2));
+    assert_eq!((page.page.offset, page.page.limit, page.page.total, page.page.truncated), (n, 3, n + n * n, true));
+    let expected = st.functions[0].path_count as u64 * st.functions[2].path_count as u64;
+    assert_eq!(page.sequences[2].path_count, expected);
+    assert!(st.page(2, n + n * n, 10).sequences.is_empty());
+
+    let summary = st.page(3, 0, 0);
+    assert!(summary.sequences.is_empty() && summary.page.truncated);
+    assert_eq!(summary.functions.len(), n);
+}
+
+#[test]
+fn interfaces_and_functions_without_bodies_have_no_sequences() {
+    let (project, path_trees) = build_staking_path_trees();
+    let ierc20 = project.contracts.iter().find(|c| c.name == "IERC20").unwrap();
+    let st = build_sequence_tree(ierc20, &path_trees, 3);
+    assert!(st.functions.is_empty(), "{:?}", st.functions);
+    assert_eq!(st.sequence_count(3), 0);
+    assert!(st.page(3, 0, 100).sequences.is_empty());
 }

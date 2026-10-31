@@ -51,6 +51,8 @@ ilold[Staking]> i withdraw
 
 Guards list each revert check that gates the function, with the chain that reaches it (`modifier m`, then each helper as `Contract::function`). The observation "Public function writes state without access control" appears only when no access guard (`caller`, `role`, `tx.origin`) was found; pause, reentrancy and initializer guards do not count.
 
+When the path enumeration was cut short, a line under `Paths` names the causes, for example `truncated: 7518 depth cutoffs, 8 loop cutoffs, path cap reached (10 branches dropped)`; the happy and revert counts then cover only the paths found, and cut-off paths make up the rest of the total. `trace` shows the same line in its header.
+
 The `info` command does not require the function to be in the session. It analyzes the function in isolation.
 
 ## trace

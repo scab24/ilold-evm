@@ -284,7 +284,7 @@ fn post_placeholder_code_runs_after_every_return() {
 
     let t = tree("Modded", "early");
     assert_eq!((t.stats.happy_paths, t.stats.revert_paths), (2, 0));
-    for path in &t.paths {
+    for path in t.paths() {
         assert_eq!(path.terminal, TerminalKind::Return);
         assert_eq!(path.annotations.state_write_paths, strings(&["entered", "exited"]));
         let exit_id = g[exits[0]].id;
@@ -294,7 +294,7 @@ fn post_placeholder_code_runs_after_every_return() {
     // a revert in an outer modifier skips the inner modifier's post code
     let t = tree("Modded", "both");
     assert_eq!((t.stats.happy_paths, t.stats.revert_paths), (1, 1));
-    for path in &t.paths {
+    for path in t.paths() {
         let expected: &[&str] = match path.terminal {
             TerminalKind::Revert => &[],
             _ => &["entered", "exited"],
@@ -480,7 +480,7 @@ fn a_modifier_with_two_placeholders_runs_the_body_twice() {
     assert_eq!(writes, 2);
     let t = tree("Aliases", "twiceRun");
     assert_eq!((t.stats.happy_paths, t.stats.revert_paths), (1, 0));
-    assert_eq!(t.paths[0].annotations.state_writes, strings(&["twice", "twice"]));
+    assert_eq!(t.paths().next().unwrap().annotations.state_writes, strings(&["twice", "twice"]));
 }
 
 #[test]
