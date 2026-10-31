@@ -32,8 +32,11 @@ Displays a full function narrative: execution paths, state reads/writes, interna
 ```
 ilold[Staking]> i withdraw
 
-  withdraw [public] — whenNotPaused, nonReentrant
+  withdraw [Public] — whenNotPaused, nonReentrant
   ├── Paths: 3 total, 1 happy, 2 revert
+  ├── Guards:
+  │     pause: require(!paused, "Paused") (via modifier whenNotPaused)
+  │     reentrancy: require(!locked) (via modifier nonReentrant)
   ├── State reads: balances, totalStaked
   ├── State writes: balances, totalStaked
   ├── External calls: msg.sender.call{value: amount}
@@ -45,6 +48,8 @@ ilold[Staking]> i withdraw
         · External call after state writes (checks-effects-interactions followed)
   → c withdraw, tr withdraw
 ```
+
+Guards list each revert check that gates the function, with the chain that reaches it (`modifier m`, then each helper as `Contract::function`). The observation "Public function writes state without access control" appears only when no access guard (`caller`, `role`, `tx.origin`) was found; pause, reentrancy and initializer guards do not count.
 
 The `info` command does not require the function to be in the session. It analyzes the function in isolation.
 

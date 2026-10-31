@@ -2,10 +2,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::classify::guards::{function_guards, GuardFact};
 use crate::model::contract::ContractDef;
-use crate::model::expression::{BinaryOperator, Expression, ExpressionKind};
 use crate::model::function::{FunctionDef, FunctionKind, Visibility};
-use crate::model::statement::{Statement, StatementKind};
+use crate::model::project::Project;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccessLevel {
@@ -41,59 +41,54 @@ impl AccessLevel {
     }
 }
 
-const ACCESS_MODIFIERS: &[&str] = &[
-    "onlyowner", "onlyadmin", "onlyrole", "onlygovernance",
-    "onlyminter", "onlypauser", "onlyoperator", "onlyguardian",
-    "onlyauthorized", "onlymanager", "onlycontroller",
-    "onlybridge", "onlyrelayer", "onlyvault",
-    "auth", "restricted",
-];
+/// Access level of `func` read from its own contract only (no inherited modifiers or helpers).
+/// Use [`classify_in`] when the project is at hand.
+pub fn classify_function(func: &FunctionDef, contract: &ContractDef) -> AccessLevel {
+    access_level(func, &function_guards(None, contract, contract, func))
+}
 
-#[allow(dead_code)]
-const STATE_GUARD_MODIFIERS: &[&str] = &[
-    "whennotpaused", "whenpaused",
-    "nonreentrant", "noreentrant",
-    "initializer", "reinitializer",
-];
+/// Access level and guards of `func` (declared in `owner`) as `context` runs it.
+pub fn classify_in(
+    project: &Project,
+    context: &ContractDef,
+    owner: &ContractDef,
+    func: &FunctionDef,
+) -> (AccessLevel, Vec<GuardFact>) {
+    let guards = function_guards(Some(project), context, owner, func);
+    (access_level(func, &guards), guards)
+}
 
-pub fn classify_function(func: &FunctionDef, _contract: &ContractDef) -> AccessLevel {
+/// `Restricted` when an access guard exists; its role names the modifiers that carry the
+/// guards (the first one on the chain, also when reached through a called function), or the
+/// checks themselves when no modifier is on the chain.
+pub fn access_level(func: &FunctionDef, guards: &[GuardFact]) -> AccessLevel {
     match func.kind {
-        FunctionKind::Constructor => {
-            return AccessLevel::Special { kind: "constructor".into() };
-        }
-        FunctionKind::Fallback => {
-            return AccessLevel::Special { kind: "fallback".into() };
-        }
-        FunctionKind::Receive => {
-            return AccessLevel::Special { kind: "receive".into() };
-        }
+        FunctionKind::Constructor => return AccessLevel::Special { kind: "constructor".into() },
+        FunctionKind::Fallback => return AccessLevel::Special { kind: "fallback".into() },
+        FunctionKind::Receive => return AccessLevel::Special { kind: "receive".into() },
         FunctionKind::Function => {}
     }
-
     if matches!(func.visibility, Visibility::Internal | Visibility::Private) {
         return AccessLevel::Internal;
     }
-
-    for modifier in &func.modifiers {
-        let lower = modifier.name.to_lowercase();
-        for pattern in ACCESS_MODIFIERS {
-            if lower.contains(pattern) {
-                return AccessLevel::Restricted {
-                    role: modifier.name.clone(),
-                };
-            }
+    let mut sources: Vec<String> = Vec::new();
+    for g in guards.iter().filter(|g| g.kind.is_access()) {
+        let source = match g.via.iter().find_map(|v| v.strip_prefix("modifier ")) {
+            Some(modifier) => modifier.to_string(),
+            None => g.condition.clone(),
+        };
+        if !sources.contains(&source) {
+            sources.push(source);
         }
     }
-
-    if let Some(body) = &func.body {
-        if let Some(role) = find_sender_access_check(body) {
-            return AccessLevel::Restricted { role };
-        }
+    if sources.is_empty() {
+        AccessLevel::Public
+    } else {
+        AccessLevel::Restricted { role: sources.join(", ") }
     }
-
-    AccessLevel::Public
 }
 
+/// Own functions of `contract`, read from the contract alone.
 pub fn classify_all(contract: &ContractDef) -> Vec<(String, AccessLevel)> {
     contract
         .functions
@@ -102,92 +97,21 @@ pub fn classify_all(contract: &ContractDef) -> Vec<(String, AccessLevel)> {
         .collect()
 }
 
-// matches msg.sender compared with ==/!=
-fn find_sender_access_check(stmts: &[Statement]) -> Option<String> {
-    for stmt in stmts {
-        if let Some(role) = check_statement_for_access(stmt) {
-            return Some(role);
-        }
-    }
-    None
-}
-
-fn check_statement_for_access(stmt: &Statement) -> Option<String> {
-    match &stmt.kind {
-        StatementKind::If { condition, then_body, else_body } => {
-            if expr_is_sender_comparison(condition) {
-                return Some("msg.sender check".into());
-            }
-            if let Some(role) = find_sender_access_check(then_body) {
-                return Some(role);
-            }
-            if let Some(else_stmts) = else_body {
-                if let Some(role) = find_sender_access_check(else_stmts) {
-                    return Some(role);
-                }
-            }
-        }
-        StatementKind::ExpressionStmt { expression } => {
-            if is_require_with_sender_comparison(expression) {
-                return Some("msg.sender check".into());
-            }
-        }
-        StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => {
-            if let Some(role) = find_sender_access_check(statements) {
-                return Some(role);
-            }
-        }
-        _ => {}
-    }
-    None
-}
-
-fn is_require_with_sender_comparison(expr: &Expression) -> bool {
-    if let ExpressionKind::FunctionCall { callee, arguments, .. } = &expr.kind {
-        let is_require = matches!(&callee.kind,
-            ExpressionKind::Identifier { name, .. } if name == "require" || name == "assert"
-        );
-        if is_require {
-            return arguments
-                .first()
-                .map_or(false, |arg| expr_is_sender_comparison(arg));
-        }
-    }
-    false
-}
-
-fn expr_is_sender_comparison(expr: &Expression) -> bool {
-    match &expr.kind {
-        ExpressionKind::BinaryOp { left, operator, right } => {
-            match operator {
-                BinaryOperator::Eq | BinaryOperator::Neq => {
-                    expr_is_msg_sender(left) || expr_is_msg_sender(right)
-                }
-                BinaryOperator::And | BinaryOperator::Or => {
-                    expr_is_sender_comparison(left) || expr_is_sender_comparison(right)
-                }
-                _ => false,
-            }
-        }
-        ExpressionKind::UnaryOp { operand, .. } => expr_is_sender_comparison(operand),
-        _ => false,
-    }
-}
-
-fn expr_is_msg_sender(expr: &Expression) -> bool {
-    if let ExpressionKind::MemberAccess { object, member, .. } = &expr.kind {
-        if member == "sender" {
-            if let ExpressionKind::Identifier { name, .. } = &object.kind {
-                return name == "msg";
-            }
-        }
-    }
-    false
+/// Own and inherited functions of `contract` as the most derived contract runs them.
+pub fn classify_contract(project: &Project, contract: &ContractDef) -> Vec<(String, AccessLevel)> {
+    project
+        .accessible_functions(contract)
+        .into_iter()
+        .map(|af| (af.function.name.clone(), classify_in(project, contract, af.owner, af.function).0))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::classify::guards::GuardKind;
+    use crate::model::expression::{BinaryOperator, Expression, ExpressionKind};
+    use crate::model::statement::{Statement, StatementKind};
     use crate::model::common::SourceSpan;
     use crate::model::function::Mutability;
     use crate::model::modifier::ModifierRef;
@@ -309,16 +233,35 @@ mod tests {
         );
     }
 
-    #[test]
-    fn when_not_paused_is_still_public() {
-        let f = make_func("deposit", Visibility::External, FunctionKind::Function, vec!["whenNotPaused"], Some(vec![]));
-        assert_eq!(classify_function(&f, &contract()), AccessLevel::Public);
+    fn kinds(f: &FunctionDef) -> Vec<(GuardKind, bool)> {
+        function_guards(None, &contract(), &contract(), f).iter().map(|g| (g.kind, g.heuristic)).collect()
     }
 
     #[test]
-    fn nonreentrant_is_still_public() {
+    fn when_not_paused_is_a_state_guard_not_access() {
+        let f = make_func("deposit", Visibility::External, FunctionKind::Function, vec!["whenNotPaused"], Some(vec![]));
+        assert_eq!(classify_function(&f, &contract()), AccessLevel::Public);
+        assert_eq!(kinds(&f), [(GuardKind::Pause, true)]);
+    }
+
+    #[test]
+    fn nonreentrant_is_a_state_guard_not_access() {
         let f = make_func("withdraw", Visibility::External, FunctionKind::Function, vec!["nonReentrant"], Some(vec![]));
         assert_eq!(classify_function(&f, &contract()), AccessLevel::Public);
+        assert_eq!(kinds(&f), [(GuardKind::Reentrancy, true)]);
+    }
+
+    #[test]
+    fn initializer_is_a_state_guard_not_access() {
+        let f = make_func("initialize", Visibility::External, FunctionKind::Function, vec!["initializer"], Some(vec![]));
+        assert_eq!(classify_function(&f, &contract()), AccessLevel::Public);
+        assert_eq!(kinds(&f), [(GuardKind::Initializer, true)]);
+    }
+
+    #[test]
+    fn unresolved_access_modifier_is_a_heuristic_fact() {
+        let f = make_func("setRate", Visibility::External, FunctionKind::Function, vec!["onlyOwner"], Some(vec![]));
+        assert_eq!(kinds(&f), [(GuardKind::AccessByName, true)]);
     }
 
     #[test]
@@ -345,8 +288,9 @@ mod tests {
         let f = make_func("admin_func", Visibility::External, FunctionKind::Function, vec![], Some(body));
         assert_eq!(
             classify_function(&f, &contract()),
-            AccessLevel::Restricted { role: "msg.sender check".into() }
+            AccessLevel::Restricted { role: "require(msg.sender == owner)".into() }
         );
+        assert_eq!(kinds(&f), [(GuardKind::CallerEquals, false)]);
     }
 
     #[test]
@@ -359,9 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn msg_sender_is_exact() {
-        assert!(expr_is_msg_sender(&msg_sender_expr()));
-
+    fn tx_sender_is_not_the_caller() {
         let not_msg = Expression {
             kind: ExpressionKind::MemberAccess {
                 object: Box::new(Expression {
@@ -374,6 +316,16 @@ mod tests {
             },
             span: span(),
         };
-        assert!(!expr_is_msg_sender(&not_msg));
+        let mut stmt = require_sender_eq_owner();
+        if let StatementKind::ExpressionStmt { expression } = &mut stmt.kind {
+            if let ExpressionKind::FunctionCall { arguments, .. } = &mut expression.kind {
+                if let ExpressionKind::BinaryOp { left, .. } = &mut arguments[0].kind {
+                    **left = not_msg;
+                }
+            }
+        }
+        let f = make_func("f", Visibility::External, FunctionKind::Function, vec![], Some(vec![stmt]));
+        assert_eq!(classify_function(&f, &contract()), AccessLevel::Public);
+        assert_eq!(kinds(&f), []);
     }
 }

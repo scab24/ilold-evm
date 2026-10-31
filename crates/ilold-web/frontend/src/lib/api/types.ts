@@ -208,6 +208,25 @@ export interface SessionEventCallbacks {
   onHighlight?: (msg: SessionHighlight) => void;
 }
 
+export type GuardKind =
+  | "CallerEquals"
+  | "RoleCheck"
+  | "TxOrigin"
+  | "AccessByName"
+  | "Pause"
+  | "Reentrancy"
+  | "Initializer";
+
+/** A revert check on the entry path (Rust `GuardFact`); `via` is empty for the body. */
+export interface GuardFact {
+  kind: GuardKind;
+  condition: string;
+  via: string[];
+  span: { file_index: number; start_line: number; start_col: number; end_line: number; end_col: number } | null;
+  /** Taken from a modifier name because the modifier has no code to read. */
+  heuristic: boolean;
+}
+
 export interface TransitiveEffect {
   via: string[];
   item: string;
@@ -233,4 +252,5 @@ export interface FunctionNarrative {
   transitive_state_reads?: TransitiveEffect[];
   transitive_external_calls?: TransitiveEffect[];
   transitive_events?: TransitiveEffect[];
+  guards?: GuardFact[];
 }

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::cfg::builder::CfgBuilder;
 use ilold_core::cfg::types::CfgGraph;
-use ilold_core::classify::entry_points::{classify_all, AccessLevel};
+use ilold_core::classify::entry_points::{classify_contract, AccessLevel};
 use ilold_core::model::contract::ContractDef;
 use ilold_core::model::project::Project;
 use ilold_core::narrative::function::build_function_narrative;
@@ -36,7 +36,7 @@ pub fn run(
     project.rebuild_index();
 
     let contract = find_contract(&project, contract_filter)?;
-    let classifications = classify_all(contract);
+    let classifications = classify_contract(&project, contract);
 
     if list {
         print_list(contract, &classifications);

@@ -1402,6 +1402,16 @@ fn placeholder_expr(node: &Node, index: &LineIndex) -> Expression {
 }
 
 fn type_expr_name(node: &Node) -> String {
+    // `address(x)`, `payable(x)`: the written type, not solc's `type(address)`
+    if node.node_type == NodeType::ElementaryTypeNameExpression {
+        if let Some(name) = node.attribute::<Node>("typeName").and_then(|t| {
+            let name = t.attribute::<String>("name")?;
+            let payable = t.attribute::<String>("stateMutability").as_deref() == Some("payable");
+            Some(if payable && name == "address" { "payable".to_string() } else { name })
+        }) {
+            return name;
+        }
+    }
     node.attribute::<String>("name")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| type_string(node))

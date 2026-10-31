@@ -1,3 +1,4 @@
+import type { AccessLevel, GuardFact } from './types';
 
 export interface ProjectSummary {
   files: number;
@@ -49,6 +50,9 @@ export interface FunctionSummary {
   happy_paths: number;
   revert_paths: number;
   modifiers: string[];
+  access: AccessLevel;
+  /** Access and state guards read from code, as this contract runs the function. */
+  guards: GuardFact[];
 }
 
 export interface StateVarSummary {

@@ -1352,7 +1352,7 @@ fn is_attached(callee: &Expression, kind: CallKind) -> bool {
 }
 
 // The arguments a call passes, the `using for` receiver first.
-fn call_arguments<'e>(callee: &'e Expression, arguments: &'e [Expression], kind: CallKind) -> Vec<&'e Expression> {
+pub(crate) fn call_arguments<'e>(callee: &'e Expression, arguments: &'e [Expression], kind: CallKind) -> Vec<&'e Expression> {
     let mut out = Vec::with_capacity(arguments.len() + 1);
     if let (true, ExpressionKind::MemberAccess { object, .. }) = (is_attached(callee, kind), &callee.kind) {
         out.push(object.as_ref());
@@ -1415,7 +1415,7 @@ fn type_contract_name(object_type: &str) -> Option<String> {
 
 // A call whose kind solc fixed through the callee's function type.
 
-fn expr_to_string(expr: &Expression) -> String {
+pub(crate) fn expr_to_string(expr: &Expression) -> String {
     match &expr.kind {
         ExpressionKind::Identifier { name, .. } => name.clone(),
         ExpressionKind::Literal { value, .. } => value.clone(),

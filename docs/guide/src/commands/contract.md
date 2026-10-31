@@ -11,15 +11,27 @@ Lists the callable functions in the active contract with their access level and 
 ```
 ilold[Staking]> f
 
-  [public] deposit           writes state
-  [public] withdraw          writes state, external calls
-  [public] claimRewards      writes state, external calls
-  [public] getStakeInfo      view
-  [restricted(onlyOwner)] pause    writes state
-  [restricted(onlyOwner)] unpause  writes state
+  [P] deposit       writes state  {pause} {reentrancy}
+  [P] withdraw      writes state, external calls  {reentrancy}
+  [P] claimRewards  writes state, external calls
+  [P] getStakeInfo  view
+  [R] pause         writes state  {caller}
+  [R] unpause       writes state  {caller}
 ```
 
 Tags indicate `writes state`, `external calls`, or `view` (read-only, no external calls).
+
+The badges in braces are the function's guards, read from code: revert checks on the entry path, in the body, in an inlined modifier or in a helper or library function they call. Access guards restrict who may call and make the function `[R]`:
+
+- `{caller}`: the caller compared with an address (`msg.sender == owner`, `owner() != _msgSender()`).
+- `{role}`: the caller passed to a check or used as a key (`hasRole(role, sender)`, `acl.isPoolAdmin(msg.sender)`, `authorized[msg.sender]`).
+- `{tx.origin}`: a check on `tx.origin`.
+
+A check counts only when its condition must hold for the caller to get through: `require(msg.sender != owner)` and `if (msg.sender == owner) revert` let everyone but the owner in and are not access guards, and `require(msg.sender == admin || open)` is not one either because anyone passes while `open` is true. A call that takes the caller is a role check only when the called function is `view` or `pure`; `require(token.transferFrom(msg.sender, ...))` is not.
+
+Guards are read along the straight-line entry path only. Checks inside loops, inside `if`/`else` branches that do not simply revert, or after a branch, loop or assembly block that may return early are not reported, so a function can be `[P]` and still check its caller on some paths. Check its trace (`tr`) or source before concluding it is unguarded.
+
+State guards do not restrict the caller and leave the function `[P]`: `{pause}`, `{reentrancy}` and `{initializer}`. A modifier whose name sounds like access control but whose check reads a flag is not an access guard. Only a modifier with no code to read falls back to its name; its badge ends in `?` (`{access?}`).
 
 ## funcs-all
 
@@ -30,19 +42,19 @@ Lists all accessible functions including those inherited from parent contracts.
 ```
 ilold[Staking]> fa
 
-  [public] deposit           writes state
-  [public] withdraw          writes state, external calls
-  [public] claimRewards      writes state, external calls
-  [public] getStakeInfo      view
-  [restricted(onlyOwner)] pause    writes state
-  [restricted(onlyOwner)] unpause  writes state
+  [P] deposit       writes state  {pause} {reentrancy}
+  [P] withdraw      writes state, external calls  {reentrancy}
+  [P] claimRewards  writes state, external calls
+  [P] getStakeInfo  view
+  [R] pause         writes state  {caller}
+  [R] unpause       writes state  {caller}
 
   inherited:
-  [public] owner              from Ownable
-  [public] transferOwnership  from Ownable
+  [P] owner              from Ownable
+  [R] transferOwnership  from Ownable  {caller}
 ```
 
-Inherited functions are listed separately with their origin contract.
+Inherited functions are listed separately with their origin contract. Their access and guards are those of the active contract: modifiers and virtual helpers resolve to the overrides it sees.
 
 ## vars
 

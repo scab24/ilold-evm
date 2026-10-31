@@ -6,6 +6,8 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use ilold_core::classify::entry_points::{classify_in, AccessLevel};
+use ilold_core::classify::guards::GuardFact;
 use ilold_core::model::common::SourceSpan;
 use ilold_core::model::contract::ContractDef;
 use ilold_core::model::function::FunctionDef;
@@ -48,6 +50,9 @@ pub struct FunctionSummary {
     pub happy_paths: usize,
     pub revert_paths: usize,
     pub modifiers: Vec<String>,
+    pub access: AccessLevel,
+    /// Access and state guards read from code, as this contract runs the function.
+    pub guards: Vec<GuardFact>,
 }
 
 #[derive(Serialize)]
@@ -92,6 +97,10 @@ pub async fn get_contract(
         let same_name = accessible.iter().filter(|af| af.function.name == f.name).count();
         if same_name > 1 { f.match_signature().to_string() } else { f.name.clone() }
     };
+    // read from code, as the session lists do
+    let guarded = |owner: &ContractDef, f: &FunctionDef| -> (AccessLevel, Vec<GuardFact>) {
+        classify_in(&state.project, contract, owner, f)
+    };
 
     let functions = contract
         .functions
@@ -99,6 +108,7 @@ pub async fn get_contract(
         .map(|f| {
             let key = (contract.key().to_string(), f.key.clone());
             let pt = state.path_trees.get(&key);
+            let (access, guards) = guarded(contract, f);
             FunctionSummary {
                 name: f.name.clone(),
                 key: route_key(f),
@@ -114,6 +124,8 @@ pub async fn get_contract(
                 happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
                 revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
                 modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
+                access,
+                guards,
             }
         })
         .collect();
@@ -138,6 +150,7 @@ pub async fn get_contract(
             let f = af.function;
             let key = (af.origin.clone(), f.key.clone());
             let pt = state.path_trees.get(&key);
+            let (access, guards) = guarded(af.owner, f);
             FunctionSummary {
                 name: f.name.clone(),
                 key: route_key(f),
@@ -153,6 +166,8 @@ pub async fn get_contract(
                 happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
                 revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
                 modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
+                access,
+                guards,
             }
         })
         .collect();

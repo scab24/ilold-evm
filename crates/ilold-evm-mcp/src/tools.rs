@@ -27,12 +27,12 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_contract_detail",
-            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path stats), state variables, inheritance, and inherited members.",
+            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path stats, access level and guards), state variables, inheritance, and inherited members.",
             contract_schema(),
         ),
         tool(
             "ilold_entry_points",
-            "Functions of a contract with their access level (public, or restricted to a role), state-write and external-call flags. The externally reachable attack surface.",
+            "Functions of a contract with their access level (public, or restricted), guards read from code (kind CallerEquals/RoleCheck/TxOrigin for access, Pause/Reentrancy/Initializer for state; condition, via chain, span; heuristic when only a modifier name was available), state-write and external-call flags. The externally reachable attack surface.",
             contract_schema(),
         ),
         tool(
@@ -42,7 +42,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_function_analysis",
-            "Narrative of one function: paths (happy/revert), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, and observations.",
+            "Narrative of one function: access level and guards, paths (happy/revert), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations.",
             contract_function_schema(),
         ),
         tool(

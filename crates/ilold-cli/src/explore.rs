@@ -1637,7 +1637,7 @@ fn print_result(result: &CommandResult, steps: &[String]) {
                 } else {
                     format!("  {}", c_muted(&tags.join(", ")))
                 };
-                println!("  {} {}{}", badge, c_accent(&padded_name), tag_str);
+                println!("  {} {}{}{}", badge, c_accent(&padded_name), tag_str, guard_str(&entry.guards));
             }
             println!();
         }
@@ -1664,7 +1664,7 @@ fn print_result(result: &CommandResult, steps: &[String]) {
                 } else {
                     format!("  {}", c_muted(&tags.join(", ")))
                 };
-                println!("  {} {}{}", badge, c_accent(&padded_name), tag_str);
+                println!("  {} {}{}{}", badge, c_accent(&padded_name), tag_str, guard_str(&entry.guards));
             }
 
             if !inherited.is_empty() {
@@ -1674,7 +1674,7 @@ fn print_result(result: &CommandResult, steps: &[String]) {
                     let badge = access_colored(&entry.access);
                     let padded_name = fmt::pad_right(&entry.name, max_name);
                     let origin = format!("from {}", entry.origin);
-                    println!("  {} {}  {}", badge, c_muted(&padded_name), c_muted(&origin));
+                    println!("  {} {}  {}{}", badge, c_muted(&padded_name), c_muted(&origin), guard_str(&entry.guards));
                 }
             }
             println!();
@@ -1804,6 +1804,14 @@ fn print_result(result: &CommandResult, steps: &[String]) {
     }
 }
 
+fn guard_str(guards: &[ilold_core::classify::guards::GuardFact]) -> String {
+    if guards.is_empty() {
+        String::new()
+    } else {
+        format!("  {}", c_warn(&guard_badges(guards)))
+    }
+}
+
 fn format_access_detail(access: &AccessLevel) -> String {
     match access {
         AccessLevel::Public => "external".truecolor(110, 120, 140).to_string(),
@@ -1849,12 +1857,15 @@ fn print_vars(val: &serde_json::Value) {
 fn print_narrative(val: &serde_json::Value) {
     println!();
     if let Some(name) = val.get("name").and_then(|v| v.as_str()) {
-        let access = val.get("access").and_then(|v| v.as_str()).unwrap_or("");
+        let access = match val.get("access").map(|v| serde_json::from_value::<AccessLevel>(v.clone())) {
+            Some(Ok(a)) => a.to_string(),
+            _ => String::new(),
+        };
         let mods = val.get("modifiers").and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|m| m.as_str()).collect::<Vec<_>>().join(", "))
             .unwrap_or_default();
         let mod_str = if mods.is_empty() { String::new() } else { format!(" — {}", c_muted(&mods)) };
-        println!("  {} [{}]{}", c_bright(name), c_accent(access), mod_str);
+        println!("  {} [{}]{}", c_bright(name), c_accent(&access), mod_str);
     }
 
     #[derive(Default)]
@@ -1896,6 +1907,20 @@ fn print_narrative(val: &serde_json::Value) {
             .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|s| s.to_string())).collect())
             .unwrap_or_default()
     };
+
+    // guards: `kind: condition (via a → b)`
+    let guards: Vec<String> = val.get("guards")
+        .and_then(|v| serde_json::from_value::<Vec<ilold_core::classify::guards::GuardFact>>(v.clone()).ok())
+        .unwrap_or_default()
+        .iter()
+        .map(|g| {
+            let via = if g.via.is_empty() { String::new() } else { format!(" (via {})", g.via.join(" → ")) };
+            format!("{}{}: {}{}", g.kind.label(), if g.heuristic { "?" } else { "" }, g.condition, via)
+        })
+        .collect();
+    if !guards.is_empty() {
+        sections.push(Section::StringList { label: "Guards", label_color: SectionColor::Warn, items: guards });
+    }
 
     let reads = collect_strs("state_reads");
     if !reads.is_empty() {

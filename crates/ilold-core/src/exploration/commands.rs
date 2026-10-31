@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::types::CfgGraph;
-use crate::classify::entry_points::{classify_all, AccessLevel};
+use crate::classify::entry_points::{classify_in, AccessLevel};
+use crate::classify::guards::GuardFact;
 use crate::journal::types::{Finding, ReviewStatus, Severity};
 use crate::model::contract::ContractDef;
 use crate::model::project::Project;
@@ -21,6 +22,9 @@ use super::session::{ExplorationSession, TraceConfig, VariableSummary};
 pub struct FunctionEntry {
     pub name: String,
     pub access: AccessLevel,
+    /// Access and state guards read from code; see [`GuardFact`].
+    #[serde(default)]
+    pub guards: Vec<GuardFact>,
     pub writes_state: bool,
     pub has_external_calls: bool,
     pub is_read_only: bool,
@@ -30,6 +34,8 @@ pub struct FunctionEntry {
 pub struct AccessibleFunctionEntry {
     pub name: String,
     pub access: AccessLevel,
+    #[serde(default)]
+    pub guards: Vec<GuardFact>,
     pub origin: String,
     pub is_inherited: bool,
     pub writes_state: bool,
@@ -262,9 +268,9 @@ pub fn execute_command(
             summary: session.variable_summary(),
         },
         SessionCommand::Functions => {
-            let classifications = classify_all(data.contract);
-            let functions: Vec<FunctionEntry> = classifications.into_iter().map(|(name, access)| {
-                let behavior = data.behaviors.iter().find(|b| b.name == name);
+            let functions: Vec<FunctionEntry> = data.contract.functions.iter().map(|func| {
+                let (access, guards) = guarded(data, data.contract, func);
+                let behavior = data.behaviors.iter().find(|b| b.name == func.key);
                 let writes_state = behavior
                     .map(|b| !b.effective_state_writes().is_empty())
                     .unwrap_or(false);
@@ -273,8 +279,9 @@ pub fn execute_command(
                     .unwrap_or(false);
                 let is_read_only = !writes_state && !has_external_calls;
                 FunctionEntry {
-                    name,
+                    name: func.name.clone(),
                     access,
+                    guards,
                     writes_state,
                     has_external_calls,
                     is_read_only,
@@ -343,22 +350,19 @@ fn execute_state_vars_all(data: &AnalysisData) -> CommandResult {
     CommandResult::StateVarListAll { state_vars }
 }
 
-fn execute_functions_all(data: &AnalysisData) -> CommandResult {
-    use crate::classify::entry_points::classify_function;
+/// Access level and guards of `func` (declared in `owner`) as `data.contract` runs it, read
+/// from code: an empty `guards` on a behavior may mean "never computed", not "unguarded".
+fn guarded(data: &AnalysisData, owner: &ContractDef, func: &crate::model::function::FunctionDef) -> (AccessLevel, Vec<GuardFact>) {
+    classify_in(data.project, data.contract, owner, func)
+}
 
+fn execute_functions_all(data: &AnalysisData) -> CommandResult {
     let functions: Vec<AccessibleFunctionEntry> = data.project
         .accessible_functions(data.contract)
         .into_iter()
         .map(|af| {
-            let access = if af.is_inherited {
-                if let Some(parent) = data.project.contract_index.get(&af.origin).map(|&i| &data.project.contracts[i]) {
-                    classify_function(af.function, parent)
-                } else {
-                    classify_function(af.function, data.contract)
-                }
-            } else {
-                classify_function(af.function, data.contract)
-            };
+            // inherited functions too, with modifiers as this contract resolves them
+            let (access, guards) = guarded(data, af.owner, af.function);
 
             // inherited functions are analysed as this contract runs them
             let behavior = data.behaviors.iter().find(|b| b.name == af.function.key).or_else(|| {
@@ -377,6 +381,7 @@ fn execute_functions_all(data: &AnalysisData) -> CommandResult {
             AccessibleFunctionEntry {
                 name: af.function.name.clone(),
                 access,
+                guards,
                 origin: af.origin,
                 is_inherited: af.is_inherited,
                 writes_state,
@@ -446,7 +451,7 @@ fn execute_call(
         };
     }
 
-    let access = crate::classify::entry_points::classify_function(function_def, owning_contract);
+    let (access, _) = guarded(data, owning_contract, function_def);
 
     let combined_state_vars = data.project.inherited_state_vars(data.contract);
     session.add_step_with_internals(

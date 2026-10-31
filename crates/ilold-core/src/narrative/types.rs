@@ -36,6 +36,8 @@ pub struct FunctionNarrative {
     /// Where it can revert: own checks with an empty `via`, then those reached through calls.
     #[serde(default)]
     pub revert_sources: Vec<TransitiveEffect>,
+    #[serde(default)]
+    pub guards: Vec<crate::classify::guards::GuardFact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

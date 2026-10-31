@@ -7,7 +7,7 @@ use colored::Colorize;
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::callgraph::builder::build_call_graph;
 use ilold_core::cfg::builder::CfgBuilder;
-use ilold_core::classify::entry_points::classify_function;
+use ilold_core::classify::entry_points::classify_in;
 use ilold_core::depgraph::ContractDeps;
 use ilold_core::model::contract::{ContractDef, ContractKind};
 use ilold_core::model::function::Visibility;
@@ -298,7 +298,7 @@ fn print_contract(
             func.name.clone()
         };
 
-        let access = classify_function(func, contract);
+        let access = classify_in(project, contract, contract, func).0;
         let vis = match func.visibility {
             Visibility::Public => "public",
             Visibility::External => "external",

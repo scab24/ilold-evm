@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph, CfgStatement};
-use crate::classify::entry_points::{classify_function, AccessLevel};
+use crate::classify::entry_points::access_level;
+use crate::classify::guards::function_guards;
 use crate::model::contract::ContractDef;
 use crate::model::function::FunctionDef;
 use crate::narrative::types::TransitiveEffect;
@@ -17,7 +18,19 @@ pub fn build_function_narrative(
     cfg: &CfgGraph,
     all_behaviors: &[FunctionBehavior],
 ) -> FunctionNarrative {
-    let access = classify_function(function, contract);
+    let root_behavior = all_behaviors
+        .iter()
+        .find(|b| b.name == function.key)
+        .or_else(|| all_behaviors.iter().find(|b| b.name == function.name));
+    // guards come from the analysis, which reads inherited modifiers and helpers; only the
+    // behavior of this very function (by key), never one of another overload
+    let (access, guards) = match all_behaviors.iter().find(|b| b.name == function.key) {
+        Some(b) => (access_level(function, &b.guards), b.guards.clone()),
+        None => {
+            let guards = function_guards(None, contract, contract, function);
+            (access_level(function, &guards), guards)
+        }
+    };
 
     let paths: Vec<PathNarrative> = path_tree
         .paths
@@ -81,8 +94,9 @@ pub fn build_function_narrative(
         })
         .collect();
 
+    let unguarded = access.is_unrestricted() && !guards.iter().any(|g| g.kind.is_access());
     let observations = generate_observations(
-        &access, path_tree, cfg, all_behaviors, &function.name,
+        unguarded, path_tree, cfg, all_behaviors, &function.name,
     );
 
     let mut writes = HashSet::new();
@@ -115,10 +129,6 @@ pub fn build_function_narrative(
     let mut events: Vec<String> = events_set.into_iter().collect();
     events.sort();
 
-    let root_behavior = all_behaviors
-        .iter()
-        .find(|b| b.name == function.key)
-        .or_else(|| all_behaviors.iter().find(|b| b.name == function.name));
     let traced = |kind: EffectKind| -> Vec<TransitiveEffect> {
         root_behavior.map(|b| transitive_effects(b, kind)).unwrap_or_default()
     };
@@ -152,6 +162,7 @@ pub fn build_function_narrative(
         transitive_events: traced(EffectKind::Event),
         can_revert: root_behavior.map_or(path_tree.stats.revert_paths > 0, |b| b.can_revert),
         revert_sources,
+        guards,
     }
 }
 
@@ -290,7 +301,7 @@ fn check_cei_violation(
 }
 
 fn generate_observations(
-    access: &AccessLevel,
+    unguarded: bool,
     path_tree: &PathTree,
     cfg: &CfgGraph,
     all_behaviors: &[FunctionBehavior],
@@ -339,7 +350,7 @@ fn generate_observations(
         }
     }
 
-    if access.is_unrestricted() && !my_writes.is_empty() {
+    if unguarded && !my_writes.is_empty() {
         obs.push(Observation {
             kind: ObservationKind::NoAccessControl,
             description: format!(

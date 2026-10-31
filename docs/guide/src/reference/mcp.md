@@ -43,7 +43,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 | Tool | Parameters | Returns |
 | --- | --- | --- |
 | `ilold_contract_detail` | `contract` | Functions (visibility, mutability, modifiers, params, path stats), state variables, inheritance, inherited members. |
-| `ilold_entry_points` | `contract` | Externally callable functions with their access level (public, or restricted to a role). |
+| `ilold_entry_points` | `contract` | Externally callable functions with their access level (public, or restricted) and guards read from code: `kind` (`CallerEquals`, `RoleCheck`, `TxOrigin`, or `AccessByName` when only a modifier name was available; `Pause`, `Reentrancy`, `Initializer` for state guards), `condition`, `via`, `span`, `heuristic`. |
 | `ilold_search` | `contract` | Searchable names in a contract: functions, state variables, events, external-call targets. |
 
 ### Function analysis

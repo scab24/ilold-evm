@@ -5,7 +5,8 @@ use crate::callgraph::builder::build_call_graph;
 use crate::callgraph::types::CallGraph;
 use crate::cfg::builder::CfgBuilder;
 use crate::cfg::types::CfgGraph;
-use crate::classify::entry_points::{classify_all, AccessLevel};
+use crate::classify::entry_points::{classify_contract, AccessLevel};
+use crate::classify::guards::function_guards;
 use crate::depgraph::ContractDeps;
 use crate::model::contract::ContractDef;
 use crate::model::function::FunctionDef;
@@ -122,6 +123,8 @@ impl ProjectAnalysis {
             functions.sort_by(|a, b| a.name.cmp(&b.name));
             for behavior in &mut functions {
                 let Some((owner, func)) = owner_of(project, contract, &behavior.name) else { continue };
+                // read from code, so a behavior without a summary still gets them
+                behavior.guards = function_guards(Some(project), contract, owner, func);
                 let Some(summary) = summaries.get(&(owner.key().to_string(), func.key.clone())) else { continue };
                 let effects = engine.effects(contract, owner, func);
                 apply_effects(behavior, summary, &effects);
@@ -129,7 +132,8 @@ impl ProjectAnalysis {
             let transitions = transitions(&functions);
             sequence_analyses.insert(contract_key.clone(), SequenceAnalysis { functions, transitions });
 
-            classifications.insert(contract_key, classify_all(contract));
+            // inherited functions too, with modifiers and helpers as this contract resolves them
+            classifications.insert(contract_key, classify_contract(project, contract));
         }
 
         let dep_graph = ContractDeps::from_call_graphs(project, &call_graphs);

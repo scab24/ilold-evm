@@ -57,6 +57,8 @@ pub struct FunctionBehavior {
     /// Modifiers named by the function that resolve to no definition; not inlined.
     #[serde(default)]
     pub unresolved_modifiers: Vec<String>,
+    #[serde(default)]
+    pub guards: Vec<crate::classify::guards::GuardFact>,
 }
 
 /// What a transitive effect is.
@@ -267,6 +269,7 @@ pub fn direct_behaviors(
             storage_param_reads: Vec::new(),
             transitive_effects: Vec::new(),
             unresolved_modifiers: Vec::new(),
+            guards: Vec::new(),
         });
     }
 

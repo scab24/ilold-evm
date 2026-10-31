@@ -335,3 +335,67 @@ fn aave_state_flow() {
     assert!(params_written.iter().any(|w| w.starts_with("reservesData[].liquidityIndex")));
     assert!(params_written.iter().any(|w| w.starts_with("userConfig.data")));
 }
+
+/// Access and state guards of Aave's entry points, and the "without access control"
+/// observations they leave.
+/// `ILOLD_AAVE_ROOT=/tmp/copy/aave cargo test -p ilold-core --test aave_spot_check aave_access_guards -- --ignored --nocapture`
+#[test]
+#[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
+fn aave_access_guards() {
+    use ilold_core::classify::entry_points::AccessLevel;
+    use ilold_core::classify::guards::GuardKind;
+    use ilold_core::model::function::{Mutability, Visibility};
+    use ilold_core::narrative::function::build_function_narrative;
+    use ilold_core::narrative::types::ObservationKind;
+
+    let root = PathBuf::from(std::env::var("ILOLD_AAVE_ROOT").expect("ILOLD_AAVE_ROOT"));
+    let project = SolcFrontend.parse_project(&root).expect("parse aave");
+    let analysis = ProjectAnalysis::build(&project, &AnalysisParams::new(1));
+
+    let access = |c: &str, f: &str| -> AccessLevel {
+        analysis.classifications[c].iter().find(|(n, _)| n == f).map(|(_, a)| a.clone()).unwrap_or_else(|| panic!("{c}::{f}"))
+    };
+    let guards = |c: &str, key: &str| {
+        analysis.sequence_analyses[c].functions.iter().find(|b| b.name == key).map(|b| b.guards.clone()).unwrap_or_default()
+    };
+    for name in ["Pool", "PoolConfigurator", "AToken", "ACLManager"] {
+        let contract = project.contracts.iter().find(|c| c.name == name && !c.is_dependency).unwrap();
+        let c = contract.key();
+        println!("== {name}");
+        let mut flagged = Vec::new();
+        for af in project.accessible_functions(contract) {
+            let f = af.function;
+            if !matches!(f.visibility, Visibility::External | Visibility::Public)
+                || matches!(f.mutability, Mutability::View | Mutability::Pure)
+                || f.name.is_empty()
+            {
+                continue;
+            }
+            let found = guards(c, &f.key);
+            let shown: Vec<String> = found
+                .iter()
+                .map(|g| format!("{:?}{} `{}` via [{}]", g.kind, if g.heuristic { " (heuristic)" } else { "" }, g.condition, g.via.join(" -> ")))
+                .collect();
+            let from = if af.is_inherited { format!(" (from {})", af.origin) } else { String::new() };
+            println!("  {}{from}: {}\n    {}", f.key, access(c, &f.name), if shown.is_empty() { "-".into() } else { shown.join("\n    ") });
+            let key = (af.owner.key().to_string(), f.key.clone());
+            if let (Some(pt), Some(cfg)) = (analysis.path_trees.get(&key), analysis.cfgs.get(&key)) {
+                let n = build_function_narrative(af.owner, f, pt, cfg, &analysis.sequence_analyses[c].functions);
+                if n.observations.iter().any(|o| o.kind == ObservationKind::NoAccessControl) {
+                    flagged.push(f.key.clone());
+                }
+            }
+        }
+        println!("  -> NoAccessControl on {}: {:?}", flagged.len(), flagged);
+    }
+
+    let has = |c: &str, f: &str, kind: GuardKind, via0: &str| {
+        guards(c, f).iter().any(|g| g.kind == kind && !g.heuristic && g.via.first().map(String::as_str) == Some(via0))
+    };
+    assert!(has("Pool", "initReserve", GuardKind::RoleCheck, "modifier onlyPoolConfigurator") || has("Pool", "initReserve", GuardKind::CallerEquals, "modifier onlyPoolConfigurator"));
+    assert!(has("Pool", "rescueTokens", GuardKind::RoleCheck, "modifier onlyPoolAdmin"));
+    for f in ["supply", "withdraw", "borrow", "repay", "flashLoan"] {
+        assert!(!guards("Pool", f).iter().any(|g| g.kind.is_access()), "Pool.{f}: {:?}", guards("Pool", f));
+        assert_eq!(access("Pool", f), AccessLevel::Public, "Pool.{f}");
+    }
+}
