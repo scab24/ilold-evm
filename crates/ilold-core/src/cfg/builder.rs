@@ -13,8 +13,8 @@ use crate::model::function::FunctionDef;
 use crate::model::modifier::ModifierDef;
 use crate::model::project::Project;
 use crate::model::statement::{Statement, StatementKind};
+use crate::util::push_unique;
 
-use super::error::CfgError;
 use super::types::*;
 
 pub struct CfgBuilder<'p> {
@@ -63,7 +63,7 @@ enum VarKey {
 }
 
 /// What denotes storage inside one function: state variables, `storage` parameters and
-/// storage pointer locals with the location they currently point to.
+/// storage pointer locals with the locations they may point to.
 #[derive(Default)]
 struct Scope {
     state_ids: HashMap<DeclId, String>,
@@ -72,7 +72,25 @@ struct Scope {
     // without solc ids, names are the only way to tell state from locals
     by_name: bool,
     storage_locals: HashSet<VarKey>,
-    aliases: HashMap<VarKey, StorageRef>,
+    aliases: Aliases,
+}
+
+type Aliases = HashMap<VarKey, Vec<StorageRef>>;
+
+// with no branch reaching the join, code there (a modifier after `_`) still sees the pointers
+fn join_aliases(ends: Vec<Aliases>, before: Aliases) -> Aliases {
+    if ends.is_empty() { before } else { merge_aliases(ends) }
+}
+
+fn merge_aliases(ends: Vec<Aliases>) -> Aliases {
+    let mut merged = Aliases::new();
+    for (key, places) in ends.into_iter().flatten() {
+        let into = merged.entry(key).or_default();
+        for place in places {
+            push_unique(into, place);
+        }
+    }
+    merged
 }
 
 impl Scope {
@@ -93,20 +111,28 @@ impl Scope {
         })
     }
 
-    /// The storage an identifier denotes, if any.
-    fn root(&self, name: &str, resolved: Option<DeclId>) -> Option<StorageRef> {
+    fn root(&self, name: &str, resolved: Option<DeclId>) -> Vec<StorageRef> {
         if resolved.is_none() && !self.by_name {
-            return None;
+            return Vec::new();
         }
-        if let Some(place) = self.aliases.get(&Self::key(name, resolved)) {
-            return Some(place.clone());
+        if let Some(places) = self.aliases.get(&Self::key(name, resolved)) {
+            return places.clone();
         }
         if let Some(i) = self.storage_param(name, resolved) {
-            return Some(StorageRef { path: self.params[i].name.clone(), param: Some(i) });
+            return vec![StorageRef { path: self.params[i].name.clone(), param: Some(i) }];
         }
-        match resolved {
+        let state = match resolved {
             Some(id) => self.state_ids.get(&id).map(|n| StorageRef::state(n.clone())),
             None => self.state_names.contains(name).then(|| StorageRef::state(name)),
+        };
+        state.into_iter().collect()
+    }
+
+    fn point(&mut self, key: VarKey, places: Vec<StorageRef>) {
+        if places.is_empty() {
+            self.aliases.remove(&key);
+        } else {
+            self.aliases.insert(key, places);
         }
     }
 
@@ -122,19 +148,21 @@ impl Scope {
 }
 
 impl<'p> CfgBuilder<'p> {
-    pub fn build(function: &FunctionDef, contract: &ContractDef) -> Result<CfgGraph, CfgError> {
+    pub fn build(function: &FunctionDef, contract: &ContractDef) -> CfgGraph {
         Self::build_with_project(function, contract, None)
     }
 
+    /// `contract` is the most derived contract: modifiers resolve to the overrides it sees.
     pub fn build_with_project(
         function: &FunctionDef,
         contract: &ContractDef,
         project: Option<&'p Project>,
-    ) -> Result<CfgGraph, CfgError> {
+    ) -> CfgGraph {
         let state = match project {
             Some(p) => p.inherited_state_vars(contract),
             None => contract.state_vars.clone(),
         };
+        let state: Vec<_> = state.into_iter().filter(|v| v.is_storage()).collect();
         let by_name = function.id.is_none()
             && state.iter().all(|v| v.id.is_none())
             && function.params.iter().all(|p| p.id.is_none());
@@ -181,7 +209,7 @@ impl<'p> CfgBuilder<'p> {
         builder.current_block = entry;
 
         let Some(body) = &function.body else {
-            return Ok(builder.graph);
+            return builder.graph;
         };
         builder.body = Rc::new(body.clone());
         builder.run_level(0);
@@ -198,7 +226,7 @@ impl<'p> CfgBuilder<'p> {
             builder.add_edge(builder.current_block, ret, BranchEdge::Unconditional);
         }
 
-        Ok(builder.graph)
+        builder.graph
     }
 
     // Runs modifier `level` (its `_` runs the next level), or the body after the last one.
@@ -330,12 +358,9 @@ impl<'p> CfgBuilder<'p> {
                 if let Some(val) = initial_value {
                     if *is_storage_ref {
                         // a pointer: binds a location without reading it
-                        let place = self.place(val);
+                        let places = self.place(val);
                         self.pointer_effects(val);
-                        match place {
-                            Some(place) => self.scope.aliases.insert(key, place),
-                            None => self.scope.aliases.remove(&key),
-                        };
+                        self.scope.point(key, places);
                     } else {
                         self.add_effects(val);
                     }
@@ -415,17 +440,12 @@ impl<'p> CfgBuilder<'p> {
     }
 
 
-    // calls, mutations and reads of an expression whose value is consumed elsewhere
+    // calls, nested writes and reads of an expression whose value is consumed elsewhere
     fn add_effects(&mut self, expr: &Expression) {
         let mut reads = Vec::new();
         self.reads(expr, &mut reads);
         self.push_reads(reads);
-        let mut stmts = Vec::new();
-        self.collect_calls(expr, &mut stmts);
-        self.collect_mutations(expr, &mut stmts);
-        for s in stmts {
-            self.add_stmt_to_current(s);
-        }
+        self.push_calls(expr);
     }
 
     // a storage pointer expression: only its index expressions and calls are evaluated
@@ -433,6 +453,10 @@ impl<'p> CfgBuilder<'p> {
         let mut reads = Vec::new();
         self.index_reads(expr, &mut reads);
         self.push_reads(reads);
+        self.push_calls(expr);
+    }
+
+    fn push_calls(&mut self, expr: &Expression) {
         let mut stmts = Vec::new();
         self.collect_calls(expr, &mut stmts);
         for s in stmts {
@@ -449,44 +473,36 @@ impl<'p> CfgBuilder<'p> {
         if *operator == AssignOperator::Assign {
             if let Some(key) = self.scope.is_pointer(target) {
                 // re-pointing a storage pointer
-                let place = self.place(value);
+                let places = self.place(value);
                 self.pointer_effects(value);
-                match place {
-                    Some(place) => self.scope.aliases.insert(key, place),
-                    None => self.scope.aliases.remove(&key),
-                };
-                self.push_assignment(target, value, *operator, None);
+                self.scope.point(key, places);
+                self.push_assignment(target, value, *operator, Vec::new());
                 return;
             }
         }
         let mut reads = Vec::new();
         self.reads(expr, &mut reads);
         self.push_reads(reads);
-        let mut stmts = Vec::new();
-        self.collect_calls(expr, &mut stmts);
-        for s in stmts {
-            self.add_stmt_to_current(s);
-        }
+        // what the value and the target's indexes do comes before the write
+        self.push_calls(target);
+        self.push_calls(value);
         if let ExpressionKind::Tuple { elements } = &target.kind {
-            self.push_assignment(target, value, *operator, None);
+            self.push_assignment(target, value, *operator, Vec::new());
             for element in elements.iter().flatten() {
-                if let Some(place) = self.place(element) {
+                for place in self.place(element) {
                     self.push_storage_write(place);
                 }
             }
         } else {
-            let place = self.place(target);
-            self.push_assignment(target, value, *operator, place);
-        }
-        let mut stmts = Vec::new();
-        self.collect_mutations(value, &mut stmts);
-        for s in stmts {
-            self.add_stmt_to_current(s);
+            let places = self.place(target);
+            self.push_assignment(target, value, *operator, places);
         }
     }
 
-    fn push_assignment(&mut self, target: &Expression, value: &Expression, operator: AssignOperator, storage: Option<StorageRef>) {
+    fn push_assignment(&mut self, target: &Expression, value: &Expression, operator: AssignOperator, places: Vec<StorageRef>) {
         let from_modifier = self.current_modifier.clone();
+        let mut places = places.into_iter();
+        let storage = places.next();
         self.add_stmt_to_current(CfgStatement::Assignment {
             target: storage.as_ref().map(|p| p.path.clone()).unwrap_or_else(|| expr_to_string(target)),
             value: expr_to_string(value),
@@ -495,6 +511,9 @@ impl<'p> CfgBuilder<'p> {
             from_modifier,
             storage,
         });
+        for place in places {
+            self.push_storage_write(place);
+        }
     }
 
     fn push_storage_write(&mut self, place: StorageRef) {
@@ -511,39 +530,46 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // The storage `expr` denotes: a state variable, a `storage` parameter or a storage pointer,
-    // followed by member and index accesses. Calls returning a storage pointer are followed once.
-    fn place(&self, expr: &Expression) -> Option<StorageRef> {
+    // Every storage place `expr` may denote; calls returning a storage pointer are followed once.
+    fn place(&self, expr: &Expression) -> Vec<StorageRef> {
         self.place_in(&self.scope, expr, true)
     }
 
-    fn place_in(&self, scope: &Scope, expr: &Expression, follow_calls: bool) -> Option<StorageRef> {
+    fn place_in(&self, scope: &Scope, expr: &Expression, follow_calls: bool) -> Vec<StorageRef> {
+        let extend = |places: Vec<StorageRef>, suffix: String| places.iter().map(|p| p.extend(&suffix)).collect();
         match &expr.kind {
             ExpressionKind::Identifier { name, resolved } => scope.root(name, *resolved),
             ExpressionKind::MemberAccess { object, member, .. } => {
-                Some(self.place_in(scope, object, follow_calls)?.extend(&format!(".{member}")))
+                extend(self.place_in(scope, object, follow_calls), format!(".{member}"))
             }
             ExpressionKind::IndexAccess { base, index } => {
                 let index = index.as_ref().map(|e| expr_to_string(e)).unwrap_or_default();
-                Some(self.place_in(scope, base, follow_calls)?.extend(&format!("[{index}]")))
+                extend(self.place_in(scope, base, follow_calls), format!("[{index}]"))
             }
-            ExpressionKind::Tuple { elements } if elements.len() == 1 => {
-                self.place_in(scope, elements[0].as_ref()?, follow_calls)
+            ExpressionKind::Tuple { elements } if elements.len() == 1 => match &elements[0] {
+                Some(e) => self.place_in(scope, e, follow_calls),
+                None => Vec::new(),
+            },
+            ExpressionKind::Ternary { true_expr, false_expr, .. } => {
+                let mut places = self.place_in(scope, true_expr, follow_calls);
+                for p in self.place_in(scope, false_expr, follow_calls) {
+                    push_unique(&mut places, p);
+                }
+                places
             }
             ExpressionKind::FunctionCall { callee, arguments, call: CallType::Call(kind), .. } if follow_calls => {
                 self.returned_place(callee, arguments, *kind)
             }
-            _ => None,
+            _ => Vec::new(),
         }
     }
 
-    // The storage a call to a function returning one storage pointer yields, when every
-    // `return` (or assignment to the named return variable) of the callee agrees on it.
-    fn returned_place(&self, callee: &Expression, arguments: &[Expression], kind: CallKind) -> Option<StorageRef> {
-        let def = self.callee_def(callee)?;
-        let [ret] = def.returns.as_slice() else { return None };
+    // The known places the `return`s of a callee returning one storage pointer may yield.
+    fn returned_place(&self, callee: &Expression, arguments: &[Expression], kind: CallKind) -> Vec<StorageRef> {
+        let Some(def) = self.callee_def(callee) else { return Vec::new() };
+        let ([ret], Some(body)) = (def.returns.as_slice(), def.body.as_deref()) else { return Vec::new() };
         if !ret.is_storage {
-            return None;
+            return Vec::new();
         }
         let callee_scope = Scope {
             // libraries have no storage of their own; contract functions share ours
@@ -553,16 +579,22 @@ impl<'p> CfgBuilder<'p> {
             ..Scope::default()
         };
         let mut returned = Vec::new();
-        collect_returned(def.body.as_deref()?, ret, &mut returned);
-        let mut places = returned.into_iter().map(|e| self.place_in(&callee_scope, e, false));
-        let first = places.next()??;
-        if places.any(|p| p.as_ref() != Some(&first)) {
-            return None;
-        }
-        let Some(i) = first.param else { return Some(first) };
+        collect_returned(body, ret, &mut returned);
         let args = call_arguments(callee, arguments, kind);
-        let bound = self.place(args.get(i)?)?;
-        Some(bound.extend(&first.path[def.params[i].name.len()..]))
+        let mut out: Vec<StorageRef> = Vec::new();
+        for place in returned.into_iter().flat_map(|e| self.place_in(&callee_scope, e, false)) {
+            let bound = match place.param {
+                None => vec![place],
+                Some(i) => {
+                    let suffix = &place.path[def.params[i].name.len()..];
+                    args.get(i).map(|arg| self.place(arg)).unwrap_or_default().iter().map(|p| p.extend(suffix)).collect()
+                }
+            };
+            for p in bound {
+                push_unique(&mut out, p);
+            }
+        }
+        out
     }
 
     fn callee_def(&self, callee: &Expression) -> Option<&'p FunctionDef> {
@@ -591,7 +623,7 @@ impl<'p> CfgBuilder<'p> {
             .into_iter()
             .enumerate()
             .filter(|(i, _)| bindings.get(*i).copied().unwrap_or(false))
-            .filter_map(|(param, arg)| Some(StorageArg { param, place: self.place(arg)? }))
+            .flat_map(|(param, arg)| self.place(arg).into_iter().map(move |place| StorageArg { param, place }))
             .collect()
     }
 
@@ -600,8 +632,9 @@ impl<'p> CfgBuilder<'p> {
     fn reads(&self, expr: &Expression, out: &mut Vec<StorageRef>) {
         match &expr.kind {
             ExpressionKind::Identifier { .. } | ExpressionKind::MemberAccess { .. } | ExpressionKind::IndexAccess { .. } => {
-                if let Some(place) = self.place_in(&self.scope, expr, false) {
-                    out.push(place);
+                let places = self.place_in(&self.scope, expr, false);
+                if !places.is_empty() {
+                    out.extend(places);
                     self.index_reads(expr, out);
                     return;
                 }
@@ -712,7 +745,7 @@ impl<'p> CfgBuilder<'p> {
                     self.target_reads(e, out);
                 }
             }
-            _ if self.place(target).is_some() => self.index_reads(target, out),
+            _ if !self.place(target).is_empty() => self.index_reads(target, out),
             _ => self.reads(target, out),
         }
     }
@@ -743,11 +776,13 @@ impl<'p> CfgBuilder<'p> {
             then_block,
             BranchEdge::ConditionalTrue { condition: cond_str.clone() },
         );
+        let before_aliases = self.scope.aliases.clone();
         self.current_block = then_block;
         for s in then_body {
             self.process_statement(s);
         }
         let then_end = self.current_block;
+        let then_aliases = std::mem::replace(&mut self.scope.aliases, before_aliases.clone());
 
         let else_end = if let Some(else_stmts) = else_body {
             let else_block = self.add_block(BlockKind::Normal);
@@ -773,6 +808,16 @@ impl<'p> CfgBuilder<'p> {
 
         let then_needs_join = !self.block_is_terminal(then_end);
         let else_needs_join = else_body.is_some() && !self.block_is_terminal(else_end);
+
+        let else_aliases = std::mem::take(&mut self.scope.aliases);
+        let mut ends = Vec::new();
+        if then_needs_join {
+            ends.push(then_aliases);
+        }
+        if else_needs_join || else_body.is_none() {
+            ends.push(else_aliases);
+        }
+        self.scope.aliases = join_aliases(ends, before_aliases);
 
         if then_needs_join || else_needs_join || else_body.is_none() {
             let join = if else_body.is_none() {
@@ -801,6 +846,7 @@ impl<'p> CfgBuilder<'p> {
         if let Some(init_stmt) = init {
             self.process_statement(init_stmt);
         }
+        let entry_aliases = self.widen_loop_aliases(body, increment);
 
         let cond_block = self.add_block(BlockKind::LoopCondition);
         self.add_edge(self.current_block, cond_block, BranchEdge::Unconditional);
@@ -851,10 +897,12 @@ impl<'p> CfgBuilder<'p> {
         }
 
         self.current_block = exit_block;
+        self.join_loop_aliases(entry_aliases);
     }
 
     fn process_while(&mut self, condition: &Expression, body: &[Statement]) {
         let cond_str = expr_to_string(condition);
+        let entry_aliases = self.widen_loop_aliases(body, None);
 
         let cond_block = self.add_block(BlockKind::LoopCondition);
         self.add_edge(self.current_block, cond_block, BranchEdge::Unconditional);
@@ -888,10 +936,12 @@ impl<'p> CfgBuilder<'p> {
         self.close_loop_body();
 
         self.current_block = exit_block;
+        self.join_loop_aliases(entry_aliases);
     }
 
     fn process_do_while(&mut self, body: &[Statement], condition: &Expression) {
         let cond_str = expr_to_string(condition);
+        let entry_aliases = self.widen_loop_aliases(body, None);
 
         let body_block = self.add_block(BlockKind::Normal);
         self.add_edge(self.current_block, body_block, BranchEdge::Unconditional);
@@ -912,6 +962,7 @@ impl<'p> CfgBuilder<'p> {
         // the condition is unreachable when the body never falls through or continues
         let Some(cond_block) = frame.continue_block else {
             self.current_block = frame.exit_block.unwrap_or(end);
+            self.join_loop_aliases(entry_aliases);
             return;
         };
         self.current_block = cond_block;
@@ -932,6 +983,40 @@ impl<'p> CfgBuilder<'p> {
         );
 
         self.current_block = exit_block;
+        self.join_loop_aliases(entry_aliases);
+    }
+
+    // Any iteration may see a place a pointer is re-pointed to later in the loop.
+    fn widen_loop_aliases(&mut self, body: &[Statement], increment: Option<&Expression>) -> Aliases {
+        let mut repoints = Vec::new();
+        collect_repoints(body, &mut repoints);
+        if let Some(incr) = increment {
+            repoint(incr, &mut repoints);
+        }
+        // a pointer re-pointed through another one needs a few rounds
+        for _ in 0..4 {
+            let mut changed = false;
+            for (target, value) in &repoints {
+                let Some(key) = self.scope.is_pointer(target) else { continue };
+                let mut places = self.place(target);
+                let known = places.len();
+                for p in self.place(value) {
+                    push_unique(&mut places, p);
+                }
+                changed |= places.len() > known;
+                self.scope.point(key, places);
+            }
+            if !changed {
+                break;
+            }
+        }
+        self.scope.aliases.clone()
+    }
+
+    // the loop may have run zero or more times
+    fn join_loop_aliases(&mut self, entry: Aliases) {
+        let end = std::mem::take(&mut self.scope.aliases);
+        self.scope.aliases = merge_aliases(vec![entry, end]);
     }
 
     fn process_return(&mut self, value: Option<&Expression>) {
@@ -970,8 +1055,11 @@ impl<'p> CfgBuilder<'p> {
         self.evaluate(expression);
 
         let join = self.add_block(BlockKind::Normal);
+        let start_aliases = self.scope.aliases.clone();
+        let mut ends = Vec::new();
 
         for (i, clause) in clauses.iter().enumerate() {
+            self.scope.aliases = start_aliases.clone();
             let clause_block = self.add_block(BlockKind::Normal);
             let edge = if i == 0 {
                 BranchEdge::ExternalCallSuccess
@@ -988,9 +1076,11 @@ impl<'p> CfgBuilder<'p> {
             }
             if !self.block_is_terminal(self.current_block) {
                 self.add_edge(self.current_block, join, BranchEdge::Unconditional);
+                ends.push(std::mem::take(&mut self.scope.aliases));
             }
         }
 
+        self.scope.aliases = join_aliases(ends, start_aliases);
         self.current_block = join;
     }
 
@@ -1086,42 +1176,57 @@ impl<'p> CfgBuilder<'p> {
         kind == BlockKind::Return || kind == BlockKind::Revert || self.closed.contains(&idx)
     }
 
-    // ++/--/delete: a storage write on storage, a local assignment otherwise
-    fn collect_mutations(&self, expr: &Expression, stmts: &mut Vec<CfgStatement>) {
-        let from_modifier = &self.current_modifier;
-        match &expr.kind {
-            ExpressionKind::UnaryOp { operator, operand } if operator.mutates_operand() => {
-                if let Some(place) = self.place(operand) {
-                    stmts.push(storage_write(place, from_modifier.clone()));
-                } else {
-                    let (operator, value) = match operator {
-                        UnaryOperator::PreIncrement | UnaryOperator::PostIncrement => {
-                            (AssignOperator::AddAssign, "1".to_string())
-                        }
-                        UnaryOperator::PreDecrement | UnaryOperator::PostDecrement => {
-                            (AssignOperator::SubAssign, "1".to_string())
-                        }
-                        _ => (AssignOperator::Assign, expr_to_string(expr)),
-                    };
-                    stmts.push(CfgStatement::Assignment {
-                        target: expr_to_string(operand),
-                        value,
-                        operator,
-                        span: None,
-                        from_modifier: from_modifier.clone(),
-                        storage: None,
-                    });
-                }
+    fn push_mutation(&self, expr: &Expression, operator: UnaryOperator, operand: &Expression, stmts: &mut Vec<CfgStatement>) {
+        let places = self.place(operand);
+        if !places.is_empty() {
+            for place in places {
+                stmts.push(storage_write(place, self.current_modifier.clone()));
             }
-            ExpressionKind::Assignment { value, .. } => self.collect_mutations(value, stmts),
-            ExpressionKind::BinaryOp { left, right, .. } => {
-                self.collect_mutations(left, stmts);
-                self.collect_mutations(right, stmts);
+            return;
+        }
+        let (operator, value) = match operator {
+            UnaryOperator::PreIncrement | UnaryOperator::PostIncrement => (AssignOperator::AddAssign, "1".to_string()),
+            UnaryOperator::PreDecrement | UnaryOperator::PostDecrement => (AssignOperator::SubAssign, "1".to_string()),
+            _ => (AssignOperator::Assign, expr_to_string(expr)),
+        };
+        stmts.push(CfgStatement::Assignment {
+            target: expr_to_string(operand),
+            value,
+            operator,
+            span: None,
+            from_modifier: self.current_modifier.clone(),
+            storage: None,
+        });
+    }
+
+    // statement-level assignments go through `evaluate`; a nested re-pointing is not followed
+    fn push_nested_assignment(&self, target: &Expression, operator: AssignOperator, value: &Expression, stmts: &mut Vec<CfgStatement>) {
+        if operator == AssignOperator::Assign && self.scope.is_pointer(target).is_some() {
+            return;
+        }
+        let targets: Vec<&Expression> = match &target.kind {
+            ExpressionKind::Tuple { elements } => elements.iter().flatten().collect(),
+            _ => vec![target],
+        };
+        for target in targets {
+            let places = self.place(target);
+            if places.is_empty() {
+                stmts.push(CfgStatement::Assignment {
+                    target: expr_to_string(target),
+                    value: expr_to_string(value),
+                    operator,
+                    span: None,
+                    from_modifier: self.current_modifier.clone(),
+                    storage: None,
+                });
             }
-            _ => {}
+            for place in places {
+                stmts.push(storage_write(place, self.current_modifier.clone()));
+            }
         }
     }
 
+    // calls and nested writes, in evaluation order
     fn collect_calls(&self, expr: &Expression, stmts: &mut Vec<CfgStatement>) {
         match &expr.kind {
             ExpressionKind::FunctionCall { callee, arguments, options, call } => {
@@ -1146,7 +1251,7 @@ impl<'p> CfgBuilder<'p> {
                     CallType::Builtin => {
                         if let ExpressionKind::MemberAccess { object, member, .. } = &callee.kind {
                             if member == "push" || member == "pop" {
-                                if let Some(place) = self.place(object) {
+                                for place in self.place(object) {
                                     stmts.push(storage_write(place, self.current_modifier.clone()));
                                 }
                             }
@@ -1155,15 +1260,21 @@ impl<'p> CfgBuilder<'p> {
                     CallType::Unknown => self.untyped_call(callee, args, stmts),
                 }
             }
-            ExpressionKind::Assignment { target, value, .. } => {
+            ExpressionKind::Assignment { target, operator, value } => {
                 self.collect_calls(target, stmts);
                 self.collect_calls(value, stmts);
+                self.push_nested_assignment(target, *operator, value, stmts);
             }
             ExpressionKind::BinaryOp { left, right, .. } => {
                 self.collect_calls(left, stmts);
                 self.collect_calls(right, stmts);
             }
-            ExpressionKind::UnaryOp { operand, .. } => self.collect_calls(operand, stmts),
+            ExpressionKind::UnaryOp { operator, operand } => {
+                self.collect_calls(operand, stmts);
+                if operator.mutates_operand() {
+                    self.push_mutation(expr, *operator, operand, stmts);
+                }
+            }
             ExpressionKind::MemberAccess { object, .. } => self.collect_calls(object, stmts),
             ExpressionKind::IndexAccess { base, index } => {
                 self.collect_calls(base, stmts);
@@ -1332,7 +1443,7 @@ impl<'p> CfgBuilder<'p> {
             }
             // `push`/`pop` without types
             ExpressionKind::MemberAccess { object, .. } => {
-                if let Some(place) = self.place(object) {
+                for place in self.place(object) {
                     stmts.push(storage_write(place, from_modifier.clone()));
                 }
             }
@@ -1359,6 +1470,47 @@ pub(crate) fn call_arguments<'e>(callee: &'e Expression, arguments: &'e [Express
     }
     out.extend(arguments);
     out
+}
+
+fn collect_repoints<'a>(stmts: &'a [Statement], out: &mut Vec<(&'a Expression, &'a Expression)>) {
+    for stmt in stmts {
+        match &stmt.kind {
+            StatementKind::ExpressionStmt { expression } => repoint(expression, out),
+            StatementKind::If { then_body, else_body, .. } => {
+                collect_repoints(then_body, out);
+                if let Some(else_body) = else_body {
+                    collect_repoints(else_body, out);
+                }
+            }
+            StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => {
+                collect_repoints(statements, out);
+            }
+            StatementKind::For { init, increment, body, .. } => {
+                if let Some(init) = init {
+                    collect_repoints(std::slice::from_ref(init.as_ref()), out);
+                }
+                if let Some(incr) = increment {
+                    repoint(incr, out);
+                }
+                collect_repoints(body, out);
+            }
+            StatementKind::While { body, .. } | StatementKind::DoWhile { body, .. } => collect_repoints(body, out),
+            StatementKind::TryCatch { clauses, .. } => {
+                for clause in clauses {
+                    collect_repoints(&clause.body, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn repoint<'a>(expr: &'a Expression, out: &mut Vec<(&'a Expression, &'a Expression)>) {
+    if let ExpressionKind::Assignment { target, operator: AssignOperator::Assign, value } = &expr.kind {
+        if matches!(target.kind, ExpressionKind::Identifier { .. }) {
+            out.push((target, value));
+        }
+    }
 }
 
 // Values a function returns through `ret`: `return e` and assignments to the named variable.

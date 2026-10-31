@@ -64,3 +64,9 @@ pub enum Mutability {
     Payable,
     NonPayable,
 }
+
+impl Mutability {
+    pub fn is_view_or_pure(self) -> bool {
+        matches!(self, Mutability::View | Mutability::Pure)
+    }
+}

@@ -61,7 +61,7 @@ fn test_cfg_simple_get() {
     let contract = &project.contracts[0];
     let get_fn = contract.functions.iter().find(|f| f.name == "get").unwrap();
 
-    let cfg = CfgBuilder::build(get_fn, contract).unwrap();
+    let cfg = CfgBuilder::build(get_fn, contract);
 
     // get() just returns — should have Entry + Return (2 nodes minimum)
     let node_count = cfg.node_count();
@@ -81,7 +81,7 @@ fn test_cfg_set_with_require() {
     let contract = &project.contracts[0];
     let set_fn = contract.functions.iter().find(|f| f.name == "set").unwrap();
 
-    let cfg = CfgBuilder::build(set_fn, contract).unwrap();
+    let cfg = CfgBuilder::build(set_fn, contract);
 
     // set() has require(newValue > 0) which creates a branch:
     // Entry → [require check] → True path (assignment + emit + return)
@@ -113,7 +113,7 @@ fn state_access(fn_name: &str) -> (Vec<String>, Vec<String>) {
     let project = SolcFrontend.parse(&[fixture_path("solc/statements/src/Stmts.sol")]).unwrap();
     let contract = project.contracts.iter().find(|c| c.name == "Stmts").unwrap();
     let f = contract.functions.iter().find(|f| f.name == fn_name).unwrap();
-    let cfg = CfgBuilder::build(f, contract).unwrap();
+    let cfg = CfgBuilder::build(f, contract);
     let tree = build_path_tree(
         &cfg,
         &contract.name,
@@ -158,7 +158,7 @@ fn array_push_is_not_an_external_call() {
     let contract = project.contracts.iter().find(|c| c.name == "Stmts").unwrap();
     let push_fn = contract.functions.iter().find(|f| f.name == "pushItem").unwrap();
 
-    let cfg = CfgBuilder::build(push_fn, contract).unwrap();
+    let cfg = CfgBuilder::build(push_fn, contract);
     let tree = build_path_tree(
         &cfg,
         &contract.name,
@@ -205,7 +205,7 @@ fn local_variable_mutations_are_not_state_writes() {
     let contract = project.contracts.iter().find(|c| c.name == "Stmts").unwrap();
     let f = contract.functions.iter().find(|f| f.name == "localOnly").unwrap();
 
-    let cfg = CfgBuilder::build(f, contract).unwrap();
+    let cfg = CfgBuilder::build(f, contract);
     let local_write = cfg.node_weights().any(|b| {
         b.statements
             .iter()
@@ -225,7 +225,7 @@ fn write_after_external_call_is_observed() {
     let contract = project.contracts.iter().find(|c| c.name == "Stmts").unwrap();
     let f = contract.functions.iter().find(|f| f.name == "cei").unwrap();
 
-    let cfg = CfgBuilder::build(f, contract).unwrap();
+    let cfg = CfgBuilder::build(f, contract);
     let tree = build_path_tree(
         &cfg,
         &contract.name,
@@ -249,7 +249,7 @@ fn value_call_options_resolve_the_real_callee() {
     let contract = project.contracts.iter().find(|c| c.name == "Stmts").unwrap();
     let f = contract.functions.iter().find(|f| f.name == "valueCall").unwrap();
 
-    let cfg = CfgBuilder::build(f, contract).unwrap();
+    let cfg = CfgBuilder::build(f, contract);
     let tree = build_path_tree(
         &cfg,
         &contract.name,
@@ -292,7 +292,7 @@ fn method_named_push_is_an_external_call_not_a_write() {
     let vault = project.contracts.iter().find(|c| c.name == "Vault").unwrap();
     let f = vault.functions.iter().find(|f| f.name == "pushVia").unwrap();
 
-    let cfg = CfgBuilder::build(f, vault).unwrap();
+    let cfg = CfgBuilder::build(f, vault);
     let tree = build_path_tree(&cfg, &vault.name, &f.name, &vault.state_vars, &PruningConfig::default());
 
     let calls_push = tree.paths.iter().any(|p| p.annotations.external_calls.iter().any(|c| c.function == "push"));

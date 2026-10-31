@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 use crate::cfg::builder::{call_arguments, expr_to_string};
 use crate::model::common::SourceSpan;
 use crate::model::contract::ContractDef;
-use crate::model::decl_id::{DeclId, DeclKind};
+use crate::model::decl_id::DeclId;
 use crate::model::expression::{BinaryOperator, CallKind, CallType, Expression, ExpressionKind, LiteralType, UnaryOperator};
-use crate::model::function::{FunctionDef, Mutability};
+use crate::model::function::FunctionDef;
 use crate::model::modifier::{ModifierDef, ModifierRef};
 use crate::model::project::Project;
 use crate::model::statement::{Statement, StatementKind};
@@ -427,25 +427,14 @@ impl<'a> Walker<'a> {
     /// Whether the function a call reaches is declared `view` or `pure` (a public state
     /// variable's getter counts). Unknown callees are not.
     fn is_view_call(&self, frame: &Frame<'a>, callee: &'a Expression, kind: Option<CallKind>) -> bool {
-        let is_view = |f: &FunctionDef| matches!(f.mutability, Mutability::View | Mutability::Pure);
         let resolved = match &callee.kind {
             ExpressionKind::Identifier { resolved, .. } | ExpressionKind::MemberAccess { resolved, .. } => *resolved,
             _ => None,
         };
-        if let (Some(project), Some(id)) = (self.project, resolved) {
-            if let Some(target) = project.decl_table.lookup(id) {
-                return match target.kind {
-                    DeclKind::StateVariable => true,
-                    DeclKind::Function => project
-                        .contract_index
-                        .get(&target.contract)
-                        .and_then(|&i| project.contracts[i].functions.iter().find(|f| f.key == target.function))
-                        .is_some_and(is_view),
-                    _ => false,
-                };
-            }
+        if let Some(view) = self.project.zip(resolved).and_then(|(project, id)| project.is_view_declaration(id)) {
+            return view;
         }
-        self.resolve(frame, callee, kind).is_some_and(|(_, f)| is_view(f))
+        self.resolve(frame, callee, kind).is_some_and(|(_, f)| f.mutability.is_view_or_pure())
     }
 
     /// Whether `expr` is the caller's identity.

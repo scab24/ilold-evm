@@ -6,6 +6,7 @@ use petgraph::Direction;
 
 use crate::cfg::types::*;
 use crate::model::common::StateVar;
+use crate::util::push_unique;
 
 use super::config::PruningConfig;
 use super::types::*;
@@ -233,12 +234,6 @@ pub fn normalize_path(target: &str) -> String {
         }
     }
     out
-}
-
-fn push_unique(list: &mut Vec<String>, item: String) {
-    if !list.contains(&item) {
-        list.push(item);
-    }
 }
 
 // state the block reads; reads through `storage` parameters are summarised per function

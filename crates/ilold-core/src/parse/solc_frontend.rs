@@ -767,8 +767,7 @@ fn map_contract(node: &Node, index: &LineIndex, path: &str, is_dependency: bool)
     })
 }
 
-/// Name of the library-like container that holds a source file's free functions.
-pub const FREE_FUNCTIONS: &str = "FreeFunctions";
+pub use crate::model::contract::FREE_FUNCTIONS;
 
 /// The file-level functions of one source unit as a library named [`FREE_FUNCTIONS`], so that
 /// calls to them (also through `using {f} for T`) resolve like internal library calls.
@@ -1168,6 +1167,11 @@ fn map_expression(node: &Node, index: &LineIndex) -> Expression {
         NodeType::Identifier => ExpressionKind::Identifier {
             name: node.attribute::<String>("name").unwrap_or_default(),
             resolved: referenced_decl(node),
+        },
+        // a type used as a value
+        NodeType::ElementaryTypeNameExpression => ExpressionKind::Identifier {
+            name: type_expr_name(node),
+            resolved: None,
         },
         NodeType::Assignment => ExpressionKind::Assignment {
             target: Box::new(child_expr(node, "leftHandSide", index)),

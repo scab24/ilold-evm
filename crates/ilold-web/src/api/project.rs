@@ -18,7 +18,7 @@ pub struct ListingQuery {
 
 impl ListingQuery {
     pub fn lists(&self, contract: &ContractDef) -> bool {
-        self.include_dependencies || !contract.is_dependency
+        self.include_dependencies || contract.is_listed()
     }
 }
 

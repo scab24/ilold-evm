@@ -60,3 +60,21 @@ fn ambiguous_contract_name_exits_with_error_listing_qualified_ids() {
     assert_eq!(out.status.code(), Some(1), "stderr: {stderr}");
     assert!(stderr.contains("ambiguous") && stderr.contains("src/ext/IToken.sol:IToken"), "{stderr}");
 }
+
+#[test]
+fn free_function_containers_are_listed_only_with_dependencies() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/state_flow");
+    let run = |extra: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_ilold"))
+            .arg("analyze")
+            .arg(&fixture)
+            .args(extra)
+            .output()
+            .expect("run ilold analyze");
+        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let listed = run(&[]);
+    assert!(listed.contains("FreeUser") && !listed.contains("FreeFunctions"), "{listed}");
+    assert!(run(&["--include-dependencies"]).contains("FreeFunctions"));
+}

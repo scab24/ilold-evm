@@ -48,12 +48,11 @@ pub fn run(
     let mut pt_map: HashMap<(String, String), PathTree> = HashMap::new();
     let combined_state_vars = project.inherited_state_vars(contract);
     for func in &contract.functions {
-        if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(&project)) {
-            let pt = build_path_tree(&cfg, contract.key(), &func.key, &combined_state_vars, &config);
-            let key = (contract.key().to_string(), func.key.clone());
-            cfgs.insert(key.clone(), cfg);
-            pt_map.insert(key, pt);
-        }
+        let cfg = CfgBuilder::build_with_project(func, contract, Some(&project));
+        let pt = build_path_tree(&cfg, contract.key(), &func.key, &combined_state_vars, &config);
+        let key = (contract.key().to_string(), func.key.clone());
+        cfgs.insert(key.clone(), cfg);
+        pt_map.insert(key, pt);
     }
     // Sequence depth does not affect what context prints; the CLI default shares the cached analysis.
     let params = AnalysisParams::new(SHARED_SEQ_DEPTH);
@@ -66,9 +65,7 @@ pub fn run(
 
     if let Some(seq_str) = sequence_filter {
         let names: Vec<&str> = seq_str.split(',').map(|s| s.trim()).collect();
-        let narrative = build_sequence_narrative(
-            &contract.name, &names, &analysis.functions, &analysis.transitions, &classifications,
-        );
+        let narrative = build_sequence_narrative(&project, contract, &names, &analysis.functions);
         print_sequence(&narrative);
         return Ok(());
     }

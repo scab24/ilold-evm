@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::StateVar;
 use super::contract::{ContractDef, ContractKind};
-use super::decl_id::{DeclId, DeclTable};
+use super::decl_id::{DeclId, DeclKind, DeclTable};
 use super::function::{FunctionDef, FunctionKind, Visibility};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +76,25 @@ impl Project {
         self.contracts.iter().filter(|c| !c.is_dependency)
     }
 
+    /// Contracts default listings show; see [`ContractDef::is_listed`].
+    pub fn listed_contracts(&self) -> impl Iterator<Item = &ContractDef> {
+        self.contracts.iter().filter(|c| c.is_listed())
+    }
+
+    /// Whether the function or getter `id` declares is `view` or `pure`; `None` when unknown.
+    pub fn is_view_declaration(&self, id: DeclId) -> Option<bool> {
+        let target = self.decl_table.lookup(id)?;
+        Some(match target.kind {
+            DeclKind::StateVariable => true,
+            DeclKind::Function => self
+                .contract_index
+                .get(&target.contract)
+                .and_then(|&i| self.contracts[i].functions.iter().find(|f| f.key == target.function))
+                .is_some_and(|f| f.mutability.is_view_or_pure()),
+            _ => false,
+        })
+    }
+
     /// Contract by key, qualified id or bare name. A bare name selects the project contract
     /// with that name, or else the dependency with that name, when exactly one exists.
     pub fn lookup_contract(&self, query: &str) -> Result<&ContractDef, ContractLookupError> {
@@ -102,7 +121,7 @@ impl Project {
     /// Contract a session starts on when none is named; see [`pick_default_contract`].
     pub fn default_contract(&self) -> Option<&ContractDef> {
         let key = pick_default_contract(
-            self.project_contracts().map(|c| (c.key(), c.kind, c.inherits.as_slice())),
+            self.listed_contracts().map(|c| (c.key(), c.kind, c.inherits.as_slice())),
         )?;
         self.contracts.iter().find(|c| c.key() == key)
     }
@@ -121,7 +140,7 @@ impl Project {
 
         let non_interface: Vec<&ContractDef> = self
             .project_contracts()
-            .filter(|c| c.kind != ContractKind::Interface)
+            .filter(|c| c.kind != ContractKind::Interface && !c.is_free_functions())
             .collect();
 
         match non_interface.len() {

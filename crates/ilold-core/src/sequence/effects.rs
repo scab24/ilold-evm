@@ -5,21 +5,22 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
+use petgraph::graph::DiGraph;
 use petgraph::stable_graph::NodeIndex;
 
 use crate::cfg::types::{BlockKind, CfgGraph, CfgStatement, StorageArg};
 use crate::model::contract::ContractDef;
-use crate::model::decl_id::DeclTable;
+use crate::model::decl_id::DeclId;
 use crate::model::expression::CallKind;
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::pathtree::walker::normalize_path;
-use crate::util::is_type_cast;
+use crate::util::{is_type_cast, push_unique};
 
 use super::analysis::{EffectKind, EffectTrace};
 
-/// Calls deeper than this contribute nothing further; recursion stops at the first repeat.
-const MAX_CALL_DEPTH: usize = 24;
+/// A recursion passing `n.kids[i]` for `n` writes ever longer paths, so a cycle may not converge.
+const MAX_ROUNDS: usize = 64;
 
 /// A call that runs code on the caller's storage.
 #[derive(Debug, Clone)]
@@ -44,16 +45,12 @@ pub struct CfgSummary {
     pub param_writes: Vec<(usize, String)>,
     pub param_reads: Vec<(usize, String)>,
     pub external_calls: Vec<String>,
+    /// All but staticcalls and calls to view or pure functions and getters.
+    pub state_changing_calls: Vec<String>,
     pub events: Vec<String>,
     pub reverts: Vec<String>,
     pub calls: Vec<CallSite>,
     pub unresolved_modifiers: Vec<String>,
-}
-
-fn push_unique<T: PartialEq>(list: &mut Vec<T>, item: T) {
-    if !list.contains(&item) {
-        list.push(item);
-    }
 }
 
 fn reachable(cfg: &CfgGraph) -> Vec<NodeIndex> {
@@ -75,7 +72,18 @@ fn reachable(cfg: &CfgGraph) -> Vec<NodeIndex> {
     order
 }
 
-pub fn summarize(cfg: &CfgGraph, decls: &DeclTable) -> CfgSummary {
+fn is_view_call(project: &Project, kind: CallKind, resolved: Option<DeclId>) -> bool {
+    if kind == CallKind::LowLevelStaticcall {
+        return true;
+    }
+    if !matches!(kind, CallKind::External | CallKind::ExternalSelf | CallKind::LibraryDelegatecall) {
+        return false;
+    }
+    resolved.and_then(|id| project.is_view_declaration(id)).unwrap_or(false)
+}
+
+pub fn summarize(cfg: &CfgGraph, project: &Project) -> CfgSummary {
+    let decls = &project.decl_table;
     let mut s = CfgSummary::default();
     let write = |s: &mut CfgSummary, path: &str, param: Option<usize>| match param {
         Some(i) => push_unique(&mut s.param_writes, (i, normalize_path(path))),
@@ -99,6 +107,9 @@ pub fn summarize(cfg: &CfgGraph, decls: &DeclTable) -> CfgSummary {
                 CfgStatement::ExternalCall { target, function, kind, resolved, storage_args, from_modifier, .. } => {
                     let call = format!("{target}.{function}");
                     push_unique(&mut s.external_calls, call.clone());
+                    if !is_view_call(project, *kind, *resolved) {
+                        push_unique(&mut s.state_changing_calls, call.clone());
+                    }
                     if *kind == CallKind::LibraryDelegatecall {
                         s.calls.push(CallSite {
                             call,
@@ -183,17 +194,20 @@ pub fn resolve_call<'a>(
 
 /// Effects of one function with the call chain (`via`) reaching each; direct effects have
 /// an empty chain. Of several chains reaching the same effect, the shortest is kept.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Effects {
     pub state_writes: BTreeMap<String, Vec<String>>,
     pub state_reads: BTreeMap<String, Vec<String>>,
     pub param_writes: BTreeMap<(usize, String), Vec<String>>,
     pub param_reads: BTreeMap<(usize, String), Vec<String>>,
     pub external_calls: BTreeMap<String, Vec<String>>,
+    pub state_changing_calls: BTreeSet<String>,
     pub events: BTreeMap<String, Vec<String>>,
     pub reverts: BTreeMap<String, Vec<String>>,
     /// Every callee reached, as written at its call site.
     pub internal_calls: BTreeSet<String>,
+    /// A cycle reached stopped at `MAX_ROUNDS` before converging.
+    pub incomplete: bool,
 }
 
 fn insert<K: Ord>(map: &mut BTreeMap<K, Vec<String>>, key: K, via: Vec<String>) {
@@ -214,6 +228,7 @@ impl Effects {
         for p in &summary.param_writes { insert(&mut e.param_writes, p.clone(), none()); }
         for p in &summary.param_reads { insert(&mut e.param_reads, p.clone(), none()); }
         for c in &summary.external_calls { insert(&mut e.external_calls, c.clone(), none()); }
+        e.state_changing_calls.extend(summary.state_changing_calls.iter().cloned());
         for ev in &summary.events { insert(&mut e.events, ev.clone(), none()); }
         for r in &summary.reverts { insert(&mut e.reverts, r.clone(), none()); }
         e
@@ -227,26 +242,34 @@ impl Effects {
             for (p, v) in &callee_effects.state_writes { insert(&mut self.state_writes, p.clone(), via(v)); }
             for (p, v) in &callee_effects.state_reads { insert(&mut self.state_reads, p.clone(), via(v)); }
         }
-        let bind = |(i, p): &(usize, String)| -> Option<(Option<usize>, String)> {
-            let arg = call.storage_args.iter().find(|a| a.param == *i)?;
-            let suffix = p.strip_prefix(callee.params.get(*i)?.name.as_str())?;
-            Some((arg.place.param, format!("{}{suffix}", normalize_path(&arg.place.path))))
+        let bind = |(i, p): &(usize, String)| -> Vec<(Option<usize>, String)> {
+            let Some(suffix) = callee.params.get(*i).and_then(|param| p.strip_prefix(param.name.as_str())) else {
+                return Vec::new();
+            };
+            call.storage_args
+                .iter()
+                .filter(|a| a.param == *i)
+                .map(|arg| (arg.place.param, format!("{}{suffix}", normalize_path(&arg.place.path))))
+                .collect()
         };
         for (writes, params, effects) in [
             (&mut self.state_writes, &mut self.param_writes, &callee_effects.param_writes),
             (&mut self.state_reads, &mut self.param_reads, &callee_effects.param_reads),
         ] {
             for (key, v) in effects {
-                match bind(key) {
-                    Some((Some(j), path)) => insert(params, (j, path), via(v)),
-                    Some((None, path)) => insert(writes, path, via(v)),
-                    None => {}
+                for bound in bind(key) {
+                    match bound {
+                        (Some(j), path) => insert(params, (j, path), via(v)),
+                        (None, path) => insert(writes, path, via(v)),
+                    }
                 }
             }
         }
         for (c, v) in &callee_effects.external_calls { insert(&mut self.external_calls, c.clone(), via(v)); }
+        self.state_changing_calls.extend(callee_effects.state_changing_calls.iter().cloned());
         for (e, v) in &callee_effects.events { insert(&mut self.events, e.clone(), via(v)); }
         for (r, v) in &callee_effects.reverts { insert(&mut self.reverts, r.clone(), via(v)); }
+        self.incomplete |= callee_effects.incomplete;
         self.internal_calls.insert(call.call.clone());
         self.internal_calls.extend(callee_effects.internal_calls.iter().cloned());
     }
@@ -270,53 +293,126 @@ impl Effects {
     }
 }
 
-/// Memoised effects per (context contract, defining contract, function key).
+/// (context contract, defining contract, function key).
+type EffectKey = (String, String, String);
+
+struct Pending<'a> {
+    summary: Option<&'a CfgSummary>,
+    calls: Vec<(usize, EffectKey, &'a ContractDef, &'a FunctionDef, bool)>,
+}
+
+/// Effects computed per strongly connected component, so every member of a cycle gets all of them.
 pub struct EffectEngine<'a> {
     project: &'a Project,
     summaries: &'a HashMap<(String, String), CfgSummary>,
-    memo: HashMap<(String, String, String), Rc<Effects>>,
-    active: HashSet<(String, String, String)>,
+    /// Inherited functions whose modifiers the context contract overrides.
+    context_summaries: &'a HashMap<EffectKey, CfgSummary>,
+    memo: HashMap<EffectKey, Rc<Effects>>,
 }
 
 impl<'a> EffectEngine<'a> {
-    pub fn new(project: &'a Project, summaries: &'a HashMap<(String, String), CfgSummary>) -> Self {
-        Self { project, summaries, memo: HashMap::new(), active: HashSet::new() }
+    pub fn new(
+        project: &'a Project,
+        summaries: &'a HashMap<(String, String), CfgSummary>,
+        context_summaries: &'a HashMap<EffectKey, CfgSummary>,
+    ) -> Self {
+        Self { project, summaries, context_summaries, memo: HashMap::new() }
+    }
+
+    pub fn summary(&self, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> Option<&'a CfgSummary> {
+        let key = (context.key().to_string(), owner.key().to_string(), func.key.clone());
+        self.context_summaries
+            .get(&key)
+            .or_else(|| self.summaries.get(&(key.1, key.2)))
     }
 
     /// Effects of `func` (declared in `owner`) when `context` is the most derived contract.
     pub fn effects(&mut self, context: &'a ContractDef, owner: &'a ContractDef, func: &'a FunctionDef) -> Rc<Effects> {
-        self.effects_at(context, owner, func, 0)
-    }
-
-    fn effects_at(&mut self, context: &'a ContractDef, owner: &'a ContractDef, func: &'a FunctionDef, depth: usize) -> Rc<Effects> {
-        let key = (context.key().to_string(), owner.key().to_string(), func.key.clone());
-        if let Some(found) = self.memo.get(&key) {
+        let root = (context.key().to_string(), owner.key().to_string(), func.key.clone());
+        if let Some(found) = self.memo.get(&root) {
             return Rc::clone(found);
         }
-        let Some(summary) = self.summaries.get(&(key.1.clone(), key.2.clone())) else {
-            return Rc::new(Effects::default());
-        };
-        let mut effects = Effects::direct(summary);
-        // a recursive call or an over-deep chain adds nothing beyond what is already counted
-        if depth >= MAX_CALL_DEPTH || !self.active.insert(key.clone()) {
-            return Rc::new(effects);
-        }
+
         let project = self.project;
-        for call in &summary.calls {
-            let Some((callee_owner, callee)) = resolve_call(project, context, owner, call) else { continue };
-            let shares_storage = project.linearization(context).iter().any(|c| c.key() == callee_owner.key());
-            let callee_context = if shares_storage { context } else { callee_owner };
-            let callee_effects = self.effects_at(callee_context, callee_owner, callee, depth + 1);
+        let mut graph: DiGraph<EffectKey, ()> = DiGraph::new();
+        let mut index: HashMap<EffectKey, petgraph::graph::NodeIndex> = HashMap::new();
+        let mut pending: Vec<Pending<'a>> = Vec::new();
+        let mut stack = vec![(root.clone(), context, owner, func)];
+        index.insert(root.clone(), graph.add_node(root.clone()));
+        while let Some((key, context, owner, func)) = stack.pop() {
+            let summary = self.summary(context, owner, func);
+            let mut calls = Vec::new();
+            for (i, call) in summary.map(|s| s.calls.as_slice()).unwrap_or_default().iter().enumerate() {
+                let Some((callee_owner, callee)) = resolve_call(project, context, owner, call) else { continue };
+                let shares_storage = project.linearization(context).iter().any(|c| c.key() == callee_owner.key());
+                let callee_context = if shares_storage { context } else { callee_owner };
+                let callee_key = (callee_context.key().to_string(), callee_owner.key().to_string(), callee.key.clone());
+                if !self.memo.contains_key(&callee_key) {
+                    let to = match index.get(&callee_key) {
+                        Some(&n) => n,
+                        None => {
+                            let n = graph.add_node(callee_key.clone());
+                            index.insert(callee_key.clone(), n);
+                            stack.push((callee_key.clone(), callee_context, callee_owner, callee));
+                            n
+                        }
+                    };
+                    graph.add_edge(index[&key], to, ());
+                }
+                calls.push((i, callee_key, callee_owner, callee, shares_storage));
+            }
+            let n = index[&key].index();
+            if pending.len() <= n {
+                pending.resize_with(n + 1, || Pending { summary: None, calls: Vec::new() });
+            }
+            pending[n] = Pending { summary, calls };
+        }
+
+        // tarjan_scc yields callees first
+        for scc in petgraph::algo::tarjan_scc(&graph) {
+            let mut current: HashMap<EffectKey, Effects> = HashMap::new();
+            let mut converged = false;
+            for _ in 0..MAX_ROUNDS {
+                let mut changed = false;
+                for n in &scc {
+                    let next = self.lift_calls(&pending[n.index()], &current);
+                    let key = &graph[*n];
+                    if current.get(key) != Some(&next) {
+                        current.insert(key.clone(), next);
+                        changed = true;
+                    }
+                }
+                let cyclic = scc.len() > 1 || graph.contains_edge(scc[0], scc[0]);
+                if !changed || !cyclic {
+                    converged = true;
+                    break;
+                }
+            }
+            for (key, mut effects) in current {
+                effects.incomplete |= !converged;
+                self.memo.insert(key, Rc::new(effects));
+            }
+        }
+        self.memo.get(&root).cloned().unwrap_or_default()
+    }
+
+    fn lift_calls(&self, pending: &Pending<'a>, cycle: &HashMap<EffectKey, Effects>) -> Effects {
+        let Some(summary) = pending.summary else { return Effects::default() };
+        let mut effects = Effects::direct(summary);
+        let empty = Effects::default();
+        for (i, callee_key, callee_owner, callee, shares_storage) in &pending.calls {
+            let call = &summary.calls[*i];
+            let callee_effects = match cycle.get(callee_key) {
+                Some(e) => e,
+                None => self.memo.get(callee_key).map(|e| e.as_ref()).unwrap_or(&empty),
+            };
             let mut head = Vec::with_capacity(2);
             if let Some(modifier) = &call.modifier {
                 head.push(format!("modifier {modifier}"));
             }
             head.push(format!("{}::{}", callee_owner.key(), callee.key));
-            effects.lift(&callee_effects, &head, call, callee, shares_storage);
+            effects.lift(callee_effects, &head, call, callee, *shares_storage);
         }
-        self.active.remove(&key);
-        let effects = Rc::new(effects);
-        self.memo.insert(key, Rc::clone(&effects));
         effects
     }
 }

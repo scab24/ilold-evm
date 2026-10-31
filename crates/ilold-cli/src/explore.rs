@@ -84,7 +84,7 @@ pub async fn run(
     };
 
     let names_by_contract = local_names(&state.project);
-    let contract_names: Vec<String> = state.project.project_contracts()
+    let contract_names: Vec<String> = state.project.listed_contracts()
         .map(|c| c.key().to_string())
         .filter(|n| !n.is_empty())
         .collect();
@@ -102,7 +102,7 @@ pub async fn run(
     println!("{}\n", banner);
 
     let mut by_folder: std::collections::BTreeMap<String, Vec<&str>> = std::collections::BTreeMap::new();
-    for c in state.project.project_contracts() {
+    for c in state.project.listed_contracts() {
         by_folder.entry(state.project.contract_folder(c)).or_default().push(c.key());
     }
     println!("{}", "Contracts:".bold());
@@ -1441,7 +1441,7 @@ fn print_contracts(state: &std::sync::Arc<ilold_web::state::AppState>, current: 
     use ilold_core::model::contract::ContractKind;
     println!();
     let listed: Vec<_> = state.project.contracts.iter()
-        .filter(|c| !c.name.is_empty() && (include_dependencies || !c.is_dependency))
+        .filter(|c| !c.name.is_empty() && (include_dependencies || c.is_listed()))
         .collect();
     let max_name = listed.iter().map(|c| c.key().chars().count()).max().unwrap_or(0);
 
@@ -1471,9 +1471,9 @@ fn print_contracts(state: &std::sync::Arc<ilold_web::state::AppState>, current: 
         let dependency = if c.is_dependency { " (dependency)" } else { "" };
         println!("  {} {}  {}{}{}{}", badge, c_accent(&padded), c_muted(&details), c_muted(&inherits), c_muted(dependency), marker);
     }
-    let hidden = state.project.contracts.iter().filter(|c| c.is_dependency).count();
+    let hidden = state.project.contracts.iter().filter(|c| !c.is_listed()).count();
     if !include_dependencies && hidden > 0 {
-        println!("  {}", c_muted(&format!("{hidden} dependency contract(s) hidden; `ct all` lists them")));
+        println!("  {}", c_muted(&format!("{hidden} dependency or free-function contract(s) hidden; `ct all` lists them")));
     }
     println!();
 }

@@ -38,6 +38,12 @@ pub fn is_builtin_namespace(name: &str) -> bool {
     matches!(name, "abi" | "bytes" | "string" | "block" | "msg" | "tx")
 }
 
+pub(crate) fn push_unique<T: PartialEq>(list: &mut Vec<T>, item: T) {
+    if !list.contains(&item) {
+        list.push(item);
+    }
+}
+
 pub fn target_base_name(target: &str) -> &str {
     let base = target.split('[').next().unwrap_or(target);
     base.split('.').next().unwrap_or(base)

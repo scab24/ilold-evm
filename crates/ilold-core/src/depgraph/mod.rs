@@ -25,6 +25,8 @@ pub struct DepNode {
     pub qualified_id: String,
     #[serde(default)]
     pub is_dependency: bool,
+    #[serde(default)]
+    pub is_free_functions: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -102,10 +104,10 @@ impl ContractDeps {
         Some(ContractDeps { graph, index })
     }
 
-    /// The graph restricted to project contracts, for listings that hide dependencies.
+    /// The graph of listed contracts, for listings that hide dependencies and free functions.
     pub fn without_dependencies(&self) -> Self {
         let graph = self.graph.filter_map(
-            |_, node| (!node.is_dependency).then(|| node.clone()),
+            |_, node| (!node.is_dependency && !node.is_free_functions).then(|| node.clone()),
             |_, edge| Some(edge.clone()),
         );
         Self::from_graph(graph).expect("node names stay unique")

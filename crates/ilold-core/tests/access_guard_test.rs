@@ -349,10 +349,7 @@ fn session_lists_do_not_trust_behaviors_without_guards() {
         cfgs: &a.cfgs,
         path_trees: &a.path_trees,
         behaviors: &behaviors,
-        transitions: &a.sequence_analyses["Guards"].transitions,
-        classifications: &a.classifications["Guards"],
         all_sequence_analyses: &a.sequence_analyses,
-        all_classifications: &a.classifications,
     };
     let mut session = ExplorationSession::new("Guards", "access");
     let CommandResult::FunctionList { functions } = execute_command(SessionCommand::Functions, &mut session, &data, "0") else {
@@ -371,7 +368,7 @@ fn session_lists_do_not_trust_behaviors_without_guards() {
     for (name, sa) in &a.sequence_analyses {
         let Ok(c) = project().lookup_contract(name) else { continue };
         for b in &sa.functions {
-            let Some(af) = project().accessible_functions(c).into_iter().find(|af| af.function.key == b.name) else { continue };
+            let Some(af) = project().accessible_functions(c).into_iter().find(|af| af.owner.key() == b.owner && af.function.key == b.name) else { continue };
             assert_eq!(b.guards, classify_in(project(), c, af.owner, af.function).1, "{name}::{}", b.name);
         }
     }

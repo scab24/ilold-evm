@@ -73,7 +73,7 @@ fn via(items: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
 }
 
 fn cfg(contract_name: &str, key: &str) -> CfgGraph {
-    CfgBuilder::build_with_project(function(contract_name, key), contract(contract_name), Some(project())).unwrap()
+    CfgBuilder::build_with_project(function(contract_name, key), contract(contract_name), Some(project()))
 }
 
 fn tree(contract_name: &str, key: &str) -> PathTree {
@@ -219,7 +219,7 @@ fn called_dependency_libraries_get_cfgs_and_propagate() {
     let cfgs = &analysis().cfgs;
     assert!(cfgs.contains_key(&("ExtCounter".to_string(), "increment".to_string())));
     assert!(cfgs.contains_key(&("ExtCounter".to_string(), "reset".to_string())));
-    assert!(!cfgs.contains_key(&("ExtCounter".to_string(), "decrement".to_string())), "unreached");
+    assert!(cfgs.contains_key(&("ExtCounter".to_string(), "decrement".to_string())), "reached from a modifier override");
     assert!(contract("ExtCounter").is_dependency);
 
     let hit = behavior("Pool", "hit");
@@ -318,7 +318,7 @@ fn unresolved_modifier_keeps_the_others_and_is_marked() {
     let p = unresolved_project();
     let modded = p.contracts.iter().find(|c| c.name == "Modded").unwrap();
     let both = modded.functions.iter().find(|f| f.key == "both").unwrap();
-    let g = CfgBuilder::build_with_project(both, modded, Some(&p)).unwrap();
+    let g = CfgBuilder::build_with_project(both, modded, Some(&p));
     let stmts: Vec<&CfgStatement> = g.node_weights().flat_map(|b| &b.statements).collect();
     assert!(stmts.iter().any(|s| matches!(s, CfgStatement::UnresolvedModifier { name, .. } if name == "missingGuard")));
     let statements: Vec<CfgStatement> = stmts.iter().map(|s| (*s).clone()).collect();
@@ -364,4 +364,151 @@ fn narratives_carry_the_call_chain_and_revert_sources() {
     let rate = n.transitive_state_writes.iter().find(|e| e.item == "_reserves[].rate").expect("rate");
     assert_eq!(rate.via, strings(&["SupplyLib::executeSupply", "ReserveLib::touch"]));
     assert_eq!(rate.origin_contract, "ReserveLib");
+}
+
+#[test]
+fn storage_aliases_union_their_places_across_branches() {
+    let b = behavior("Aliases", "branchAlias");
+    assert_eq!(b.state_write_paths, strings(&["_a[].rate", "_b[].rate"]));
+
+    let b = behavior("Aliases", "elseAlias");
+    assert_eq!(b.state_write_paths, strings(&["_b[].index", "_c[].index"]));
+
+    let b = behavior("Aliases", "revertingBranch");
+    assert_eq!(b.state_write_paths, strings(&["_a[].rate"]));
+}
+
+#[test]
+fn storage_aliases_reassigned_in_loops_reach_every_place() {
+    let b = behavior("Aliases", "loopAlias");
+    assert_eq!(
+        b.state_write_paths,
+        strings(&["_a[].index", "_a[].updatedAt", "_b[].index", "_b[].updatedAt"])
+    );
+}
+
+#[test]
+fn writes_nested_in_arguments_and_indexes_are_recorded() {
+    let b = behavior("Aliases", "nested");
+    assert_eq!(b.state_write_paths, strings(&["counter", "last", "nonce", "seq", "slots[]"]));
+    assert_eq!(b.state_writes, strings(&["counter", "last", "nonce", "seq", "slots"]));
+    assert_eq!(traced(b, EffectKind::StateWrite), via(&[]), "slots[] is also written directly");
+}
+
+#[test]
+fn constants_and_immutables_are_not_storage() {
+    let b = behavior("Aliases", "useConsts");
+    assert!(b.state_reads.is_empty(), "{:?}", b.state_reads);
+    assert!(b.state_read_paths.is_empty(), "{:?}", b.state_read_paths);
+    assert!(b.read_only);
+
+    let b = behavior("Aliases", "constructor");
+    assert!(b.state_writes.is_empty(), "{:?}", b.state_writes);
+    assert!(b.state_write_paths.is_empty(), "{:?}", b.state_write_paths);
+
+    // an immutable used as a call target is not a read either
+    let b = behavior("Aliases", "viewExternal");
+    assert!(b.state_reads.is_empty(), "{:?}", b.state_reads);
+}
+
+#[test]
+fn view_and_static_external_calls_keep_a_function_read_only() {
+    let b = behavior("Aliases", "viewExternal");
+    assert_eq!(b.external_calls, strings(&["ORACLE.price"]));
+    assert!(b.read_only);
+
+    let b = behavior("Aliases", "staticRaw");
+    assert_eq!(b.external_calls, strings(&["t.staticcall"]));
+    assert!(b.read_only);
+
+    let b = behavior("Aliases", "pokeExternal");
+    assert!(!b.read_only);
+}
+
+#[test]
+fn mutual_recursion_gives_every_member_the_full_effects() {
+    let ping = behavior("Cycle", "ping");
+    let pong = behavior("Cycle", "pong");
+    assert_eq!(ping.transitive_state_writes, strings(&["pongs", "side", "tails"]));
+    assert_eq!(pong.transitive_state_writes, strings(&["pings", "side", "tails"]));
+    assert_eq!(
+        traced(pong, EffectKind::StateWrite),
+        via(&[
+            ("pings", &["Cycle::ping"]),
+            ("side", &["Cycle::ping", "Cycle::_pingSide"]),
+            ("tails", &["Cycle::_tail"]),
+        ])
+    );
+    let side = traced(ping, EffectKind::StateWrite);
+    assert!(side.contains(&("tails".to_string(), strings(&["Cycle::pong", "Cycle::_tail"]))), "{side:?}");
+}
+
+#[test]
+fn deep_call_chains_are_not_truncated() {
+    let b = behavior("Deep", "d0");
+    let chain: Vec<String> = (1..=30).map(|i| format!("Deep::_d{i}")).collect();
+    assert_eq!(traced(b, EffectKind::StateWrite), vec![("deep".to_string(), chain)]);
+}
+
+#[test]
+fn inherited_functions_run_the_derived_modifier_override() {
+    let derived = behavior("MarkDerived", "act");
+    assert_eq!(derived.state_writes, strings(&["derivedMarks"]));
+    assert_eq!(traced(derived, EffectKind::StateWrite), via(&[("marks.value", &["modifier mark", "ExtCounter::decrement"])]));
+    let base = behavior("MarkBase", "act");
+    assert_eq!(base.state_writes, strings(&["baseMarks"]));
+}
+
+#[test]
+fn delete_and_push_through_storage_pointers_write_the_place() {
+    let b = behavior("Aliases", "pointerOps");
+    assert_eq!(b.state_write_paths, strings(&["_a[].rate", "list"]));
+}
+
+#[test]
+fn internal_functions_with_storage_parameters_bind_the_argument() {
+    let b = behavior("Aliases", "viaInternalParam");
+    assert!(b.state_writes.is_empty(), "{:?}", b.state_writes);
+    assert_eq!(traced(b, EffectKind::StateWrite), via(&[("_c[].index", &["Aliases::_bumpRef"])]));
+    assert_eq!(behavior("Aliases", "_bumpRef").storage_param_writes, strings(&["r.index"]));
+}
+
+#[test]
+fn a_modifier_with_two_placeholders_runs_the_body_twice() {
+    let g = cfg("Aliases", "twiceRun");
+    let writes = g.node_indices().flat_map(|n| written(&g[n].statements)).filter(|w| *w == "twice").count();
+    assert_eq!(writes, 2);
+    let t = tree("Aliases", "twiceRun");
+    assert_eq!((t.stats.happy_paths, t.stats.revert_paths), (1, 0));
+    assert_eq!(t.paths[0].annotations.state_writes, strings(&["twice", "twice"]));
+}
+
+#[test]
+fn self_calls_through_this_are_external_and_not_followed() {
+    let b = behavior("Aliases", "selfCall");
+    assert_eq!(b.external_calls, strings(&["this.pokeSelf"]));
+    assert!(b.transitive_state_writes.is_empty(), "{:?}", b.transitive_state_writes);
+    assert!(!b.read_only);
+}
+
+#[test]
+fn type_expressions_render_in_conditions() {
+    let b = behavior("Aliases", "capped");
+    assert_eq!(b.revert_sources, strings(&["require(v < type(uint256).max)"]));
+    assert_eq!(b.preconditions, strings(&["v < type(uint256).max"]));
+}
+
+#[test]
+fn pointers_survive_branches_that_all_leave_the_block() {
+    for key in ["bothReturn", "bothTry"] {
+        assert_eq!(behavior("Aliases", key).state_write_paths, strings(&["_a[].rate"]), "{key}");
+    }
+}
+
+#[test]
+fn unbounded_recursive_effects_are_marked_incomplete() {
+    let b = behavior("Tree", "grow");
+    assert!(b.effects_incomplete);
+    assert!(b.transitive_state_write_paths.contains(&"root.x".to_string()), "{:?}", b.transitive_state_write_paths);
+    assert!(!behavior("Cycle", "ping").effects_incomplete);
 }

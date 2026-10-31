@@ -33,7 +33,7 @@ pub(crate) fn select_contracts<'a>(
         return Ok(vec![resolve_contract(project, name)?]);
     }
     let mut selected: Vec<&ContractDef> =
-        project.contracts.iter().filter(|c| include_dependencies || !c.is_dependency).collect();
+        project.contracts.iter().filter(|c| include_dependencies || c.is_listed()).collect();
     selected.sort_by(|a, b| {
         project
             .contract_folder(a)
@@ -75,9 +75,9 @@ pub fn run(
     for warning in &project.warnings {
         eprintln!("{} {warning}", c_warn("warning:"));
     }
-    let dependencies = project.contracts.iter().filter(|c| c.is_dependency).count();
-    println!("Parsed {} file(s), {} contract(s) ({} dependency contract(s){})\n",
-        project.source_files.len(), project.contracts.len() - dependencies, dependencies,
+    let hidden = project.contracts.iter().filter(|c| !c.is_listed()).count();
+    println!("Parsed {} file(s), {} contract(s) ({} dependency or free-function contract(s){})\n",
+        project.source_files.len(), project.contracts.len() - hidden, hidden,
         if include_dependencies { "" } else { " hidden; --include-dependencies lists them" });
 
     let ordered = select_contracts(&project, contract_filter, include_dependencies)?;
@@ -306,42 +306,35 @@ fn print_contract(
             Visibility::Private => "private",
         };
 
-        match CfgBuilder::build_with_project(func, contract, Some(project)) {
-            Ok(cfg) => {
-                let pt = build_path_tree(
-                    &cfg, contract.key(), &func.key, &combined_state_vars, &config,
-                );
+        let cfg = CfgBuilder::build_with_project(func, contract, Some(project));
+        let pt = build_path_tree(
+            &cfg, contract.key(), &func.key, &combined_state_vars, &config,
+        );
 
-                println!("  {} {} {} — {} blocks, {} edges, {} paths ({} happy, {} revert)",
-                    access_colored(&access), c_muted(vis), c_bright(&display_name),
-                    cfg.node_count(), cfg.edge_count(),
-                    pt.stats.total_paths,
-                    c_ok(&pt.stats.happy_paths.to_string()),
-                    c_danger(&pt.stats.revert_paths.to_string()));
+        println!("  {} {} {} — {} blocks, {} edges, {} paths ({} happy, {} revert)",
+            access_colored(&access), c_muted(vis), c_bright(&display_name),
+            cfg.node_count(), cfg.edge_count(),
+            pt.stats.total_paths,
+            c_ok(&pt.stats.happy_paths.to_string()),
+            c_danger(&pt.stats.revert_paths.to_string()));
 
-                if verbose {
-                    for node in cfg.node_indices() {
-                        let block = &cfg[node];
-                        println!("    {} {:?} {}",
-                            c_muted(&format!("[{}]", block.id)),
-                            block.kind,
-                            c_muted(&format!("({} stmts)", block.statements.len())));
-                    }
-                    for edge in cfg.edge_indices() {
-                        let (src, dst) = cfg.edge_endpoints(edge).unwrap();
-                        println!("    {} {} {} {}",
-                            cfg[src].id, c_muted("→"), cfg[dst].id, c_muted(&format!("{:?}", cfg[edge])));
-                    }
-                    println!();
-                }
-
-                path_trees.push(pt);
+        if verbose {
+            for node in cfg.node_indices() {
+                let block = &cfg[node];
+                println!("    {} {:?} {}",
+                    c_muted(&format!("[{}]", block.id)),
+                    block.kind,
+                    c_muted(&format!("({} stmts)", block.statements.len())));
             }
-            Err(e) => {
-                println!("  {} {} {} — {}",
-                    access_colored(&access), c_muted(vis), display_name, c_danger(&format!("CFG error: {e}")));
+            for edge in cfg.edge_indices() {
+                let (src, dst) = cfg.edge_endpoints(edge).unwrap();
+                println!("    {} {} {} {}",
+                    cfg[src].id, c_muted("→"), cfg[dst].id, c_muted(&format!("{:?}", cfg[edge])));
             }
+            println!();
         }
+
+        path_trees.push(pt);
     }
 
     if verbose {
@@ -417,7 +410,8 @@ fn print_contract(
                 }
 
                 let outgoing: Vec<_> = analysis.transitions.iter()
-                    .filter(|t| t.from == func.name && (!t.shared_state.is_empty() || !t.conditions_affected.is_empty()))
+                    .filter(|t| t.from == func.name && (t.from_owner.is_empty() || t.from_owner == func.owner)
+                        && (!t.shared_state.is_empty() || !t.conditions_affected.is_empty()))
                     .collect();
 
                 if !outgoing.is_empty() {

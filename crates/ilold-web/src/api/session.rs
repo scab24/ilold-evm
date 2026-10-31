@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use ilold_core::classify::entry_points::AccessLevel;
+use ilold_core::classify::entry_points::{classify_named, AccessLevel};
 use ilold_core::exploration::commands::{
     AnalysisData, CanvasPatch, CommandResult, ScenarioAction, ScenarioInfo, SessionCommand,
     canvas_patch_from, execute_command, get_flow_tree, get_function_info, get_sequence_narrative,
@@ -39,19 +39,13 @@ fn build_analysis_data<'a>(
     let seq_analysis = state.sequence_analyses.get(contract_name)
         .ok_or((StatusCode::NOT_FOUND, "No analysis for contract".into()))?;
 
-    let classifs = state.classifications.get(contract_name)
-        .ok_or((StatusCode::NOT_FOUND, "No classifications for contract".into()))?;
-
     Ok(AnalysisData {
         project: &state.project,
         contract,
         cfgs: &state.cfgs,
         path_trees: &state.path_trees,
         behaviors: &seq_analysis.functions,
-        transitions: &seq_analysis.transitions,
-        classifications: classifs,
         all_sequence_analyses: &state.sequence_analyses,
-        all_classifications: &state.classifications,
     })
 }
 
@@ -484,7 +478,7 @@ pub async fn get_all_scenarios(
     Query(query): Query<ContractQuery>,
 ) -> Result<Json<AllScenariosResponse>, (StatusCode, String)> {
     read_store(&state, query.contract.as_deref(), |store| {
-        let classifs = state.classifications.get(&store.contract);
+        let contract = state.project.lookup_contract(&store.contract).ok();
         let mut scenarios: Vec<ScenarioSnapshot> = Vec::with_capacity(store.len());
         for name in store.names() {
             let Some(session) = store.get(name) else { continue };
@@ -493,9 +487,9 @@ pub async fn get_all_scenarios(
                 .iter()
                 .enumerate()
                 .map(|(idx, step)| {
-                    let access = classifs
-                        .and_then(|c| c.iter().find(|(n, _)| n == &step.function))
-                        .map(|(_, a)| a.clone())
+                    // steps of overloaded functions are stored by signature
+                    let access = contract
+                        .and_then(|c| classify_named(&state.project, c, &step.function))
                         .unwrap_or(AccessLevel::Internal);
                     SessionStepView {
                         function: step.function.clone(),

@@ -18,7 +18,7 @@ library ExtCounter {
         c.value = 0;
     }
 
-    // never called from the project
+    // called only from a modifier override that no own function of its contract uses
     function decrement(Counter storage c) internal {
         c.value -= 1;
     }

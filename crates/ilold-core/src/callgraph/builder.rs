@@ -131,9 +131,7 @@ impl<'a> Builder<'a> {
 
     fn add_calls(&mut self, owner: &'a ContractDef, func: &'a FunctionDef, from: NodeIndex) {
         // with the project, inherited modifiers are inlined too
-        let Ok(cfg) = CfgBuilder::build_with_project(func, owner, Some(self.project)) else {
-            return;
-        };
+        let cfg = CfgBuilder::build_with_project(func, owner, Some(self.project));
         for block in cfg.node_weights() {
             for stmt in &block.statements {
                 let (target, kind, visibility) = match stmt {

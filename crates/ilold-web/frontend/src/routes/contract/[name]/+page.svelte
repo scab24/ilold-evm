@@ -385,7 +385,8 @@
       const SESSION_LANE_HEIGHT = 100;
 
       const composedNodes: Node<GraphNodeData>[] = tree.nodes.map((cn: ComposedNode) => {
-        const funcDetail = allFuncs.find((f: any) => f.name === cn.function);
+        // steps of overloaded functions are stored by signature
+        const funcDetail = allFuncs.find((f) => f.key === cn.function || f.signature === cn.function);
         return {
           id: cn.id,
           type: 'function',

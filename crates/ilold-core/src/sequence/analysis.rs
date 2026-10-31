@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::function::FunctionDef;
 use crate::pathtree::types::{InternalCallTarget, PathTree, TerminalKind};
 
 use super::effects::{CfgSummary, Effects};
@@ -9,6 +10,9 @@ use super::effects::{CfgSummary, Effects};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionBehavior {
     pub name: String,
+    /// Declaring contract; function keys are unique only within it.
+    #[serde(default)]
+    pub owner: String,
     pub preconditions: Vec<String>,
     pub state_writes: Vec<String>,
     pub state_reads: Vec<String>,
@@ -57,6 +61,9 @@ pub struct FunctionBehavior {
     /// Modifiers named by the function that resolve to no definition; not inlined.
     #[serde(default)]
     pub unresolved_modifiers: Vec<String>,
+    /// The effects of a recursion whose written places keep growing were cut.
+    #[serde(default)]
+    pub effects_incomplete: bool,
     #[serde(default)]
     pub guards: Vec<crate::classify::guards::GuardFact>,
 }
@@ -134,6 +141,10 @@ impl FunctionBehavior {
 pub struct TransitionInfo {
     pub from: String,
     pub to: String,
+    #[serde(default)]
+    pub from_owner: String,
+    #[serde(default)]
+    pub to_owner: String,
     pub shared_state: Vec<String>,
     pub conditions_affected: Vec<String>,
     pub has_external_in_from: bool,
@@ -245,6 +256,7 @@ pub fn direct_behaviors(
 
         behaviors.push(FunctionBehavior {
             name: f.clone(),
+            owner: c.clone(),
             preconditions,
             state_writes,
             state_reads,
@@ -269,6 +281,7 @@ pub fn direct_behaviors(
             storage_param_reads: Vec::new(),
             transitive_effects: Vec::new(),
             unresolved_modifiers: Vec::new(),
+            effects_incomplete: false,
             guards: Vec::new(),
         });
     }
@@ -279,38 +292,48 @@ pub fn direct_behaviors(
 
 /// Ordered pairs of functions where the first one changes something the second one uses.
 pub fn transitions(behaviors: &[FunctionBehavior]) -> Vec<TransitionInfo> {
-    let mut transitions = Vec::new();
+    behaviors.iter().flat_map(|a| behaviors.iter().filter_map(move |b| transition(a, b))).collect()
+}
 
-    for a in behaviors {
-        for b in behaviors {
-            let shared: Vec<String> = a.state_writes.iter()
-                .filter(|w| b.state_reads.contains(*w) || b.state_writes.contains(*w))
-                .cloned()
-                .collect();
+pub fn transition(a: &FunctionBehavior, b: &FunctionBehavior) -> Option<TransitionInfo> {
+    let shared: Vec<String> = a.state_writes.iter()
+        .filter(|w| b.state_reads.contains(*w) || b.state_writes.contains(*w))
+        .cloned()
+        .collect();
 
-            let mut conditions_affected: Vec<String> = Vec::new();
-            for w in &a.state_writes {
-                for p in &b.preconditions {
-                    if p.contains(w.as_str()) {
-                        conditions_affected.push(format!("{} writes '{}' → {} needs require({})", a.name, w, b.name, p));
-                    }
-                }
-            }
-
-            if !shared.is_empty() || !conditions_affected.is_empty() || !a.external_calls.is_empty() || !b.external_calls.is_empty() {
-                transitions.push(TransitionInfo {
-                    from: a.name.clone(),
-                    to: b.name.clone(),
-                    shared_state: shared,
-                    conditions_affected,
-                    has_external_in_from: !a.external_calls.is_empty(),
-                    has_external_in_to: !b.external_calls.is_empty(),
-                });
+    let mut conditions_affected: Vec<String> = Vec::new();
+    for w in &a.state_writes {
+        for p in &b.preconditions {
+            if p.contains(w.as_str()) {
+                conditions_affected.push(format!("{} writes '{}' → {} needs require({})", a.name, w, b.name, p));
             }
         }
     }
 
-    transitions
+    if shared.is_empty() && conditions_affected.is_empty() && a.external_calls.is_empty() && b.external_calls.is_empty() {
+        return None;
+    }
+    Some(TransitionInfo {
+        from: a.name.clone(),
+        to: b.name.clone(),
+        from_owner: a.owner.clone(),
+        to_owner: b.owner.clone(),
+        shared_state: shared,
+        conditions_affected,
+        has_external_in_from: !a.external_calls.is_empty(),
+        has_external_in_to: !b.external_calls.is_empty(),
+    })
+}
+
+pub fn find_behavior<'a>(behaviors: &'a [FunctionBehavior], owner: &str, key: &str) -> Option<&'a FunctionBehavior> {
+    behaviors.iter().find(|b| b.is(owner, key))
+}
+
+impl FunctionBehavior {
+    // behaviors without an owner come from older snapshots
+    pub fn is(&self, owner: &str, key: &str) -> bool {
+        self.name == key && (self.owner == owner || self.owner.is_empty())
+    }
 }
 
 fn base_name(path: &str) -> String {
@@ -324,7 +347,7 @@ fn sorted(items: impl IntoIterator<Item = String>) -> Vec<String> {
 
 /// Completes a behavior with its own CFG summary and the effects reached through calls.
 /// `effects` must be computed in the contract the behavior is listed under.
-pub fn apply_effects(behavior: &mut FunctionBehavior, summary: &CfgSummary, effects: &Effects) {
+pub fn apply_effects(behavior: &mut FunctionBehavior, summary: &CfgSummary, effects: &Effects, func: &FunctionDef) {
     let b = behavior;
     let reached = |map: &std::collections::BTreeMap<String, Vec<String>>| -> Vec<String> {
         map.iter().filter(|(_, via)| !via.is_empty()).map(|(item, _)| item.clone()).collect()
@@ -348,8 +371,12 @@ pub fn apply_effects(behavior: &mut FunctionBehavior, summary: &CfgSummary, effe
     b.storage_param_writes = sorted(summary.param_writes.iter().map(|(_, p)| p.clone()));
     b.storage_param_reads = sorted(summary.param_reads.iter().map(|(_, p)| p.clone()));
     b.unresolved_modifiers = summary.unresolved_modifiers.clone();
+    b.effects_incomplete = effects.incomplete;
     b.can_revert = b.can_revert || !effects.reverts.is_empty();
-    b.read_only = effects.state_writes.is_empty()
-        && effects.param_writes.is_empty()
-        && effects.external_calls.is_empty();
+    // solc already rejects state changes in view and pure functions
+    b.read_only = func.mutability.is_view_or_pure()
+        || (effects.state_writes.is_empty()
+            && effects.param_writes.is_empty()
+            && effects.events.is_empty()
+            && effects.state_changing_calls.is_empty());
 }

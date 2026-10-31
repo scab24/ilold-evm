@@ -38,6 +38,13 @@ pub struct StateVar {
     pub span: SourceSpan,
 }
 
+impl StateVar {
+    /// Constants and immutables live in the code.
+    pub fn is_storage(&self) -> bool {
+        !self.is_constant && !self.is_immutable
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructDef {
     pub name: String,

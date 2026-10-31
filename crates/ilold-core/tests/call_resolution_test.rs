@@ -60,7 +60,7 @@ fn expected(items: &[(&str, &str, CallKind)]) -> BTreeSet<Edge> {
 fn tree(contract_name: &str, key: &str) -> PathTree {
     let c = contract(contract_name);
     let f = function(contract_name, key);
-    let cfg = CfgBuilder::build_with_project(f, c, Some(project())).unwrap();
+    let cfg = CfgBuilder::build_with_project(f, c, Some(project()));
     let vars = project().inherited_state_vars(c);
     build_path_tree(&cfg, &c.name, &f.key, &vars, &PruningConfig::default())
 }
@@ -249,7 +249,7 @@ fn path_annotations_split_internal_and_external_calls() {
 #[test]
 fn call_options_are_kept() {
     let c = contract("Caller");
-    let cfg = CfgBuilder::build_with_project(function("Caller", "lowLevel"), c, Some(project())).unwrap();
+    let cfg = CfgBuilder::build_with_project(function("Caller", "lowLevel"), c, Some(project()));
     let options: Vec<Vec<(String, String)>> = cfg
         .node_weights()
         .flat_map(|b| b.statements.iter())
@@ -260,7 +260,7 @@ fn call_options_are_kept() {
         .collect();
     assert_eq!(options, [vec![("value".to_string(), "msg.value".to_string()), ("gas".into(), "5000".into())]]);
 
-    let cfg = CfgBuilder::build_with_project(function("Caller", "create"), c, Some(project())).unwrap();
+    let cfg = CfgBuilder::build_with_project(function("Caller", "create"), c, Some(project()));
     let salted = cfg.node_weights().flat_map(|b| b.statements.iter()).any(|s| matches!(s,
         CfgStatement::ExternalCall { kind: Creation, options, .. }
             if options == &[("salt".to_string(), "salt".to_string())]));
@@ -397,4 +397,97 @@ fn base_constructors_and_function_pointer_fields() {
         edges("Pointers"),
         expected(&[("Pointers::applyOp", "?::op", Internal)])
     );
+}
+
+fn clash_data() -> ilold_core::exploration::commands::AnalysisData<'static> {
+    let a = analysis();
+    let sa = &a.sequence_analyses["Clash"];
+    ilold_core::exploration::commands::AnalysisData {
+        project: project(),
+        contract: contract("Clash"),
+        cfgs: &a.cfgs,
+        path_trees: &a.path_trees,
+        behaviors: &sa.functions,
+        all_sequence_analyses: &a.sequence_analyses,
+    }
+}
+
+#[test]
+fn behaviors_of_inherited_functions_are_keyed_by_owner() {
+    let put: Vec<(&str, &FunctionBehavior)> = analysis().sequence_analyses["Clash"]
+        .functions
+        .iter()
+        .filter(|b| b.name == "put")
+        .map(|b| (b.owner.as_str(), b))
+        .collect();
+    let owners: Vec<&str> = put.iter().map(|(o, _)| *o).collect();
+    assert_eq!(owners, ["Clash", "ClashBase"]);
+    let (_, own) = put[0];
+    assert_eq!(own.state_writes, strings(&["who"]));
+    assert!(own.guards.is_empty());
+    let (_, inherited) = put[1];
+    assert!(inherited.state_writes.is_empty(), "{:?}", inherited.state_writes);
+    assert_eq!(inherited.transitive_state_writes, strings(&["bumps"]));
+    assert!(!inherited.guards.is_empty());
+}
+
+#[test]
+fn narratives_and_who_never_mix_functions_sharing_a_key() {
+    use ilold_core::classify::entry_points::AccessLevel;
+    use ilold_core::exploration::commands::{execute_command, get_function_info, CommandResult, SessionCommand};
+    use ilold_core::exploration::session::ExplorationSession;
+
+    let data = clash_data();
+    let base = get_function_info("put(uint256)", &data).unwrap();
+    assert!(matches!(base.access, AccessLevel::Restricted { .. }), "{:?}", base.access);
+    let items: Vec<&str> = base.transitive_state_writes.iter().map(|e| e.item.as_str()).collect();
+    assert_eq!(items, ["bumps"]);
+    let own = get_function_info("put(address)", &data).unwrap();
+    assert_eq!(own.access, AccessLevel::Public);
+    assert!(own.transitive_state_writes.is_empty());
+    assert!(own.guards.is_empty());
+
+    let mut session = ExplorationSession::new("Clash", "clash");
+    let CommandResult::VariableInfo { writers, .. } =
+        execute_command(SessionCommand::Who { variable: "bumps".into() }, &mut session, &data, "0")
+    else {
+        panic!("VariableInfo")
+    };
+    // a key both contracts declare is qualified with the declaring contract
+    let names: Vec<&str> = writers.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["_bump", "ClashBase::put"]);
+    assert_eq!(writers[0].1, AccessLevel::Internal);
+    assert!(matches!(writers[1].1, AccessLevel::Restricted { .. }), "{writers:?}");
+    let CommandResult::VariableInfo { writers, .. } =
+        execute_command(SessionCommand::Who { variable: "who".into() }, &mut session, &data, "0")
+    else {
+        panic!("VariableInfo")
+    };
+    assert_eq!(writers, [("Clash::put".to_string(), AccessLevel::Public)]);
+
+    let CommandResult::FunctionListAll { functions } =
+        execute_command(SessionCommand::FunctionsAll, &mut session, &data, "0")
+    else {
+        panic!("FunctionListAll")
+    };
+    let put: Vec<(&str, bool)> =
+        functions.iter().filter(|f| f.name == "put").map(|f| (f.origin.as_str(), f.writes_state)).collect();
+    assert_eq!(put, [("Clash", true), ("ClashBase", true)]);
+}
+
+#[test]
+fn sequence_narratives_pick_the_step_function_by_owner() {
+    use ilold_core::exploration::commands::{execute_command, get_sequence_narrative, SessionCommand};
+    use ilold_core::exploration::session::ExplorationSession;
+
+    let data = clash_data();
+    let mut session = ExplorationSession::new("Clash", "clash");
+    for func in ["put(uint256)", "put(address)"] {
+        execute_command(SessionCommand::Call { func: func.into(), trace_config: None }, &mut session, &data, "0");
+    }
+    let n = get_sequence_narrative(&session, &data).unwrap();
+    let requires: Vec<Vec<String>> = n.steps.iter().map(|s| s.requires.clone()).collect();
+    assert_eq!(requires, [strings(&["msg.sender == owner"]), Vec::new()]);
+    let effects: Vec<Vec<String>> = n.steps.iter().map(|s| s.effects.clone()).collect();
+    assert_eq!(effects, [Vec::new(), strings(&["who"])]);
 }

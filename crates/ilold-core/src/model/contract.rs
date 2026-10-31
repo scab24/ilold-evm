@@ -49,9 +49,21 @@ pub enum ContractKind {
     Abstract,
 }
 
+/// Name of the library-like container that holds a source file's free functions.
+pub const FREE_FUNCTIONS: &str = "FreeFunctions";
+
 impl ContractDef {
     /// `key`, or the name for hand-built models without one.
     pub fn key(&self) -> &str {
         if self.key.is_empty() { &self.name } else { &self.key }
+    }
+
+    pub fn is_free_functions(&self) -> bool {
+        self.id.is_none() && self.name == FREE_FUNCTIONS
+    }
+
+    /// Shown by default listings; hidden contracts still resolve.
+    pub fn is_listed(&self) -> bool {
+        !self.is_dependency && !self.is_free_functions()
     }
 }

@@ -32,19 +32,36 @@ them, including helpers called from modifiers. A library parameter declared
 `storage` is bound at each call site to the caller's argument, so
 `reserve.liquidityIndex = x` inside a library becomes a write of
 `_reserves[].liquidityIndex` in the calling contract. Inherited functions are
-analysed as the derived contract runs them, overrides included.
+analysed as the derived contract runs them, overrides included, also overridden
+`virtual` modifiers. Each behavior names its declaring contract (`owner`), so a
+base `put(uint256)` and a derived `put(address)` stay apart.
+
+Constants and immutables take no storage: they are never state reads or writes.
+A function is `read_only` when it is declared `view`/`pure`, or when it writes no
+state, emits no event and makes only staticcalls or calls to `view`/`pure`
+functions and getters. Mutually recursive functions all get the effects of the
+whole cycle, and call chains have no depth limit. A recursion whose written
+places keep growing (`walk(n.kids[i])`) is cut after 64 rounds and its behaviors
+are marked `effects_incomplete`.
 
 Boundaries:
 
 - Path trees stay per function: `revert_paths` counts only the function's own
   code. `can_revert` and the revert sources include reverts in callees.
-- A storage pointer follows the last assignment in source order, not each
-  branch separately. A function returning a storage pointer is followed one
-  level deep, and only when all its returns agree on the location.
-- Recursive calls contribute their effects once; chains deeper than 24 calls
-  are cut.
+- A storage pointer may point to several places after `if`/`else`, loops and
+  `try`/`catch`; its writes go to all of them. Re-pointing a pointer inside a
+  larger expression (`f(p = q)`) is not followed. A function returning a
+  storage pointer is followed one level deep.
+- Writes nested in expressions (`f(nonce++)`, `m[id++] = v`, `f(x = v)`) are
+  recorded in evaluation order.
+- The CFG, path tree and call graph of an inherited function show the
+  declaring contract's modifiers; only its behavior (effects, reverts, guards)
+  uses the derived contract's overrides.
 - Writes inside inline assembly and calls through `address.call` or `this.f()`
-  into the same contract are not followed.
+  into the same contract are not followed: `this.f()` is an external call.
+- Free functions live in a `FreeFunctions` container per source file. Listings
+  hide it like a dependency (`?include_dependencies=true`, `ct all` and
+  `--include-dependencies` show it); it still resolves by name.
 
 ## Timeline tracks state mutations only
 

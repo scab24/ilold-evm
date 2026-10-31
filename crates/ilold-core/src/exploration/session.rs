@@ -129,7 +129,7 @@ impl ExplorationSession {
             .into_iter()
             .filter_map(|fm| {
                 let base = crate::util::target_base_name(&fm.target);
-                if !state_vars.iter().any(|sv| sv.name == base) {
+                if !state_vars.iter().any(|sv| sv.name == base && sv.is_storage()) {
                     return None;
                 }
                 Some(StateMutation {

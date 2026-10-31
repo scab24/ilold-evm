@@ -48,6 +48,7 @@ fn nodes(project: &Project) -> (DepGraph, Index) {
             folder: project.contract_folder(c),
             qualified_id: c.qualified_id.clone(),
             is_dependency: c.is_dependency,
+            is_free_functions: c.is_free_functions(),
         });
         index.insert(c.key().to_string(), idx);
     }

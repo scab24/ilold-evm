@@ -74,7 +74,7 @@ fn aave_call_resolution() {
     }
     let atoken_def = project.contracts.iter().find(|c| c.name == "AToken").unwrap();
     let (owner, permit) = project.lookup_function(atoken_def, "permit").unwrap();
-    let cfg = CfgBuilder::build_with_project(permit, owner, Some(&project)).unwrap();
+    let cfg = CfgBuilder::build_with_project(permit, owner, Some(&project));
     let pt = build_path_tree(&cfg, &owner.name, &permit.key, &project.inherited_state_vars(owner),
         &PruningConfig::default());
     let mut internal: Vec<&String> = pt.paths.iter().flat_map(|p| &p.annotations.internal_calls).collect();
@@ -113,7 +113,7 @@ fn aave_call_resolution() {
     println!("  bare name: {:?}", project.lookup_function(configurator, "setPoolPause").map(|(_, f)| &f.key));
     for f in configurator.functions.iter().filter(|f| f.name == "setPoolPause") {
         let (owner, found) = project.lookup_function(configurator, &f.signature).unwrap();
-        let cfg = CfgBuilder::build_with_project(found, owner, Some(&project)).unwrap();
+        let cfg = CfgBuilder::build_with_project(found, owner, Some(&project));
         let calls: Vec<String> = cfg
             .node_weights()
             .flat_map(|b| &b.statements)
@@ -334,6 +334,30 @@ fn aave_state_flow() {
     assert!(execute.state_writes.is_empty());
     assert!(params_written.iter().any(|w| w.starts_with("reservesData[].liquidityIndex")));
     assert!(params_written.iter().any(|w| w.starts_with("userConfig.data")));
+
+    let data = behavior("Pool", "getReserveData");
+    println!("== Pool.getReserveData read_only {} external {:?} reads {:?}", data.read_only, data.effective_external_calls(), data.effective_state_reads());
+    assert!(data.read_only);
+
+    // constants and immutables are never storage
+    let mut checked = 0usize;
+    for contract in project.project_contracts() {
+        let Some(sa) = analysis.sequence_analyses.get(contract.key()) else { continue };
+        let vars = project.inherited_state_vars(contract);
+        let in_code: Vec<&str> = vars.iter().filter(|v| !v.is_storage()).map(|v| v.name.as_str())
+            .filter(|n| !vars.iter().any(|v| v.name == *n && v.is_storage())).collect();
+        for b in &sa.functions {
+            checked += 1;
+            for name in b.effective_state_reads().iter().chain(&b.effective_state_writes()) {
+                assert!(!in_code.contains(&name.as_str()), "{}::{} uses {name} as state", contract.key(), b.name);
+            }
+        }
+    }
+    println!("== no constant or immutable read or written as state in {checked} behaviors");
+    let incomplete: Vec<String> = analysis.sequence_analyses.iter()
+        .flat_map(|(c, sa)| sa.functions.iter().filter(|b| b.effects_incomplete).map(move |b| format!("{c}::{}", b.name)))
+        .collect();
+    println!("== behaviors with incomplete effects: {incomplete:?}");
 }
 
 /// Access and state guards of Aave's entry points, and the "without access control"
@@ -344,7 +368,7 @@ fn aave_state_flow() {
 fn aave_access_guards() {
     use ilold_core::classify::entry_points::AccessLevel;
     use ilold_core::classify::guards::GuardKind;
-    use ilold_core::model::function::{Mutability, Visibility};
+    use ilold_core::model::function::Visibility;
     use ilold_core::narrative::function::build_function_narrative;
     use ilold_core::narrative::types::ObservationKind;
 
@@ -355,8 +379,9 @@ fn aave_access_guards() {
     let access = |c: &str, f: &str| -> AccessLevel {
         analysis.classifications[c].iter().find(|(n, _)| n == f).map(|(_, a)| a.clone()).unwrap_or_else(|| panic!("{c}::{f}"))
     };
-    let guards = |c: &str, key: &str| {
-        analysis.sequence_analyses[c].functions.iter().find(|b| b.name == key).map(|b| b.guards.clone()).unwrap_or_default()
+    let guards = |c: &str, owner: &str, key: &str| {
+        let functions = &analysis.sequence_analyses[c].functions;
+        ilold_core::sequence::analysis::find_behavior(functions, owner, key).map(|b| b.guards.clone()).unwrap_or_default()
     };
     for name in ["Pool", "PoolConfigurator", "AToken", "ACLManager"] {
         let contract = project.contracts.iter().find(|c| c.name == name && !c.is_dependency).unwrap();
@@ -366,12 +391,12 @@ fn aave_access_guards() {
         for af in project.accessible_functions(contract) {
             let f = af.function;
             if !matches!(f.visibility, Visibility::External | Visibility::Public)
-                || matches!(f.mutability, Mutability::View | Mutability::Pure)
+                || f.mutability.is_view_or_pure()
                 || f.name.is_empty()
             {
                 continue;
             }
-            let found = guards(c, &f.key);
+            let found = guards(c, af.owner.key(), &f.key);
             let shown: Vec<String> = found
                 .iter()
                 .map(|g| format!("{:?}{} `{}` via [{}]", g.kind, if g.heuristic { " (heuristic)" } else { "" }, g.condition, g.via.join(" -> ")))
@@ -390,12 +415,12 @@ fn aave_access_guards() {
     }
 
     let has = |c: &str, f: &str, kind: GuardKind, via0: &str| {
-        guards(c, f).iter().any(|g| g.kind == kind && !g.heuristic && g.via.first().map(String::as_str) == Some(via0))
+        guards(c, c, f).iter().any(|g| g.kind == kind && !g.heuristic && g.via.first().map(String::as_str) == Some(via0))
     };
     assert!(has("Pool", "initReserve", GuardKind::RoleCheck, "modifier onlyPoolConfigurator") || has("Pool", "initReserve", GuardKind::CallerEquals, "modifier onlyPoolConfigurator"));
     assert!(has("Pool", "rescueTokens", GuardKind::RoleCheck, "modifier onlyPoolAdmin"));
     for f in ["supply", "withdraw", "borrow", "repay", "flashLoan"] {
-        assert!(!guards("Pool", f).iter().any(|g| g.kind.is_access()), "Pool.{f}: {:?}", guards("Pool", f));
+        assert!(!guards("Pool", "Pool", f).iter().any(|g| g.kind.is_access()), "Pool.{f}: {:?}", guards("Pool", "Pool", f));
         assert_eq!(access("Pool", f), AccessLevel::Public, "Pool.{f}");
     }
 }

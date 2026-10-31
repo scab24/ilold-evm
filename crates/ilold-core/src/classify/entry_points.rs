@@ -58,6 +58,12 @@ pub fn classify_in(
     (access_level(func, &guards), guards)
 }
 
+/// Access level of the function `name` (bare, key or signature) as `context` runs it.
+pub fn classify_named(project: &Project, context: &ContractDef, name: &str) -> Option<AccessLevel> {
+    let (owner, func) = project.resolve_function(context, name)?;
+    Some(classify_in(project, context, owner, func).0)
+}
+
 /// `Restricted` when an access guard exists; its role names the modifiers that carry the
 /// guards (the first one on the chain, also when reached through a called function), or the
 /// checks themselves when no modifier is on the chain.

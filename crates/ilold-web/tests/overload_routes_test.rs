@@ -124,3 +124,33 @@ async fn contract_detail_and_callgraph_expose_overload_keys_and_kinds() {
         .map(|e| e["data"]["kind"].as_str().unwrap()).collect();
     assert!(kinds.contains(&"InternalLibrary") && kinds.contains(&"LibraryDelegatecall"), "{kinds:?}");
 }
+
+#[tokio::test]
+async fn scenario_steps_of_functions_sharing_a_name_keep_their_own_access() {
+    let (client, base) = start().await;
+    let api = base.trim_end_matches("/contract");
+    for func in ["put(uint256)", "put(address)"] {
+        let res = client
+            .post(format!("{api}/cmd"))
+            .json(&serde_json::json!({ "contract": "Clash", "command": { "Call": { "func": func } } }))
+            .send()
+            .await
+            .unwrap();
+        assert!(res.status().is_success());
+    }
+    let (status, all) = get(&client, format!("{api}/scenarios/all?contract=Clash")).await;
+    assert!(status.is_success(), "{all}");
+    let steps: Vec<(String, String)> = all["scenarios"][0]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["function"].as_str().unwrap().to_string(), s["access"].to_string()))
+        .collect();
+    assert_eq!(
+        steps,
+        [
+            ("put(uint256)".to_string(), r#"{"Restricted":{"role":"onlyOwner"}}"#.to_string()),
+            ("put(address)".to_string(), r#""Public""#.to_string()),
+        ]
+    );
+}

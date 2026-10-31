@@ -7,7 +7,7 @@ use crate::model::contract::ContractDef;
 use crate::model::function::FunctionDef;
 use crate::narrative::types::TransitiveEffect;
 use crate::pathtree::types::{PathTree, TerminalKind};
-use crate::sequence::analysis::{EffectKind, FunctionBehavior};
+use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
 
 use super::types::*;
 
@@ -18,13 +18,9 @@ pub fn build_function_narrative(
     cfg: &CfgGraph,
     all_behaviors: &[FunctionBehavior],
 ) -> FunctionNarrative {
-    let root_behavior = all_behaviors
-        .iter()
-        .find(|b| b.name == function.key)
-        .or_else(|| all_behaviors.iter().find(|b| b.name == function.name));
-    // guards come from the analysis, which reads inherited modifiers and helpers; only the
-    // behavior of this very function (by key), never one of another overload
-    let (access, guards) = match all_behaviors.iter().find(|b| b.name == function.key) {
+    let root_behavior = find_behavior(all_behaviors, contract.key(), &function.key);
+    // guards come from the analysis, which reads inherited modifiers and helpers
+    let (access, guards) = match root_behavior {
         Some(b) => (access_level(function, &b.guards), b.guards.clone()),
         None => {
             let guards = function_guards(None, contract, contract, function);
@@ -95,9 +91,7 @@ pub fn build_function_narrative(
         .collect();
 
     let unguarded = access.is_unrestricted() && !guards.iter().any(|g| g.kind.is_access());
-    let observations = generate_observations(
-        unguarded, path_tree, cfg, all_behaviors, &function.name,
-    );
+    let observations = generate_observations(unguarded, path_tree, cfg, all_behaviors, root_behavior);
 
     let mut writes = HashSet::new();
     let mut reads = HashSet::new();
@@ -305,7 +299,7 @@ fn generate_observations(
     path_tree: &PathTree,
     cfg: &CfgGraph,
     all_behaviors: &[FunctionBehavior],
-    function_name: &str,
+    this: Option<&FunctionBehavior>,
 ) -> Vec<Observation> {
     let mut obs = Vec::new();
 
@@ -331,7 +325,7 @@ fn generate_observations(
         .collect();
 
     for behavior in all_behaviors {
-        if behavior.name == function_name { continue; }
+        if this.is_some_and(|this| std::ptr::eq(this, behavior)) { continue; }
         let shared: Vec<&str> = behavior
             .state_reads
             .iter()

@@ -22,7 +22,7 @@ fn test_set_produces_2_paths() {
     let project = parser.parse(&[fixture_path("simple_storage/src/simple_storage.sol")]).unwrap();
     let contract = &project.contracts[0];
     let set_fn = contract.functions.iter().find(|f| f.name == "set").unwrap();
-    let cfg = CfgBuilder::build(set_fn, contract).unwrap();
+    let cfg = CfgBuilder::build(set_fn, contract);
 
     let pt = build_path_tree(&cfg, &contract.name, "set", &contract.state_vars, &PruningConfig::default());
 
@@ -44,7 +44,7 @@ fn test_transfer_from_produces_5_paths() {
     let project = parser.parse(&[fixture_path("erc20/src/erc20.sol")]).unwrap();
     let contract = &project.contracts[0];
     let func = contract.functions.iter().find(|f| f.name == "transferFrom").unwrap();
-    let cfg = CfgBuilder::build(func, contract).unwrap();
+    let cfg = CfgBuilder::build(func, contract);
 
     let pt = build_path_tree(&cfg, &contract.name, "transferFrom", &contract.state_vars, &PruningConfig::default());
 
@@ -66,7 +66,7 @@ fn test_path_annotations() {
     let project = parser.parse(&[fixture_path("simple_storage/src/simple_storage.sol")]).unwrap();
     let contract = &project.contracts[0];
     let set_fn = contract.functions.iter().find(|f| f.name == "set").unwrap();
-    let cfg = CfgBuilder::build(set_fn, contract).unwrap();
+    let cfg = CfgBuilder::build(set_fn, contract);
 
     let pt = build_path_tree(&cfg, &contract.name, "set", &contract.state_vars, &PruningConfig::default());
 
@@ -90,7 +90,7 @@ fn test_loop_unrolling() {
     let project = parser.parse(&[fixture_path("uniswap_v2_pair/src/uniswap_v2_pair.sol")]).unwrap();
     let contract = project.contracts.iter().find(|c| c.name == "UniswapV2Pair").unwrap();
     let sqrt_fn = contract.functions.iter().find(|f| f.name == "_sqrt").unwrap();
-    let cfg = CfgBuilder::build(sqrt_fn, contract).unwrap();
+    let cfg = CfgBuilder::build(sqrt_fn, contract);
 
     let config = PruningConfig { max_loop_unroll: 3, ..PruningConfig::default() };
     let pt = build_path_tree(&cfg, &contract.name, "_sqrt", &contract.state_vars, &config);
@@ -115,7 +115,7 @@ fn test_interface_function_no_paths() {
     let project = parser.parse(&[fixture_path("staking/src/staking.sol")]).unwrap();
     let ierc20 = project.contracts.iter().find(|c| c.name == "IERC20").unwrap();
     let transfer = ierc20.functions.iter().find(|f| f.name == "transfer").unwrap();
-    let cfg = CfgBuilder::build(transfer, ierc20).unwrap();
+    let cfg = CfgBuilder::build(transfer, ierc20);
 
     let pt = build_path_tree(&cfg, "IERC20", "transfer", &ierc20.state_vars, &PruningConfig::default());
 

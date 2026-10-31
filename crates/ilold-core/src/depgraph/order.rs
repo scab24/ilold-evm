@@ -91,6 +91,7 @@ mod tests {
             folder: String::new(),
             qualified_id: String::new(),
             is_dependency: false,
+            is_free_functions: false,
         })
     }
 

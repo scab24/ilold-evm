@@ -37,7 +37,7 @@ fn function(contract: &str, name: &str) -> &'static FunctionDef {
 fn analyze(project: &Project, contract: &str, name: &str) -> (CfgGraph, PathTree) {
     let contract = project.contracts.iter().find(|c| c.name == contract).unwrap();
     let f = contract.functions.iter().find(|f| f.name == name).unwrap();
-    let cfg = CfgBuilder::build_with_project(f, contract, Some(project)).unwrap();
+    let cfg = CfgBuilder::build_with_project(f, contract, Some(project));
     let state_vars = project.inherited_state_vars(contract);
     let tree = build_path_tree(&cfg, &contract.name, name, &state_vars, &PruningConfig::default());
     (cfg, tree)
