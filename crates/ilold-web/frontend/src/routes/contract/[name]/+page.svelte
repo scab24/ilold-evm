@@ -35,11 +35,16 @@
     type GraphNodeData,
   } from '$lib/stores/graph.svelte';
   import { ownEntry, runDagreLayout } from '$lib/utils/graph-helpers';
+  import { functionIndex } from '$lib/utils/function-keys';
   import { MarkerType } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
 
   let contract: ContractDetail | null = $state(null);
-  const allFuncs = $derived.by(() => [...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])]);
+  const funcIndex = $derived.by(() => functionIndex(contract?.functions, contract?.inherited_functions));
+  // canvas, caches and API calls use the key, so overloads never collide
+  function routeKey(ref: string): string {
+    return funcIndex.get(ref)?.key ?? ref;
+  }
   let error: string | null = $state(null);
   let selectedNode: any = $state(null);
   let selectedPath: any = $state(null);
@@ -79,6 +84,10 @@
 
   function hasPaths(funcName: string): boolean {
     return !!ownEntry(funcPaths, funcName);
+  }
+
+  function canvasNode(funcKey: string): Node<GraphNodeData> | undefined {
+    return getNodes().find(n => n.data._type === 'function' && !n.data._sessionStep && n.data.funcKey === funcKey);
   }
 
   function liveNodePosition(nodeId: string): { x: number; y: number } | null {
@@ -392,7 +401,7 @@
 
       const composedNodes: Node<GraphNodeData>[] = tree.nodes.map((cn: ComposedNode) => {
         // steps of overloaded functions are stored by signature
-        const funcDetail = allFuncs.find((f) => f.key === cn.function || f.signature === cn.function);
+        const funcDetail = funcIndex.get(cn.function);
         return {
           id: cn.id,
           type: 'function',
@@ -408,6 +417,7 @@
             _activeScenario: active,
             stepIndex: cn.stepIndex,
             label: cn.function,
+            funcKey: funcDetail?.key ?? cn.function,
             is_external: false,
             contractName: contract!.name,
             visibility: funcDetail?.visibility,
@@ -490,11 +500,13 @@
   $effect(() => {
     const key = sessionHighlight;
     if (!key) return;
-    // session steps are labelled by key, call-graph nodes by name
-    const name = allFuncs.find((f) => f.key === key)?.name;
-    const functions = getNodes().filter(n => n.data._type === 'function');
-    const node = functions.find(n => n.data.label === key) ?? functions.find(n => n.data.label === name);
-    if (node) selectedNode = node;
+    untrack(() => {
+      if (!contract) return;
+      const visible = () => getNodes().find(n => n.data._type === 'function' && !n.hidden && n.data.funcKey === key);
+      if (!visible() && mode !== 'session') addFuncToCanvas(key);
+      const node = visible();
+      if (node) handleNodeTap(node);
+    });
   });
 
   // the page component is reused across contracts, so every load keys on the route param and drops stale responses
@@ -581,9 +593,7 @@
           }
           if (stale || !contract) return;
 
-          const funcNode = getNodes().find(
-            n => n.data._type === 'function' && n.data.label === nav.func
-          );
+          const funcNode = canvasNode(nav.func);
           if (funcNode) {
             selectedNode = { ...funcNode.data, id: funcNode.id };
             // the result may lie past the loaded page
@@ -596,6 +606,8 @@
               flowApi.fitView({ nodes: [{ id: funcNode.id }], padding: 0.5, duration: 400 });
             }
           }
+        } catch (e) {
+          if (!stale) notifyError('open search result', e);
         } finally {
           if (!stale) setSearchNavigate(null);
         }
@@ -624,11 +636,10 @@
   function addFuncToCanvas(funcName: string) {
     if (!callgraphRaw || canvasFuncs.has(funcName)) return;
     // the contract's own or inherited function, not a same-named call target elsewhere
-    const named = callgraphRaw.nodes.filter(n => n.data.label === funcName);
-    const nodeData = named.find(n => !n.data.is_external) ?? named[0];
+    const nodeData = callgraphRaw.nodes.find(n => n.data.key === funcName);
     if (!nodeData) return;
 
-    const funcDetail = allFuncs.find((f: any) => f.name === funcName);
+    const funcDetail = funcIndex.get(funcName);
 
     const count = canvasFuncs.size;
     const position = {
@@ -643,6 +654,7 @@
       data: {
         _type: 'function',
         label: nodeData.data.label,
+        funcKey: funcName,
         is_external: nodeData.data.is_external ?? false,
         contractName: nodeData.data.contract,
         visibility: funcDetail?.visibility,
@@ -654,10 +666,10 @@
 
     for (const e of callgraphRaw.edges) {
       const srcOnCanvas = canvasFuncs.has(
-        callgraphRaw.nodes.find(n => n.data.id === e.data.source)?.data.label ?? ''
+        callgraphRaw.nodes.find(n => n.data.id === e.data.source)?.data.key ?? ''
       ) || e.data.source === nodeData.data.id;
       const tgtOnCanvas = canvasFuncs.has(
-        callgraphRaw.nodes.find(n => n.data.id === e.data.target)?.data.label ?? ''
+        callgraphRaw.nodes.find(n => n.data.id === e.data.target)?.data.key ?? ''
       ) || e.data.target === nodeData.data.id;
 
       if (srcOnCanvas && tgtOnCanvas) {
@@ -700,9 +712,7 @@
 
   function removeFuncFromCanvas(funcName: string) {
     if (!canvasFuncs.has(funcName)) return;
-    const funcNode = getNodes().find(
-      n => n.data._type === 'function' && n.data.label === funcName
-    );
+    const funcNode = canvasNode(funcName);
     if (!funcNode) return;
     const nodeId = funcNode.id;
 
@@ -747,7 +757,7 @@
     for (const n of nodes) {
       const d = n.data;
       if (d._type === 'function') {
-        funcsToRemove.add(d.label);
+        funcsToRemove.add(d.funcKey ?? d.label);
       } else if (d._type === 'block') {
         const parent = (d as any)._parentFunc;
         if (parent) funcsToRemove.add(parent);
@@ -777,15 +787,17 @@
     selectedNode = { ...data, id: node.id };
     contextMenu = null;
 
-    const funcName = data._type === 'function' ? data.label
+    const funcName = data._type === 'function' ? (data.funcKey ?? data.label)
       : data._type === 'block' ? (data as any)._parentFunc
-      : data._type === 'seq-next' ? ((data as any)._funcName || data.label)
+      : data._type === 'seq-next' ? routeKey((data as any)._funcName || data.label)
       : null;
 
     if (funcName && !hasPaths(funcName)) {
       try {
         await loadPaths(funcName);
-      } catch {}
+      } catch (e) {
+        notifyError('load paths', e);
+      }
     }
   }
 
@@ -893,7 +905,7 @@
       x: event.clientX,
       y: event.clientY,
       nodeId: node.id,
-      funcName: data._type === 'function' ? data.label : ('_parentFunc' in data ? (data as any)._parentFunc : ('_funcName' in data ? (data as any)._funcName : (data as any).label)),
+      funcName: data._type === 'function' ? (data.funcKey ?? data.label) : ('_parentFunc' in data ? (data as any)._parentFunc : routeKey('_funcName' in data ? (data as any)._funcName : (data as any).label)),
       nodeType: data._type,
       sessionStep,
     };
@@ -904,7 +916,7 @@
     if (mode === 'session') return;
     const d = node.data;
     if (d._type === 'function' && !d.is_external) {
-      await handleFunctionTap(d.label, node.id);
+      await handleFunctionTap(d.funcKey ?? d.label, node.id);
     } else if (d._type === 'seq-next') {
       await handleSeqNodeTap((d as any)._funcName || d.label, node.id, (d as any)._seqParent, event);
     }
@@ -941,7 +953,7 @@
 
   async function toggleFuncExpand(funcName: string, anchorNodeId?: string) {
     if (!contract) return;
-    const parentId = anchorNodeId || `${contract.name}::${funcName}`;
+    const parentId = anchorNodeId || canvasNode(funcName)?.id || `${contract.name}::${funcName}`;
 
     if (expandedFuncs.has(funcName)) {
       const toRemove = new Set<string>();
@@ -1104,16 +1116,16 @@
     const seqFunctions: Array<{ name: string; visibility: string; read_only: boolean; path_count: number }> = seqTree.functions;
 
     const targets = seqFunctions;
+    const fromKey = routeKey(funcName);
+    const outgoing = seqAnalysis?.transitions?.filter(t => routeKey(t.from) === fromKey) ?? [];
 
     const newNodes: Node<GraphNodeData>[] = [];
     const newEdges: Edge[] = [];
     for (const func of targets) {
       const targetName = func.name;
       const nodeId = `seq:${parentNodeId}→${targetName}`;
-      const transition = seqAnalysis?.transitions?.find(
-        t => t.from === funcName && t.to === targetName
-      ) ?? null;
-      const funcDetail = allFuncs.find((f: any) => f.name === targetName);
+      const transition = outgoing.find(t => routeKey(t.to) === routeKey(targetName)) ?? null;
+      const funcDetail = funcIndex.get(targetName);
 
       newNodes.push({
         id: nodeId,
@@ -1265,18 +1277,19 @@
     }
 
     const paletteFuncs = [
-      ...(ctr.functions ?? []).map((f) => ({ name: f.name, source: 'own' as const })),
-      ...(ctr.inherited_functions ?? []).map((f) => ({ name: f.name, source: 'inherited' as const })),
+      ...(ctr.functions ?? []).map((f) => ({ f, source: 'own' as const })),
+      ...(ctr.inherited_functions ?? []).map((f) => ({ f, source: 'inherited' as const })),
     ];
-    paletteFuncs.forEach((f, i) => {
+    paletteFuncs.forEach(({ f, source }, i) => {
+      const detail = [f.key !== f.name ? f.signature : null, source === 'inherited' ? 'inherited' : null].filter(Boolean).join(' · ');
       cmds.push({
-        id: `func:${f.source}:${i}:${f.name}`,
+        id: `func:${source}:${i}:${f.key}`,
         label: f.name,
         category: 'Function',
         icon: 'ƒ',
-        detail: f.source === 'inherited' ? 'inherited' : undefined,
+        detail: detail || undefined,
         keywords: ['jump', 'function', 'canvas'],
-        run: () => handleSidebarAdd(f.name),
+        run: () => handleSidebarAdd(f.key),
       });
     });
 

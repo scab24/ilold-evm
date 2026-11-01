@@ -51,7 +51,7 @@ async fn embedded_ui_and_api_share_dynamic_port_on_single_worker() {
 
 #[tokio::test]
 async fn occupied_port_is_reported() {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let result = ilold_web::start_server(vec![fixture()], port, 2).await;
     match result {
@@ -63,4 +63,19 @@ async fn occupied_port_is_reported() {
         Ok(_) => panic!("server unexpectedly started on an occupied port"),
     }
     drop(listener);
+}
+
+#[tokio::test]
+async fn binds_loopback_by_default_and_all_interfaces_on_request() {
+    let (state, port) = ilold_web::start_server(vec![fixture()], 0, 2).await.unwrap();
+    assert!(state.addr.ip().is_loopback(), "{}", state.addr);
+    assert_eq!(state.addr.port(), port);
+    assert_eq!(ilold_web::local_url(state.addr), format!("http://127.0.0.1:{port}"));
+
+    let all = std::net::SocketAddr::from(([0, 0, 0, 0], 0));
+    let (state, port, _server) = ilold_web::start_server_with_handle(vec![fixture()], all, 2).await.unwrap();
+    assert!(state.addr.ip().is_unspecified(), "{}", state.addr);
+    let response = reqwest::get(format!("{}/api/project", ilold_web::local_url(state.addr))).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(ilold_web::local_url(state.addr), format!("http://127.0.0.1:{port}"));
 }

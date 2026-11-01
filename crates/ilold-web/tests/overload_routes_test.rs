@@ -172,3 +172,23 @@ async fn highlight_names_the_resolved_overload_by_key() {
     }
     assert_eq!(seen, ["put(uint256,bool)", "put(address)", "put(uint256)"]);
 }
+
+#[tokio::test]
+async fn callgraph_nodes_and_search_results_carry_the_route_key() {
+    let (state, port) = ilold_web::start_server(vec![fixture()], 0, 2).await.unwrap();
+    let client = reqwest::Client::new();
+    let (_, cg) = get(&client, format!("http://127.0.0.1:{port}/api/contract/Over/callgraph")).await;
+    let key_of = |id: &str| cg["nodes"].as_array().unwrap().iter().find(|n| n["data"]["id"] == id).map(|n| n["data"]["key"].clone());
+    assert_eq!(key_of("OverBase::put"), Some(Value::from("put(uint256,bool)")), "{cg}");
+    assert_eq!(key_of("Over::put(address)"), Some(Value::from("put(address)")));
+
+    use ilold_web::ws::search::{search_paths, SearchQuery};
+    let query = SearchQuery { query: "put".into(), contract: Some("Over".into()), function: None };
+    let (results, _) = search_paths(&state, &query, usize::MAX).unwrap();
+    let inherited = results.iter().find(|r| r.function == "put").expect("inherited put");
+    assert_eq!(inherited.key, "put(uint256,bool)");
+    for r in &results {
+        let (status, body) = get(&client, format!("http://127.0.0.1:{port}/api/contract/Over/{}/paths", r.key)).await;
+        assert!(status.is_success(), "{}: {body}", r.key);
+    }
+}

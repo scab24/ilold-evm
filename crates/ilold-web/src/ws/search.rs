@@ -15,6 +15,8 @@ pub struct SearchQuery {
 pub struct SearchResult {
     pub contract: String,
     pub function: String,
+    /// Addresses the function on `contract` in the function routes, overloads included.
+    pub key: String,
     pub path_id: usize,
     pub terminal: String,
     pub matches: Vec<SearchMatch>,
@@ -35,20 +37,25 @@ pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> Resu
     let mut total = 0;
 
     // a contract filter covers its inherited functions, whose trees the declaring contract keys
-    let trees: Vec<(&str, &str, &PathTree)> = match &query.contract {
+    let trees: Vec<(&str, &str, String, &PathTree)> = match &query.contract {
         Some(name) => {
             let contract = state.project.find_contract(Some(name))?;
             state.project.accessible_functions(contract).into_iter()
                 .filter_map(|af| {
                     let tree = state.path_trees.get(&(af.owner.key().to_string(), af.function.key.clone()))?;
-                    Some((contract.key(), af.function.key.as_str(), tree))
+                    Some((contract.key(), af.function.key.as_str(), state.project.route_key(contract, af.function), tree))
                 })
                 .collect()
         }
-        None => state.path_trees.iter().map(|((c, f), tree)| (c.as_str(), f.as_str(), tree)).collect(),
+        None => state.path_trees.iter().map(|((c, f), tree)| {
+            let key = state.project.lookup_contract(c).ok()
+                .and_then(|contract| contract.functions.iter().find(|func| &func.key == f).map(|func| state.project.route_key(contract, func)))
+                .unwrap_or_else(|| f.clone());
+            (c.as_str(), f.as_str(), key, tree)
+        }).collect(),
     };
 
-    for (contract, function, path_tree) in trees {
+    for (contract, function, key, path_tree) in trees {
         if query.function.as_deref().is_some_and(|f| f != function) {
             continue;
         }
@@ -136,6 +143,7 @@ pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> Resu
                 results.push(SearchResult {
                     contract: contract.to_string(),
                     function: function.to_string(),
+                    key: key.clone(),
                     path_id: path.id,
                     terminal: format!("{:?}", path.terminal),
                     matches,

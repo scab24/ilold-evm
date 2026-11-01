@@ -310,3 +310,15 @@ fn broken_sources_fail_with_the_message_and_a_span() {
         other => panic!("expected a syntax error, got {:?}", other.map(|p| p.contracts.len())),
     }
 }
+
+#[test]
+fn default_contract_skips_mocks_harnesses_and_test_dirs() {
+    let dir = scratch("default_pick");
+    for attempt in 0..2 {
+        // the second parse may come from the project cache; the test dirs must survive it
+        let parsed = SolcFrontend.parse_project(&dir).expect("parse default_pick");
+        let picked = parsed.default_contract().map(|c| c.name.as_str());
+        assert_eq!(picked, Some("Vault"), "attempt {attempt}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

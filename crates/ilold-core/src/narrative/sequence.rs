@@ -39,7 +39,7 @@ pub fn build_sequence_narrative(
         let (requires, effects, ext_calls, events) = match input.behavior {
             Some(b) => (
                 b.preconditions.clone(),
-                b.state_writes.clone(),
+                b.effective_state_writes(),
                 b.external_calls.clone(),
                 b.events.clone(),
             ),
@@ -125,7 +125,7 @@ fn walk_for_summary(node: &FlowNode, session_step_index: usize, summary: &mut Fl
             summary.mutation_count += 1;
             summary.mutation_refs.push(MutationRef {
                 variable: target.clone(),
-                flow_step_id: node.step_id,
+                flow_step_id: Some(node.step_id),
                 session_step_index,
             });
         }
@@ -133,7 +133,7 @@ fn walk_for_summary(node: &FlowNode, session_step_index: usize, summary: &mut Fl
             summary.mutation_count += 1;
             summary.mutation_refs.push(MutationRef {
                 variable: variable.clone(),
-                flow_step_id: node.step_id,
+                flow_step_id: Some(node.step_id),
                 session_step_index,
             });
         }

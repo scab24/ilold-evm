@@ -175,6 +175,9 @@ fn aave_model_completeness() {
     println!("== contracts: {listed} project, {dependencies} dependency, {} total", project.contracts.len());
     println!("== warnings: {:?}", project.warnings);
     assert_eq!(listed, 177);
+    let default = project.default_contract().expect("default contract");
+    println!("== default contract: {}", default.qualified_id);
+    assert!(!project.is_auxiliary(default), "{}", default.qualified_id);
 
     let iatoken: Vec<&ilold_core::model::contract::ContractDef> =
         project.contracts.iter().filter(|c| c.name == "IAToken").collect();
@@ -305,6 +308,26 @@ fn aave_state_flow() {
         .find(|e| e.kind == EffectKind::StateWrite && e.item == "_usersConfig[].data").expect("_usersConfig data");
     println!("== Pool.supply _usersConfig[].data via {:?}", collateral.via);
     println!("== Pool.supply events {:?} external {:?}", supply.transitive_events, supply.transitive_external_calls);
+
+    {
+        use ilold_core::exploration::commands::{execute_command, AnalysisData, CommandResult, SessionCommand};
+        let data = AnalysisData {
+            project: &project,
+            contract: project.lookup_contract("Pool").unwrap(),
+            cfgs: &analysis.cfgs,
+            path_trees: &analysis.path_trees,
+            behaviors: &analysis.sequence_analyses["Pool"].functions,
+            all_sequence_analyses: &analysis.sequence_analyses,
+        };
+        let mut session = ilold_core::exploration::session::ExplorationSession::new("Pool", "aave");
+        execute_command(SessionCommand::Call { func: "supply".into(), trace_config: None }, &mut session, &data, "0");
+        let CommandResult::StateView { summary } = execute_command(SessionCommand::State, &mut session, &data, "0") else {
+            panic!("StateView")
+        };
+        let listed: Vec<&str> = summary.iter().map(|v| v.variable.as_str()).collect();
+        println!("== session State after `c supply`: {listed:?}");
+        assert!(listed.contains(&"_reserves[].liquidityIndex"), "{listed:?}");
+    }
 
     for (name, modifier) in [("initReserve", "modifier onlyPoolConfigurator"), ("rescueTokens", "modifier onlyPoolAdmin")] {
         let b = behavior("Pool", name);

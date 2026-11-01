@@ -168,6 +168,7 @@ pub struct FlowSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutationRef {
     pub variable: String,
-    pub flow_step_id: usize,
+    /// `None` for writes made through calls the flow tree does not show.
+    pub flow_step_id: Option<usize>,
     pub session_step_index: usize,
 }

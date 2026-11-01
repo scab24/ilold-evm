@@ -27,6 +27,7 @@ pub struct ProjectSummary {
     pub dependency_contracts: usize,
     pub hidden_contracts: usize,
     pub warnings: Vec<String>,
+    pub default_contract: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -73,6 +74,7 @@ pub async fn get_project(
         dependency_contracts: state.project.contracts.iter().filter(|c| c.is_dependency).count(),
         hidden_contracts: state.project.hidden_contracts(),
         warnings: state.project.warnings.clone(),
+        default_contract: state.project.default_contract().map(|c| c.key().to_string()),
     })
 }
 

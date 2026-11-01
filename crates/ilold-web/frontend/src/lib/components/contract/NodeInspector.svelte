@@ -1,6 +1,9 @@
 <script lang="ts">
   import Collapsible from '$lib/Collapsible.svelte';
   import { ownEntry } from '$lib/utils/graph-helpers';
+  import { functionIndex } from '$lib/utils/function-keys';
+  import { formatAccess } from '$lib/utils/access';
+  import type { FunctionSummary } from '$lib/api/rest';
 
   interface Props {
     selectedNode: any;
@@ -10,7 +13,7 @@
     seqExpanded: Map<string, boolean>;
     mode: 'cfg' | 'sequences' | 'session';
     seqAnalysis: any;
-    contract: { name: string; functions?: any[]; inherited_functions?: any[] };
+    contract: { name: string; functions?: FunctionSummary[]; inherited_functions?: FunctionSummary[] };
     lookupBlock: (blockId: string) => { statements: string[]; node_type: string } | null;
     onpathselect: (funcName: string, path: any) => void;
     onloadmorepaths: (funcName: string) => void;
@@ -36,12 +39,14 @@
     return t === 'Return' ? 'var(--color-success)' : t === 'Revert' ? 'var(--color-danger)' : 'var(--color-text-muted)';
   }
 
-  const allFunctions = $derived([...(contract?.functions ?? []), ...(contract?.inherited_functions ?? [])]);
+  const funcIndex = $derived(functionIndex(contract?.functions, contract?.inherited_functions));
+  const funcKey = $derived(selectedNode?._type === 'function' ? (selectedNode.funcKey ?? selectedNode.label) : null);
+  const summary = $derived(funcKey ? funcIndex.get(funcKey) : undefined);
+  const seqKey = $derived(selectedNode?._type === 'seq-next' ? funcIndex.get(selectedNode._funcName || selectedNode.label)?.key : undefined);
 
   // the call graph's is_external only says whether the node belongs to another contract
   function visibilityOf(node: any): string | null {
-    if (node.visibility) return node.visibility;
-    return allFunctions.find((f) => f.name === node.label)?.visibility ?? null;
+    return node.visibility ?? summary?.visibility ?? null;
   }
 
   const inspectorTitle = $derived(
@@ -65,16 +70,29 @@
     </div>
 
     <div class="inspector-body">
-      {#if selectedNode._type === 'function'}
+      {#if selectedNode._type === 'function' && funcKey}
         {@const visibility = visibilityOf(selectedNode)}
         <div class="d-row"><span class="d-label">Visibility</span><span>{visibility ?? 'unknown'}</span></div>
+        {#if summary && !selectedNode.is_external}
+          <div class="d-row"><span class="d-label">Access</span><span>{formatAccess(summary.access)}</span></div>
+          {#if summary.guards.length > 0}
+            <Collapsible title="Guards" count={summary.guards.length} open={true}>
+              {#each summary.guards as guard}
+                <div class="pd-item check" title={guard.heuristic ? 'Inferred from the name: the modifier has no code to read' : ''}>
+                  <span class="guard-kind">{guard.kind}</span> {guard.condition}
+                  {#if guard.via.length > 0}<div class="guard-via">via {guard.via.join(' → ')}</div>{/if}
+                </div>
+              {/each}
+            </Collapsible>
+          {/if}
+        {/if}
         {#if selectedNode.is_external}
           <div class="d-row"><span class="d-label">Contract</span><span>{selectedNode.contractName ?? 'other contract'} (external call target)</span></div>
         {/if}
         {#if !selectedNode.is_external}
           <div class="d-actions">
-            <button class="d-action-btn" onclick={() => onexpandcfg(selectedNode.label, selectedNode.id)}>
-              {expandedFuncs.has(selectedNode.label) ? '▼ Collapse CFG' : '▶ Expand CFG'}
+            <button class="d-action-btn" onclick={() => onexpandcfg(funcKey, selectedNode.id)}>
+              {expandedFuncs.has(funcKey) ? '▼ Collapse CFG' : '▶ Expand CFG'}
             </button>
             {#if mode === 'sequences'}
               <div class="d-hint">Click → expand · Shift+click → branch</div>
@@ -82,8 +100,8 @@
           </div>
         {/if}
 
-        {#if ownEntry(funcPaths, selectedNode.label)}
-          {@const fp = ownEntry(funcPaths, selectedNode.label)}
+        {#if ownEntry(funcPaths, funcKey)}
+          {@const fp = ownEntry(funcPaths, funcKey)}
           {@const fpPaths = Array.isArray(fp.paths) ? fp.paths : []}
           {@const cutoffs = (fp.stats?.loop_cutoff ?? 0) + (fp.stats?.depth_cutoff ?? 0)}
           <div class="d-row"><span class="d-label">Paths</span><span>{fp.stats?.total_paths ?? fpPaths.length} ({fp.stats?.happy_paths ?? 0} return, {fp.stats?.revert_paths ?? 0} revert{cutoffs ? `, ${cutoffs} cut off` : ''})</span></div>
@@ -96,7 +114,7 @@
               <button
                 class="d-path"
                 class:d-path-selected={selectedPath?.id === path.id}
-                onclick={() => onpathselect(selectedNode.label, path)}
+                onclick={() => onpathselect(funcKey, path)}
               >
                 <span class="pid">#{path.id}</span>
                 <span style="color:{termColor(path.terminal)};font-weight:600">{path.terminal}</span>
@@ -107,7 +125,7 @@
               </button>
             {/each}
             {#if fp.page?.truncated}
-              <button class="d-path" onclick={() => onloadmorepaths(selectedNode.label)}>
+              <button class="d-path" onclick={() => onloadmorepaths(funcKey)}>
                 Showing {fpPaths.length} of {fp.page.total} · load more
               </button>
             {/if}
@@ -115,7 +133,7 @@
 
           {#if selectedPath}
             {@const ann = selectedPath.annotations}
-            {@const pFunc = selectedNode.label}
+            {@const pFunc = funcKey}
             <div class="narrative">
               {#if ann.require_checks.length > 0}
                 <div class="narr-label">Conditions required</div>
@@ -133,7 +151,7 @@
                   {@const isLast = i === selectedPath.nodes.length - 1}
                   {@const branchKind = typeof step.branch_taken === 'string' ? step.branch_taken : step.branch_taken?.kind || ''}
                   {#if kind === 'Entry'}
-                    <div class="flow-step flow-entry">{pFunc}()</div>
+                    <div class="flow-step flow-entry">{selectedNode.label}()</div>
                   {/if}
                   {#if kind === 'Return'}
                     <div class="flow-step flow-return">return</div>
@@ -207,8 +225,8 @@
         {/if}
         <div class="d-actions">
           <div class="d-hint">Click → expand · Shift+click → branch</div>
-          {#if allFunctions.some(f => f.name === (selectedNode._funcName || selectedNode.label))}
-            <button class="d-action-btn" onclick={() => onexpandcfg(selectedNode._funcName || selectedNode.label, selectedNode.id)}>
+          {#if seqKey}
+            <button class="d-action-btn" onclick={() => onexpandcfg(seqKey, selectedNode.id)}>
               ▶ Expand CFG
             </button>
           {/if}
@@ -528,4 +546,6 @@
   .pd-item.ext { background: color-mix(in srgb, var(--color-danger) 9%, transparent); color: var(--color-danger-light); }
   .pd-item.wr { background: color-mix(in srgb, var(--color-accent) 9%, transparent); color: var(--color-accent-hover); }
   .pd-item.ev { background: color-mix(in srgb, var(--color-success) 9%, transparent); color: var(--color-success-light); }
+  .guard-kind { font-weight: 600; }
+  .guard-via { font-size: 10px; color: var(--color-text-dim); }
 </style>

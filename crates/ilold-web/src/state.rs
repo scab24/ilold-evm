@@ -255,7 +255,8 @@ pub struct AppState {
     pub annotations: RwLock<Vec<Annotation>>,
     pub scenarios: RwLock<ScenarioRegistry>,
     pub session_tx: broadcast::Sender<SessionBroadcast>,
-    pub port: u16,
+    /// The listener's bound address.
+    pub addr: std::net::SocketAddr,
     pub contract_path: PathBuf,
 }
 
@@ -290,7 +291,7 @@ pub enum AnnotationStatus {
 }
 
 impl AppState {
-    pub fn from_paths(paths: &[PathBuf], max_seq_depth: usize, port: u16, contract_path: PathBuf) -> anyhow::Result<Self> {
+    pub fn from_paths(paths: &[PathBuf], max_seq_depth: usize, addr: std::net::SocketAddr, contract_path: PathBuf) -> anyhow::Result<Self> {
         let parser = SolcFrontend;
         let (mut project, key) = parser.parse_keyed(paths)?;
         project.rebuild_index();
@@ -324,7 +325,7 @@ impl AppState {
             annotations: RwLock::new(Vec::new()),
             scenarios: RwLock::new(ScenarioRegistry::new(default_contract)),
             session_tx,
-            port,
+            addr,
             contract_path,
         })
     }

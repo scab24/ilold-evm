@@ -30,7 +30,7 @@ fn derived(state: &AppState) -> String {
 fn startup_child() {
     if std::env::var_os("ILOLD_WEB_CACHE_TEST_CHILD").is_none() { return; }
     assert!(std::env::var_os("ILOLD_PROJECT_CACHE_DIR").is_some_and(|dir| !dir.is_empty()));
-    let state = AppState::from_paths(&[fixture()], 2, 0, fixture()).unwrap();
+    let state = AppState::from_paths(&[fixture()], 2, ([127, 0, 0, 1], 0).into(), fixture()).unwrap();
     let scenarios = state.scenarios.read().unwrap().names().to_vec();
     let annotations = state.annotations.read().unwrap().len();
     let derived = derived(&state);

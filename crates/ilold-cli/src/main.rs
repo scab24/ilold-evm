@@ -1,3 +1,4 @@
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -54,6 +55,9 @@ enum Commands {
         path: PathBuf,
         #[arg(long, default_value = "8080")]
         port: u16,
+        /// Address to listen on; 0.0.0.0 exposes the server (and its terminal) to the network
+        #[arg(long, default_value = "127.0.0.1")]
+        host: IpAddr,
         #[arg(long, default_value = "3", value_parser = seq_depth)]
         max_seq_depth: usize,
     },
@@ -61,12 +65,15 @@ enum Commands {
         path: PathBuf,
         #[arg(long, default_value = "0")]
         port: u16,
+        /// Address to listen on; 0.0.0.0 exposes the server (and its terminal) to the network
+        #[arg(long, default_value = "127.0.0.1")]
+        host: IpAddr,
         #[arg(long, default_value = "3", value_parser = seq_depth)]
         max_seq_depth: usize,
         /// Attach to an existing ilold server URL instead of starting one
         #[arg(long)]
         attach: Option<String>,
-        /// Contract to start on; defaults to the most derived deployable contract
+        /// Contract to start on; defaults to the most derived deployable contract that is not a test, script or mock
         #[arg(long)]
         contract: Option<String>,
     },
@@ -91,16 +98,17 @@ async fn main() -> Result<()> {
         Commands::Context { path, contract, function, sequence, list } => {
             context::run(&path, contract.as_deref(), function.as_deref(), sequence.as_deref(), list)
         }
-        Commands::Serve { path, port, max_seq_depth } => {
+        Commands::Serve { path, port, host, max_seq_depth } => {
             let root = foundry_root(&path)?;
-            ilold_web::serve(vec![root], port, max_seq_depth).await
+            ilold_web::serve(vec![root], SocketAddr::new(host, port), max_seq_depth).await
         }
-        Commands::Explore { path, port, max_seq_depth, attach, contract } => {
+        Commands::Explore { path, port, host, max_seq_depth, attach, contract } => {
+            let addr = SocketAddr::new(host, port);
             if attach.is_some() {
-                explore::run(Vec::new(), port, max_seq_depth, attach, contract).await
+                explore::run(Vec::new(), addr, max_seq_depth, attach, contract).await
             } else {
                 let root = foundry_root(&path)?;
-                explore::run(vec![root], port, max_seq_depth, attach, contract).await
+                explore::run(vec![root], addr, max_seq_depth, attach, contract).await
             }
         }
         Commands::EvmMcp { server_url } => {
@@ -160,5 +168,18 @@ mod tests {
             assert_eq!(root, expected, "{input}");
         }
         assert!(foundry_root(Path::new("../../tests/fixtures/no-such-dir")).is_err());
+    }
+
+    #[test]
+    fn serve_and_explore_default_to_loopback() {
+        for command in ["serve", "explore"] {
+            let host = |extra: &[&str]| match Cli::try_parse_from([&["ilold", command, "."], extra].concat()).unwrap().command {
+                Commands::Serve { host, .. } | Commands::Explore { host, .. } => host,
+                _ => unreachable!(),
+            };
+            assert_eq!(host(&[]), IpAddr::from([127, 0, 0, 1]), "{command}");
+            assert_eq!(host(&["--host", "0.0.0.0"]), IpAddr::from([0, 0, 0, 0]), "{command}");
+            assert!(Cli::try_parse_from(["ilold", command, ".", "--host", "nope"]).is_err(), "{command}");
+        }
     }
 }

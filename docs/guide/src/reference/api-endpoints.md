@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-ilold exposes an HTTP API on the server port: `ilold serve --port` (default 8080), or a free port `ilold explore` picks and prints. Endpoints return JSON except `/ws` and `/ws/pty`. The API is split into the command bus, session queries, contract queries, annotations and WebSockets.
+ilold exposes an HTTP API on the server port: `ilold serve --port` (default 8080), or a free port `ilold explore` picks and prints. Both listen on 127.0.0.1 unless `--host <addr>` says otherwise; `--host 0.0.0.0` exposes the API, including `/ws/pty`, to the network. Endpoints return JSON except `/ws` and `/ws/pty`. The API is split into the command bus, session queries, contract queries, annotations and WebSockets.
 
 ## Command bus
 
@@ -8,7 +8,7 @@ ilold exposes an HTTP API on the server port: `ilold serve --port` (default 8080
 
 Execute a session command. This is the single entry point for all state-mutating session operations.
 
-Each contract owns an independent session store (scenarios, forks and steps). A command only touches the store of the contract it names, and that contract becomes the server's **current contract**. Naming another contract never discards the previous contract's session. At startup the current contract is the project default: the most derived deployable contract (abstract contracts, libraries and interfaces only as fallbacks), ties broken by name. `explore` uses the same rule.
+Each contract owns an independent session store (scenarios, forks and steps). A command only touches the store of the contract it names, and that contract becomes the server's **current contract**. Naming another contract never discards the previous contract's session. At startup the current contract is the project default: the most derived deployable contract (abstract contracts, libraries and interfaces only as fallbacks), ties broken by name. Tests, scripts, mocks and harnesses (contracts under the configured test or script directories, under a `mock(s)`, `test(s)`, `harness(es)` or `script(s)` directory, or named `Mock*`, `Test*` or `Harness*`) are chosen only when nothing else is. `explore` uses the same rule.
 
 **Request body:**
 
@@ -41,7 +41,7 @@ Each contract owns an independent session store (scenarios, forks and steps). A 
 
 **Response:** A `CommandResult` variant matching the command type. Key variants:
 
-- `StepAdded`: `step_index`, `function`, `access`, `state_changed` (list of variable names)
+- `StepAdded`: `step_index`, `function`, `access`, `state_changed` (list of variable names, including writes made through calls such as `_reserves[].liquidityIndex`)
 - `StateView`: `summary` (list of variable summaries with writers per step)
 - `FunctionList`: `functions` (name, access level, writes_state, has_external_calls)
 - `VariableInfo`: `variable`, `writers` (name + access), `readers` (name + access)
@@ -146,7 +146,7 @@ Contracts from libraries and vendored code (`lib/`, `src/**/dependencies/`) that
 
 ### GET /api/project
 
-Returns a project summary: file count, the listed contracts (`name`, `display_name`, `qualified_id`, `is_dependency`, kind, function count, state variable count, `inherits` with the base names as written and `inherit_keys` with the same bases as `{name}` route segments, omitting bases outside the model), the number of `dependency_contracts` in the model, the number of `hidden_contracts` default listings omit (dependencies and free-function containers), and `warnings`. A warning is reported when test or script files fail to compile: the model is then built from the sources alone and the warning names the failing files. Errors in the sources still fail the analysis.
+Returns a project summary: file count, the listed contracts (`name`, `display_name`, `qualified_id`, `is_dependency`, kind, function count, state variable count, `inherits` with the base names as written and `inherit_keys` with the same bases as `{name}` route segments, omitting bases outside the model), the number of `dependency_contracts` in the model, the number of `hidden_contracts` default listings omit (dependencies and free-function containers), `warnings`, and the `default_contract` explore and the server start on. A warning is reported when test or script files fail to compile: the model is then built from the sources alone and the warning names the failing files. Errors in the sources still fail the analysis.
 
 ### GET /api/project/map
 
@@ -171,7 +171,7 @@ A bare-name key is not stable: adding an overload later turns an existing key su
 
 ### GET /api/contract/{name}/callgraph
 
-Returns the call graph for a contract in Cytoscape-compatible JSON format, built as the most derived contract: its own and inherited functions, with `super` following the C3 linearization and calls to virtual functions dispatched to the visible override. Node ids are `Contract::name`, or `Contract::name(types)` for overloaded functions; `is_external` marks nodes outside the contract's hierarchy. Edges carry the call `kind`, a `kind_label`, the call count and, for dispatched calls, the `static_target` named in the source. Kinds:
+Returns the call graph for a contract in Cytoscape-compatible JSON format, built as the most derived contract: its own and inherited functions, with `super` following the C3 linearization and calls to virtual functions dispatched to the visible override. Node ids are `Contract::name`, or `Contract::name(types)` for overloaded functions; `is_external` marks nodes outside the contract's hierarchy. Nodes of functions the contract runs carry the `key` to use as `{func}` in the function routes. Edges carry the call `kind`, a `kind_label`, the call count and, for dispatched calls, the `static_target` named in the source. Kinds:
 
 | Kind | Meaning |
 |------|---------|
@@ -248,7 +248,7 @@ Upgrades to a WebSocket connection. The server pushes JSON messages when session
 - `session_clear`: all steps were cleared
 - `session_highlight`: a client inspected `function` (scenario, and the function's key: its name, or its signature when the name is overloaded) through `GET /api/session/function`, `/api/session/trace` or a step's narrative or trace with `?highlight=true` (the REPL's `info`, `trace` and `step`, the MCP's `ilold_function_analysis` and `ilold_trace`); canvases showing the contract select it. Without the parameter these reads affect no other client; the web UI's own reads never pass it
 - `scenario_created`, `scenario_switched`, `scenario_deleted`, `scenario_forked`, `scenario_store_reloaded`: scenario lifecycle events
-- `search_result`, then `search_complete` with `total` and `truncated`: the answer to a `{"type": "search", "query": ..., "contract": ..., "function": ...}` message (`contract` and `function` optional) streams the first 100 matching paths, `total` counts every match. With `contract`, the search covers the functions it runs, inherited ones included, and reports them under that contract; an unknown or ambiguous `contract` gets an `error` message instead
+- `search_result`, then `search_complete` with `total` and `truncated`: the answer to a `{"type": "search", "query": ..., "contract": ..., "function": ...}` message (`contract` and `function` optional) streams the first 100 matching paths, `total` counts every match. Each result names the `function` as its declaring contract keys it and the `key` to use as `{func}` for the result's `contract`. With `contract`, the search covers the functions it runs, inherited ones included, and reports them under that contract; an unknown or ambiguous `contract` gets an `error` message instead
 - `session_resync` (no `contract`): the client fell behind and messages were dropped; refetch the session with `GET /api/scenarios/all?contract=<name>`
 
 ### GET /ws/pty

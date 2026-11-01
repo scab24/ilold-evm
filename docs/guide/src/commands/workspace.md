@@ -44,6 +44,8 @@ scenarios; if the file belongs to another contract the REPL switches to it.
 `browser`
 
 Opens the web UI. ilold starts an API server on startup; `browser` provides the URL.
+The server listens on 127.0.0.1 unless `ilold explore` gets `--host <addr>`;
+`--host 0.0.0.0` exposes the API and the embedded terminal to the network.
 
 ```
 ilold[Staking]> browser

@@ -21,7 +21,7 @@ use crate::fmt;
 
 pub async fn run(
     paths: Vec<PathBuf>,
-    port: u16,
+    addr: std::net::SocketAddr,
     max_seq_depth: usize,
     attach: Option<String>,
     contract: Option<String>,
@@ -74,7 +74,8 @@ pub async fn run(
     for root in &paths {
         println!("Analyzing {}...", root.display());
     }
-    let (state, actual_port, server) = ilold_web::start_server_with_handle(paths, port, max_seq_depth).await?;
+    let (state, _, server) = ilold_web::start_server_with_handle(paths, addr, max_seq_depth).await?;
+    let base_url = ilold_web::local_url(state.addr);
 
     let contract_name = match contract.as_deref() {
         Some(name) => state.project.find_contract(Some(name))
@@ -99,7 +100,7 @@ pub async fn run(
             "{} file(s), {} contract(s) | {} functions in {}",
             state.project.source_files.len(), contract_names.len(), func_count, contract_name,
         ),
-        &format!("Web UI: http://localhost:{} | Type ? for help", actual_port),
+        &format!("Web UI: {base_url} | Type ? for help"),
     ]);
     println!("{}\n", banner);
 
@@ -117,7 +118,6 @@ pub async fn run(
 
     let handle = tokio::runtime::Handle::current();
     let state_for_thread = state.clone();
-    let base_url = format!("http://127.0.0.1:{}", actual_port);
     let repl_thread = std::thread::spawn(move || {
         repl_loop(handle, contract_name, contract_names, names_by_contract, Some(state_for_thread), base_url);
     });
@@ -137,28 +137,18 @@ pub async fn run(
 }
 
 fn start_contract(project_info: &serde_json::Value, explicit: Option<&str>) -> Result<String> {
-    use ilold_core::model::contract::ContractKind;
-
-    let contracts: Vec<(String, ContractKind, Vec<String>)> = project_info["contracts"]
+    let names: Vec<&str> = project_info["contracts"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|c| Some((
-            c["name"].as_str()?.to_string(),
-            serde_json::from_value(c["kind"].clone()).ok()?,
-            serde_json::from_value(c["inherits"].clone()).unwrap_or_default(),
-        ))).collect())
+        .map(|arr| arr.iter().filter_map(|c| c["name"].as_str()).filter(|n| !n.is_empty()).collect())
         .unwrap_or_default();
-    if let Some(name) = explicit {
-        if contracts.iter().any(|(n, _, _)| n == name) {
-            return Ok(name.to_string());
-        }
-        let names: Vec<&str> = contracts.iter().map(|(n, _, _)| n.as_str()).filter(|n| !n.is_empty()).collect();
-        anyhow::bail!("Contract '{name}' not found. Available: {}", names.join(", "));
+    match explicit {
+        Some(name) if names.contains(&name) => Ok(name.to_string()),
+        Some(name) => anyhow::bail!("Contract '{name}' not found. Available: {}", names.join(", ")),
+        None => project_info["default_contract"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("No contracts found")),
     }
-    ilold_core::model::project::pick_default_contract(
-        contracts.iter().map(|(n, k, i)| (n.as_str(), *k, i.as_slice())),
-    )
-    .map(str::to_string)
-    .ok_or_else(|| anyhow::anyhow!("No contracts found"))
 }
 
 fn open_browser(url: &str) -> Result<()> {
@@ -640,14 +630,10 @@ fn handle_input(
         }
         "cl" | "clear" => {
             if !steps.is_empty() {
-                println!("  Clear {} steps? (y/n)", steps.len());
-                let mut input = String::new();
-                match std::io::stdin().read_line(&mut input) {
-                    Ok(_) if input.trim().eq_ignore_ascii_case("y") => { /* proceed */ }
-                    _ => {
-                        println!("  Cancelled.");
-                        return InputResult::Continue;
-                    }
+                print!("  Clear {} steps? (y/n) ", steps.len());
+                if !read_answer().is_some_and(|answer| answer.trim().eq_ignore_ascii_case("y")) {
+                    println!("  Cancelled.");
+                    return InputResult::Continue;
                 }
             }
             let body = serde_json::json!({
@@ -1334,15 +1320,49 @@ fn normalize_status(input: &str) -> Option<&'static str> {
 fn read_prompt(label: &str) -> Option<String> {
     println!("  {} {}", label, c_muted("(empty to cancel)"));
     print!("  > ");
-    std::io::Write::flush(&mut std::io::stdout()).ok();
-    let mut input = String::new();
-    match std::io::stdin().read_line(&mut input) {
-        Ok(0) | Err(_) => None,
-        Ok(_) => {
-            let trimmed = input.trim();
-            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+    let input = read_answer()?;
+    let trimmed = input.trim();
+    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+}
+
+/// Reads through crossterm: keys typed right after the command may already sit in its queue, out of reach of stdin.
+fn read_answer() -> Option<String> {
+    use std::io::Write;
+    let mut out = std::io::stdout();
+    out.flush().ok();
+    crossterm::terminal::enable_raw_mode().ok()?;
+    let answer = collect_answer(std::iter::from_fn(|| Some(crossterm::event::read())), &mut out);
+    let _ = crossterm::terminal::disable_raw_mode();
+    println!();
+    answer
+}
+
+/// Enter accepts the line; Esc, Ctrl-C, Ctrl-D and read errors cancel.
+fn collect_answer(
+    events: impl Iterator<Item = std::io::Result<crossterm::event::Event>>,
+    echo: &mut impl std::io::Write,
+) -> Option<String> {
+    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+    let mut line = String::new();
+    for event in events {
+        let Event::Key(key) = event.ok()? else { continue };
+        if key.kind == KeyEventKind::Release { continue; }
+        match key.code {
+            KeyCode::Enter => return Some(line),
+            KeyCode::Esc => return None,
+            KeyCode::Char('c' | 'd') if key.modifiers.contains(KeyModifiers::CONTROL) => return None,
+            KeyCode::Char(c) => {
+                line.push(c);
+                let _ = write!(echo, "{c}");
+            }
+            KeyCode::Backspace if line.pop().is_some() => {
+                let _ = write!(echo, "\x08 \x08");
+            }
+            _ => {}
         }
+        let _ = echo.flush();
     }
+    None
 }
 
 fn handle_finding_interactive(
@@ -2347,6 +2367,28 @@ impl Completer for IloldCompleter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn answers_are_read_from_queued_key_events() {
+        use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+        let key = |code| Ok(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+        let answer = |events: Vec<std::io::Result<Event>>| {
+            let mut echo = Vec::new();
+            (collect_answer(events.into_iter(), &mut echo), String::from_utf8(echo).unwrap())
+        };
+
+        assert_eq!(answer(vec![key(KeyCode::Char('y')), key(KeyCode::Enter), key(KeyCode::Char('x'))]), (Some("y".into()), "y".into()));
+        let typo = vec![key(KeyCode::Char('n')), key(KeyCode::Backspace), key(KeyCode::Backspace), key(KeyCode::Char('y')), key(KeyCode::Enter)];
+        assert_eq!(answer(typo).0.as_deref(), Some("y"));
+        let mut released = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+        released.kind = KeyEventKind::Release;
+        assert_eq!(answer(vec![Ok(Event::Key(released)), key(KeyCode::Enter)]).0.as_deref(), Some(""));
+        assert_eq!(answer(vec![Ok(Event::FocusGained), key(KeyCode::Char('y')), key(KeyCode::Esc)]).0, None);
+        let ctrl_c = Ok(Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)));
+        assert_eq!(answer(vec![ctrl_c]).0, None);
+        assert_eq!(answer(vec![Err(std::io::Error::other("closed"))]).0, None);
+        assert_eq!(answer(vec![key(KeyCode::Char('y'))]).0, None, "input ended before Enter");
+    }
 
     fn cross() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/cross")

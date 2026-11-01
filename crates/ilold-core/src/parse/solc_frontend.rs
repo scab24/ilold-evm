@@ -66,6 +66,7 @@ impl SolcFrontend {
     fn compile_prepared(&self, root: &Path, prepared: Prepared) -> Result<Project, ParseError> {
         let src_dir = prepared.paths.sources.clone();
         let roots: Vec<PathBuf> = [Some(root.to_path_buf()), prepared.canonical.clone()].into_iter().flatten().collect();
+        let test_dirs = [&prepared.paths.tests, &prepared.paths.scripts].map(|dir| relative_path(dir, &roots)).to_vec();
         // nothing is written into the analysed project: no artifacts, no compiler cache
         let project = ProjectBuilder::<SolcCompiler>::default()
             .paths(prepared.paths)
@@ -150,6 +151,7 @@ impl SolcFrontend {
         let decl_table = declarations(&contracts);
         let mut project = Project::new(source_files, contracts, decl_table);
         project.warnings = warnings;
+        project.test_dirs = test_dirs;
         Ok(project)
     }
 }

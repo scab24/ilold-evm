@@ -510,5 +510,5 @@ fn sequence_narratives_pick_the_step_function_by_owner() {
     let requires: Vec<Vec<String>> = n.steps.iter().map(|s| s.requires.clone()).collect();
     assert_eq!(requires, [strings(&["msg.sender == owner"]), Vec::new()]);
     let effects: Vec<Vec<String>> = n.steps.iter().map(|s| s.effects.clone()).collect();
-    assert_eq!(effects, [Vec::new(), strings(&["who"])]);
+    assert_eq!(effects, [strings(&["bumps"]), strings(&["who"])]);
 }

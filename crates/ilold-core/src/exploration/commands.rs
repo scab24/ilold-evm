@@ -11,12 +11,14 @@ use crate::model::project::Project;
 use crate::narrative::function::build_function_narrative_capped;
 use crate::narrative::sequence::{build_sequence_narrative, compute_flow_summary};
 use crate::narrative::trace::{build_flow_tree, FlowConfig, FlowTree};
-use crate::narrative::types::{FunctionNarrative, SequenceNarrative};
+use crate::narrative::types::{FunctionNarrative, MutationRef, SequenceNarrative};
 use crate::pathtree::types::PathTree;
 use crate::journal::export::export_markdown;
-use crate::sequence::analysis::{find_behavior, FunctionBehavior, SequenceAnalysis};
+use crate::model::expression::AssignOperator;
+use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior, SequenceAnalysis};
+use crate::util::target_base_name;
 
-use super::session::{ExplorationSession, TraceConfig, VariableSummary};
+use super::session::{ExplorationSession, MutationScope, StateMutation, TraceConfig, VariableSummary};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionEntry {
@@ -454,8 +456,14 @@ fn execute_call(
         trace_config.unwrap_or_default(),
     );
 
+    let behavior = find_behavior(behaviors_for(data, owning_contract, function_def), owning_contract.key(), &function_def.key);
+    let step_index = session.steps.len() - 1;
     if let Some(step) = session.steps.last_mut() {
         step.function = data.project.route_key(data.contract, function_def);
+        if let Some(behavior) = behavior {
+            let through_calls = transitive_writes(&step.mutations, behavior, step_index);
+            step.mutations.extend(through_calls);
+        }
     }
 
     let state_changed: Vec<String> = session.steps.last()
@@ -468,11 +476,40 @@ fn execute_call(
         .unwrap_or_default();
 
     CommandResult::StepAdded {
-        step_index: session.steps.len() - 1,
+        step_index,
         function: func.to_string(),
         access,
         state_changed,
     }
+}
+
+/// Writes made through calls the flow tree does not show, such as library delegatecalls.
+fn transitive_writes(shown: &[StateMutation], behavior: &FunctionBehavior, step_index: usize) -> Vec<StateMutation> {
+    let last_callee = |chain: &str| {
+        let callee = chain.rsplit(" -> ").next().unwrap_or(chain);
+        callee.rsplit("::").next().unwrap_or(callee).to_string()
+    };
+    behavior
+        .transitive_effects
+        .iter()
+        .filter(|e| e.kind == EffectKind::StateWrite)
+        .map(|e| (e, e.via.join(" -> ")))
+        .filter(|(e, via)| {
+            !shown.iter().any(|m| {
+                target_base_name(&m.variable) == target_base_name(&e.item)
+                    && m.via.as_deref().map(last_callee) == Some(last_callee(via))
+            })
+        })
+        .map(|(e, via)| StateMutation {
+            variable: e.item.clone(),
+            operator: AssignOperator::Unknown,
+            value_expr: String::new(),
+            step_index,
+            via: Some(via),
+            flow_step_id: None,
+            scope: MutationScope::State,
+        })
+        .collect()
 }
 
 fn execute_back(session: &mut ExplorationSession) -> CommandResult {
@@ -716,8 +753,14 @@ pub fn get_sequence_narrative(
 
     for (i, step) in narrative.steps.iter_mut().enumerate() {
         if let Some(session_step) = session.steps.get(i) {
-            step.flow_summary = session_step.flow_tree.as_ref()
-                .map(|tree| compute_flow_summary(tree, i));
+            step.flow_summary = session_step.flow_tree.as_ref().map(|tree| {
+                let mut summary = compute_flow_summary(tree, i);
+                for m in session_step.mutations.iter().filter(|m| m.flow_step_id.is_none()) {
+                    summary.mutation_count += 1;
+                    summary.mutation_refs.push(MutationRef { variable: m.variable.clone(), flow_step_id: None, session_step_index: i });
+                }
+                summary
+            });
         }
     }
 

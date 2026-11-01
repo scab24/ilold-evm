@@ -93,7 +93,7 @@ async fn contract_summaries_flag_truncated_paths() {
 #[test]
 fn path_search_reports_every_match_but_returns_a_bounded_list() {
     use ilold_web::ws::search::{search_paths, SearchQuery};
-    let state = ilold_web::state::AppState::from_paths(&[fixture()], 2, 0, fixture()).unwrap();
+    let state = ilold_web::state::AppState::from_paths(&[fixture()], 2, ([127, 0, 0, 1], 0).into(), fixture()).unwrap();
     let query = SearchQuery { query: "revert".into(), contract: None, function: None };
     let (all, total) = search_paths(&state, &query, usize::MAX).unwrap();
     assert!(total > 1 && all.len() == total, "{total}");

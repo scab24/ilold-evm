@@ -22,7 +22,7 @@ pub async fn ws_pty_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PtyQuery>,
 ) -> impl IntoResponse {
-    let port = state.port;
+    let url = crate::local_url(state.addr);
     let contract_path = state.contract_path.clone();
     // only names of analyzed contracts reach the child's argv
     let contract = match query.contract.as_deref().filter(|name| !name.is_empty()) {
@@ -34,7 +34,7 @@ pub async fn ws_pty_handler(
     };
     ws.on_upgrade(move |mut socket| async move {
         match contract {
-            Ok(contract) => handle_pty_session(socket, port, contract_path, contract).await,
+            Ok(contract) => handle_pty_session(socket, url, contract_path, contract).await,
             Err(e) => {
                 let _ = socket.send(Message::Text(format!("PTY error: {e}\r\n").into())).await;
             }
@@ -53,7 +53,7 @@ pub fn attach_path(contract_path: &Path) -> PathBuf {
 
 async fn handle_pty_session(
     mut socket: WebSocket,
-    port: u16,
+    url: String,
     contract_path: PathBuf,
     contract: Option<String>,
 ) {
@@ -72,7 +72,7 @@ async fn handle_pty_session(
     let mut cmd = CommandBuilder::new(&exe);
     cmd.arg("explore");
     cmd.arg("--attach");
-    cmd.arg(format!("http://localhost:{port}"));
+    cmd.arg(url);
     if let Some(contract) = &contract {
         cmd.arg("--contract");
         cmd.arg(contract);

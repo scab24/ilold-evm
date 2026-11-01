@@ -105,6 +105,8 @@ export interface SearchResult {
   type: "search_result";
   contract: string;
   function: string;
+  /** Addresses the function on `contract`, overloads included. */
+  key: string;
   path_id: number;
   terminal: string;
   matches: Array<{ field: string; value: string }>;

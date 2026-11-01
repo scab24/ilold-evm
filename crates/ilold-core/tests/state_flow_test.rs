@@ -523,3 +523,79 @@ fn unbounded_recursive_effects_are_marked_incomplete() {
     assert!(b.transitive_state_write_paths.contains(&"root.x".to_string()), "{:?}", b.transitive_state_write_paths);
     assert!(!behavior("Cycle", "ping").effects_incomplete);
 }
+
+#[test]
+fn session_state_lists_writes_made_through_library_calls() {
+    use ilold_core::exploration::commands::{execute_command, get_sequence_narrative, AnalysisData, CommandResult, SessionCommand};
+    use ilold_core::exploration::session::ExplorationSession;
+    use ilold_core::exploration::timeline::build_variable_timeline;
+
+    let a = analysis();
+    let data = AnalysisData {
+        project: project(),
+        contract: contract("Pool"),
+        cfgs: &a.cfgs,
+        path_trees: &a.path_trees,
+        behaviors: &a.sequence_analyses["Pool"].functions,
+        all_sequence_analyses: &a.sequence_analyses,
+    };
+    let mut session = ExplorationSession::new("Pool", "state_flow");
+    let call = |func: &str| SessionCommand::Call { func: func.into(), trace_config: None };
+    let CommandResult::StepAdded { state_changed, .. } = execute_command(call("supply"), &mut session, &data, "0") else {
+        panic!("StepAdded")
+    };
+    assert_eq!(state_changed, strings(&["_reserves[].rate", "_reserves[].updatedAt", "_usersConfig[].data"]));
+
+    let CommandResult::StateView { summary } = execute_command(SessionCommand::State, &mut session, &data, "0") else {
+        panic!("StateView")
+    };
+    let rate = summary.iter().find(|v| v.variable == "_reserves[].rate").expect("rate listed");
+    assert_eq!(rate.changes, strings(&["written (step 0, supply via SupplyLib::executeSupply -> ReserveLib::touch)"]));
+
+    let tl = build_variable_timeline(&session, "_usersConfig");
+    assert_eq!(tl.state_entries.len(), 1);
+    assert_eq!(tl.state_entries[0].via.as_deref(), Some("SupplyLib::executeSupply"));
+
+    // a direct write keeps its operator and value
+    execute_command(call("setAdmin"), &mut session, &data, "0");
+    let CommandResult::StateView { summary } = execute_command(SessionCommand::State, &mut session, &data, "0") else {
+        panic!("StateView")
+    };
+    let admin = summary.iter().find(|v| v.variable == "admin").expect("admin listed");
+    assert!(admin.changes[0].starts_with("= a (step 1:"), "{:?}", admin.changes);
+
+    let seq = get_sequence_narrative(&session, &data).unwrap();
+    assert_eq!(seq.steps[0].effects, strings(&["_reserves", "_usersConfig"]));
+    assert_eq!(seq.steps[0].flow_summary.as_ref().unwrap().mutation_count, 3);
+}
+
+#[test]
+fn session_state_does_not_repeat_call_writes_the_flow_tree_shows() {
+    use ilold_core::exploration::commands::{execute_command, AnalysisData, CommandResult, SessionCommand};
+    use ilold_core::exploration::session::ExplorationSession;
+
+    let a = analysis();
+    let mutations = |name: &str, func: &str| {
+        let data = AnalysisData {
+            project: project(),
+            contract: contract(name),
+            cfgs: &a.cfgs,
+            path_trees: &a.path_trees,
+            behaviors: &a.sequence_analyses[name].functions,
+            all_sequence_analyses: &a.sequence_analyses,
+        };
+        let mut session = ExplorationSession::new(name, "state_flow");
+        let call = SessionCommand::Call { func: func.into(), trace_config: None };
+        assert!(matches!(execute_command(call, &mut session, &data, "0"), CommandResult::StepAdded { .. }));
+        session.steps[0].mutations.iter().map(|m| (m.variable.clone(), m.flow_step_id.is_some(), m.via.clone())).collect::<Vec<_>>()
+    };
+
+    // the flow tree inlines `_store`; its writes are not repeated
+    let nested = mutations("Aliases", "nested");
+    assert!(nested.iter().all(|(_, shown, _)| *shown), "{nested:?}");
+    assert!(nested.iter().any(|(v, _, via)| v.starts_with("slots[") && via.as_deref() == Some("_store")), "{nested:?}");
+
+    let deep = mutations("Deep", "d0");
+    assert_eq!(deep.len(), 1, "{deep:?}");
+    assert!(deep[0].0 == "deep" && deep[0].1 && deep[0].2.as_deref().is_some_and(|via| via.ends_with("_d29 -> _d30")), "{deep:?}");
+}

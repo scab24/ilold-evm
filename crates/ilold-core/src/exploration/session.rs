@@ -187,7 +187,6 @@ impl ExplorationSession {
         let history = self.variable_history();
         let mut summaries: Vec<VariableSummary> = history.into_iter().map(|(var, muts)| {
             let changes: Vec<String> = muts.iter().map(|m| {
-                let op_str = m.operator.as_str();
                 let func = self.steps.get(m.step_index)
                     .map(|s| s.function.as_str())
                     .unwrap_or("?");
@@ -199,7 +198,8 @@ impl ExplorationSession {
                     Some(chain) => format!(" via {}", chain),
                     None => String::new(),
                 };
-                format!("{} {} ({}, {}{})", op_str, m.value_expr, step_ref, func, suffix)
+                let change = if m.value_expr.is_empty() { "written".to_string() } else { format!("{} {}", m.operator.as_str(), m.value_expr) };
+                format!("{change} ({step_ref}, {func}{suffix})")
             }).collect();
 
             VariableSummary { variable: var, changes }

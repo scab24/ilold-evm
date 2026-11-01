@@ -15,7 +15,7 @@ use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclEntry, DeclTable};
 use crate::model::project::{Project, SourceFile};
 
-const VERSION: &str = "ilold-project-v8-foundry-0.21-sha256";
+const VERSION: &str = "ilold-project-v9-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
 const MAX_SOURCES: usize = 20_000;
@@ -165,6 +165,7 @@ struct SnapshotRef<'a> {
     contracts: &'a [ContractDef],
     declarations: Vec<DeclEntry>,
     warnings: &'a [String],
+    test_dirs: &'a [String],
 }
 #[derive(Deserialize)]
 struct Snapshot {
@@ -172,6 +173,7 @@ struct Snapshot {
     contracts: Vec<ContractDef>,
     declarations: Vec<DeclEntry>,
     warnings: Vec<String>,
+    test_dirs: Vec<String>,
 }
 impl Snapshot {
     fn into_project(self) -> Option<Project> {
@@ -180,6 +182,7 @@ impl Snapshot {
             return None;
         }
         project.warnings = self.warnings;
+        project.test_dirs = self.test_dirs;
         Some(project)
     }
 }
@@ -235,7 +238,7 @@ impl Store {
     pub(super) fn publish(&self, root: &Path, key: &str, project: &Project) -> Result<(), String> {
         if project.decl_table.len() > MAX_DECLARATIONS { return Err("declaration count limit".into()); }
         let snapshot = SnapshotRef { sources: &project.source_files, contracts: &project.contracts,
-            declarations: project.decl_table.snapshot(), warnings: &project.warnings };
+            declarations: project.decl_table.snapshot(), warnings: &project.warnings, test_dirs: &project.test_dirs };
         write_envelope(&self.snapshot_path(root)?, VERSION, key, MAX_SNAPSHOT, &snapshot)
     }
 }

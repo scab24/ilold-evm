@@ -76,6 +76,8 @@ export interface SourceSpan {
 export interface CytoscapeNodeData {
   id: string;
   label: string;
+  /** Call-graph nodes of functions the contract runs. */
+  key?: string;
   node_type: string;
   contract: string;
   is_external: boolean;

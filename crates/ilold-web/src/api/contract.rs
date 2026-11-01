@@ -173,6 +173,9 @@ pub struct CytoscapeNode {
 pub struct CytoscapeNodeData {
     pub id: String,
     pub label: String,
+    /// Call-graph nodes of functions the contract runs: the key its function routes take.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub node_type: String,
     pub contract: String,
     pub is_external: bool,
@@ -213,14 +216,20 @@ pub async fn get_callgraph(
         .get(contract.key())
         .ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))?;
 
+    let accessible = state.project.accessible_functions(contract);
     let nodes: Vec<CytoscapeNode> = cg
         .node_indices()
         .map(|idx| {
             let node = &cg[idx];
+            let key = accessible
+                .iter()
+                .find(|af| af.owner.key() == node.contract && af.function.key == node.key)
+                .map(|af| state.project.route_key(contract, af.function));
             CytoscapeNode {
                 data: CytoscapeNodeData {
                     id: node.id(),
                     label: node.function.clone(),
+                    key,
                     node_type: if node.is_external { "external" } else { "internal" }.into(),
                     contract: node.contract.clone(),
                     is_external: node.is_external,
@@ -295,6 +304,7 @@ pub async fn get_cfg(
                 data: CytoscapeNodeData {
                     id: format!("b{}", block.id),
                     label,
+                    key: None,
                     node_type: format!("{:?}", block.kind),
                     contract: key.0.clone(),
                     is_external: false,

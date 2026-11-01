@@ -6,6 +6,8 @@ export interface FunctionNodeData {
   [key: string]: unknown;
   _type: 'function';
   label: string;
+  /** Addresses the function in the API; `label` is for display. */
+  funcKey?: string;
   is_external: boolean;
   contractName?: string;
   _dimmed?: boolean;

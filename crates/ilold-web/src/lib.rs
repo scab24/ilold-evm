@@ -3,6 +3,7 @@ pub mod state;
 pub mod ui;
 pub mod ws;
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -63,12 +64,22 @@ pub fn contract_path_for(path: &Path) -> PathBuf {
     }
 }
 
-pub async fn serve(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize) -> anyhow::Result<()> {
+/// The URL a client on this machine uses; unspecified binds are reached through loopback.
+pub fn local_url(addr: SocketAddr) -> String {
+    let ip = match addr.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    format!("http://{}", SocketAddr::new(ip, addr.port()))
+}
+
+pub async fn serve(paths: Vec<PathBuf>, addr: SocketAddr, max_seq_depth: usize) -> anyhow::Result<()> {
     println!("Analyzing {} file(s)...", paths.len());
     let contract_path = paths.first().map(|p| contract_path_for(p)).unwrap_or_else(|| contract_path_for(Path::new(".")));
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-    let actual_port = listener.local_addr()?.port();
-    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, actual_port, contract_path)?);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let addr = listener.local_addr()?;
+    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, addr, contract_path)?);
     println!(
         "Ready: {} contracts, {} functions analyzed\n",
         state.project.contracts.len(),
@@ -76,30 +87,32 @@ pub async fn serve(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize) -> anyh
     );
 
     let app = build_router(state);
-    println!("Server running at http://localhost:{actual_port}");
+    println!("Server running at {} (listening on {addr})", local_url(addr));
     axum::serve(listener, app).await?;
     Ok(())
 }
 
+/// Listens on loopback.
 pub async fn start_server(
     paths: Vec<PathBuf>, port: u16, max_seq_depth: usize,
 ) -> anyhow::Result<(Arc<AppState>, u16)> {
-    let (state, port, _server) = start_server_with_handle(paths, port, max_seq_depth).await?;
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let (state, port, _server) = start_server_with_handle(paths, addr, max_seq_depth).await?;
     Ok((state, port))
 }
 
 pub async fn start_server_with_handle(
-    paths: Vec<PathBuf>, port: u16, max_seq_depth: usize,
+    paths: Vec<PathBuf>, addr: SocketAddr, max_seq_depth: usize,
 ) -> anyhow::Result<(Arc<AppState>, u16, tokio::task::JoinHandle<anyhow::Result<()>>)> {
     let contract_path = paths.first().map(|p| contract_path_for(p)).unwrap_or_else(|| contract_path_for(Path::new(".")));
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-    let actual_port = listener.local_addr()?.port();
-    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, actual_port, contract_path)?);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let addr = listener.local_addr()?;
+    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, addr, contract_path)?);
     let app = build_router(state.clone());
     let server = tokio::spawn(async move {
         let result = axum::serve(listener, app).await.map_err(anyhow::Error::from);
         if let Err(ref error) = result { eprintln!("Explore server stopped: {error:#}"); }
         result
     });
-    Ok((state, actual_port, server))
+    Ok((state, addr.port(), server))
 }

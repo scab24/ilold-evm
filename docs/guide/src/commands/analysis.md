@@ -145,7 +145,7 @@ delegatecalls and count as external.
 
 `tl <variable>` or `timeline <variable>`
 
-Shows the cross-step mutation history of a variable across the current session. Each mutation includes the operator, value expression, and path conditions (reached-when).
+Shows the cross-step mutation history of a variable across the current session. Each mutation includes the operator, value expression, and path conditions (reached-when). A write made through calls the trace does not show reads `written via <call chain>`.
 
 ```
 ilold[→ deposit → withdraw]> tl totalStaked

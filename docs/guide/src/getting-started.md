@@ -26,13 +26,14 @@ ilold compiles the project with solc, builds the model and CFGs, and drops you i
   ╭──────────────────────────────────────────╮
   │ ilold explore — Staking                  │
   │ 8 functions | Type ? for help            │
-  │ Web UI: http://localhost:52431           │
+  │ Web UI: http://127.0.0.1:52431           │
   ╰──────────────────────────────────────────╯
 
 ilold[Staking]>
 ```
 
-The port is assigned automatically unless you pass `--port`.
+The port is assigned automatically unless you pass `--port`. The server listens on
+127.0.0.1 unless you pass `--host <addr>`.
 
 ## First Session
 

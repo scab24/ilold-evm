@@ -22,6 +22,9 @@ pub struct Project {
     pub decl_table: DeclTable,
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// The configured test and script directories, relative to the project root.
+    #[serde(default)]
+    pub test_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +43,7 @@ impl Project {
             id_index: HashMap::new(),
             decl_table,
             warnings: Vec::new(),
+            test_dirs: Vec::new(),
         };
         project.rebuild_index();
         project
@@ -120,9 +124,18 @@ impl Project {
 
     pub fn default_contract(&self) -> Option<&ContractDef> {
         let key = pick_default_contract(
-            self.listed_contracts().map(|c| (c.key(), c.kind, c.inherits.as_slice())),
+            self.listed_contracts().map(|c| (c.key(), c.kind, c.inherits.as_slice(), self.is_auxiliary(c))),
         )?;
         self.contracts.iter().find(|c| c.key() == key)
+    }
+
+    /// Tests, scripts, mocks and harnesses, which never make a good default.
+    pub fn is_auxiliary(&self, contract: &ContractDef) -> bool {
+        let path = contract.qualified_id.rsplit_once(':').map_or("", |(path, _)| path);
+        let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        ["Mock", "Test", "Harness"].iter().any(|prefix| contract.name.starts_with(prefix))
+            || dir.split('/').any(|segment| AUXILIARY_DIRS.contains(&segment.to_ascii_lowercase().as_str()))
+            || self.test_dirs.iter().any(|test_dir| !test_dir.is_empty() && std::path::Path::new(path).starts_with(test_dir))
     }
 
     pub fn find_contract(&self, filter: Option<&str>) -> Result<&ContractDef, String> {
@@ -381,16 +394,18 @@ impl Project {
     }
 }
 
-/// Deployable contracts first, then the most derived one (most ancestors), ties by name.
+const AUXILIARY_DIRS: &[&str] = &["mock", "mocks", "test", "tests", "harness", "harnesses", "script", "scripts"];
+
+/// Non-auxiliary contracts first, then deployable ones, then the most derived one (most ancestors), ties by name.
 pub fn pick_default_contract<'a>(
-    candidates: impl IntoIterator<Item = (&'a str, ContractKind, &'a [String])>,
+    candidates: impl IntoIterator<Item = (&'a str, ContractKind, &'a [String], bool)>,
 ) -> Option<&'a str> {
-    let candidates: Vec<(&str, ContractKind, &[String])> = candidates
+    let candidates: Vec<(&str, ContractKind, &[String], bool)> = candidates
         .into_iter()
-        .filter(|(name, _, _)| !name.is_empty())
+        .filter(|(name, _, _, _)| !name.is_empty())
         .collect();
     let parents: HashMap<&str, &[String]> =
-        candidates.iter().map(|(name, _, inherits)| (*name, *inherits)).collect();
+        candidates.iter().map(|(name, _, inherits, _)| (*name, *inherits)).collect();
     let ancestors = |name: &str| -> usize {
         let mut seen: HashSet<&str> = HashSet::new();
         let mut queue: Vec<&str> = parents.get(name).into_iter()
@@ -411,9 +426,9 @@ pub fn pick_default_contract<'a>(
     };
     candidates
         .iter()
-        .map(|(name, kind, _)| (kind_rank(*kind), std::cmp::Reverse(ancestors(name)), *name))
+        .map(|(name, kind, _, auxiliary)| (*auxiliary, kind_rank(*kind), std::cmp::Reverse(ancestors(name)), *name))
         .min()
-        .map(|(_, _, name)| name)
+        .map(|(_, _, _, name)| name)
 }
 
 #[cfg(test)]
@@ -421,7 +436,7 @@ mod default_contract_tests {
     use super::*;
 
     fn pick(items: &[(&str, ContractKind, Vec<String>)]) -> Option<String> {
-        pick_default_contract(items.iter().map(|(n, k, i)| (*n, *k, i.as_slice())))
+        pick_default_contract(items.iter().map(|(n, k, i)| (*n, *k, i.as_slice(), n.starts_with("Mock"))))
             .map(str::to_string)
     }
 
@@ -439,6 +454,16 @@ mod default_contract_tests {
             ("LendingPool", ContractKind::Contract, parents(&["BasePool", "IPool"])),
         ];
         assert_eq!(pick(&items).as_deref(), Some("LendingPool"));
+    }
+
+    #[test]
+    fn auxiliary_contracts_yield_even_with_more_ancestors() {
+        let items = [
+            ("MockPool", ContractKind::Contract, parents(&["Pool", "Extra"])),
+            ("Pool", ContractKind::Abstract, vec![]),
+        ];
+        assert_eq!(pick(&items).as_deref(), Some("Pool"));
+        assert_eq!(pick(&items[..1]).as_deref(), Some("MockPool"));
     }
 
     #[test]

@@ -159,18 +159,7 @@ async fn default_contract_is_shared_and_never_unknown() {
     assert_eq!(all["contract"], expected.as_str());
 
     let project = get_json(&client, port, "/api/project").await;
-    let candidates: Vec<(String, ilold_core::model::contract::ContractKind, Vec<String>)> = project["contracts"]
-        .as_array().unwrap().iter()
-        .map(|c| (
-            c["name"].as_str().unwrap().to_string(),
-            serde_json::from_value(c["kind"].clone()).unwrap(),
-            serde_json::from_value(c["inherits"].clone()).unwrap(),
-        ))
-        .collect();
-    let picked = ilold_core::model::project::pick_default_contract(
-        candidates.iter().map(|(n, k, i)| (n.as_str(), *k, i.as_slice())),
-    );
-    assert_eq!(picked, Some(expected.as_str()));
+    assert_eq!(project["default_contract"], expected.as_str());
 }
 
 #[tokio::test]
