@@ -21,4 +21,5 @@
 
 - [HTTP API](./reference/api-endpoints.md)
 - [MCP Server](./reference/mcp.md)
+- [Graph Export](./reference/graph-export.md)
 - [Known Limitations](./reference/limitations.md)

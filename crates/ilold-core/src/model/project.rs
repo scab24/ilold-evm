@@ -25,6 +25,20 @@ pub struct Project {
     /// Lets the default contract skip Foundry test and script directories.
     #[serde(default)]
     pub test_dirs: Vec<String>,
+    /// Every solc version that compiled a modelled source.
+    #[serde(default)]
+    pub solc_versions: Vec<String>,
+    /// Errors in files outside the sources, which the model leaves out.
+    #[serde(default)]
+    pub compile_failures: Vec<CompileFailure>,
+}
+
+/// `path` is relative to the project root; errors without a location have none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompileFailure {
+    pub path: Option<String>,
+    pub line: Option<u32>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +58,8 @@ impl Project {
             decl_table,
             warnings: Vec::new(),
             test_dirs: Vec::new(),
+            solc_versions: Vec::new(),
+            compile_failures: Vec::new(),
         };
         project.rebuild_index();
         project

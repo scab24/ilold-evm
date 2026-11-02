@@ -18,9 +18,20 @@ pub struct BasicBlock {
     pub return_value: Option<String>,
     /// Conditions it branches on included, resolved through declaration ids and storage pointers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reads: Vec<StorageRef>,
+    pub reads: Vec<BlockRead>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revert_reason: Option<String>,
+    /// The modifier whose code reverts here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revert_modifier: Option<String>,
+}
+
+/// A storage read and the modifier whose code makes it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct BlockRead {
+    pub place: StorageRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_modifier: Option<String>,
 }
 
 /// With `param`, the path is rooted at the `storage` parameter with that index.
@@ -152,6 +163,9 @@ pub enum CfgStatement {
         from_modifier: Option<String>,
         #[serde(default)]
         arguments: String,
+        /// The event declaration solc resolved.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        event_id: Option<DeclId>,
     },
     StateRead {
         variable: String,

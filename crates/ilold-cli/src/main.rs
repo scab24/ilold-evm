@@ -10,14 +10,18 @@ mod context;
 mod deps_view;
 mod explore;
 mod fmt;
+mod graph;
 mod interactive;
+
+/// Commands whose output does not depend on the sequence depth share the analysis cached at this one.
+const SHARED_SEQ_DEPTH: usize = 3;
 
 #[derive(Parser)]
 #[command(
     name = "ilold",
     version,
     about = "Smart contract execution path analyzer",
-    after_help = "Exit codes:\n  0  success\n  1  error: unknown --contract (with close matches), not a Foundry project, compile or server failure\n  2  invalid command-line usage"
+    after_help = "Exit codes:\n  0  success\n  1  error: unknown --contract (with close matches), not a Foundry project, compile or server failure\n  2  invalid command-line usage\n  3, 4  `graph` only; see `ilold graph --help`"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -81,7 +85,26 @@ enum Commands {
         #[arg(long, default_value = "http://127.0.0.1:8080")]
         server_url: String,
     },
+    /// Write the project's code map as deterministic JSON Lines
+    #[command(after_help = GRAPH_EXIT_CODES)]
+    Graph {
+        /// Output file, replaced only once it is complete
+        #[arg(long = "json", value_name = "OUT")]
+        json: PathBuf,
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 }
+
+const GRAPH_EXIT_CODES: &str = "Exit codes:
+  0  complete
+  1  tool error: not a Foundry project, unreadable configuration, unwritable output; no file is written
+  2  invalid command-line usage
+  3  complete with warnings: files outside the sources (tests, scripts) failed to compile and are listed as failed_compile
+  4  no facts: a compile error inside the sources; the file holds only the envelope with the file inventory
+
+Unlike `analyze`, which exits 1 on any compile failure, `graph` exits 4 for a compile error inside the sources.
+Schema: docs/guide/src/reference/graph-export.md";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -114,6 +137,10 @@ async fn main() -> Result<()> {
         Commands::EvmMcp { server_url } => {
             ilold_evm_mcp::run(ilold_evm_mcp::Config { server_url }).await
         }
+        Commands::Graph { json, path } => match graph::run(&path, &json)? {
+            0 => Ok(()),
+            code => std::process::exit(code),
+        },
     }
 }
 

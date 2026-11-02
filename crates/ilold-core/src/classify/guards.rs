@@ -17,7 +17,7 @@ use crate::model::statement::{walk_all, Statement, StatementKind};
 use crate::sequence::effects::{resolve_call, CallSite};
 
 /// Helpers deeper than this are not followed.
-const MAX_DEPTH: usize = 12;
+pub(crate) const MAX_DEPTH: usize = 12;
 
 /// Used only for modifiers without code.
 const ACCESS_MODIFIERS: &[&str] = &[

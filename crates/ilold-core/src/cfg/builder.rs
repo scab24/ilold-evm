@@ -289,6 +289,7 @@ impl<'p> CfgBuilder<'p> {
             return_value: None,
             reads: Vec::new(),
             revert_reason: None,
+            revert_modifier: None,
         })
     }
 
@@ -343,7 +344,7 @@ impl<'p> CfgBuilder<'p> {
                 };
                 self.process_revert(arguments, reason);
             }
-            StatementKind::Emit { event_name, arguments } => {
+            StatementKind::Emit { event_name, arguments, event_id } => {
                 for arg in arguments {
                     self.add_effects(arg);
                 }
@@ -354,6 +355,7 @@ impl<'p> CfgBuilder<'p> {
                     span: None,
                     from_modifier,
                     arguments: args,
+                    event_id: *event_id,
                 });
             }
             StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => {
@@ -545,7 +547,8 @@ impl<'p> CfgBuilder<'p> {
 
     fn push_reads(&mut self, reads: Vec<StorageRef>) {
         let block = &mut self.graph[self.current_block];
-        for read in reads {
+        for place in reads {
+            let read = BlockRead { place, from_modifier: self.current_modifier.clone() };
             if !block.reads.contains(&read) {
                 block.reads.push(read);
             }
@@ -776,6 +779,7 @@ impl<'p> CfgBuilder<'p> {
         }
         let revert = self.add_block(BlockKind::Revert);
         self.graph[revert].revert_reason = Some(reason);
+        self.graph[revert].revert_modifier = self.current_modifier.clone();
         self.graph[revert].span = self.current_span;
         self.add_edge(self.current_block, revert, BranchEdge::Unconditional);
         self.current_block = revert;
@@ -1237,6 +1241,7 @@ impl<'p> CfgBuilder<'p> {
 
         let revert = self.add_block(BlockKind::Revert);
         self.graph[revert].revert_reason = Some(format!("{check}({condition})"));
+        self.graph[revert].revert_modifier = self.current_modifier.clone();
         self.graph[revert].span = self.current_span;
         self.add_edge(before, revert, BranchEdge::ConditionalFalse { condition });
 

@@ -102,6 +102,8 @@ pub enum StatementKind {
     Emit {
         event_name: String,
         arguments: Vec<Expression>,
+        #[serde(default)]
+        event_id: Option<super::decl_id::DeclId>,
     },
     Revert {
         error_name: Option<String>,

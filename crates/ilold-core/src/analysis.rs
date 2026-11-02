@@ -15,7 +15,7 @@ use crate::parse::ProjectKey;
 use crate::pathtree::config::PruningConfig;
 use crate::pathtree::types::PathTree;
 use crate::pathtree::walker::build_path_tree;
-use crate::sequence::analysis::{apply_effects, direct_behavior, transitions, SequenceAnalysis};
+use crate::sequence::analysis::{apply_effects, direct_behavior, transitions, FunctionBehavior, SequenceAnalysis};
 use crate::sequence::effects::{summarize, CfgSummary, EffectEngine};
 use crate::sequence::builder::build_sequence_tree;
 use crate::sequence::types::SequenceTree;
@@ -119,18 +119,7 @@ impl ProjectAnalysis {
                 if func.key.is_empty() {
                     continue;
                 }
-                let Some(summary) = engine.summary(contract, owner, func) else { continue };
-                let mut behavior =
-                    direct_behavior(owner.key(), &func.key, &summary.annotations, summary.returns, !summary.reverts.is_empty());
-                let guards = function_guard_scan(Some(project), contract, owner, func);
-                behavior.guards = guards.facts;
-                behavior.guards_incomplete = guards.incomplete;
-                let facts = code_facts(Some(project), contract, func);
-                behavior.builtin_uses = facts.builtin_uses;
-                behavior.unchecked_blocks = facts.unchecked_blocks;
-                let effects = engine.effects(contract, owner, func);
-                apply_effects(&mut behavior, summary, &effects, func);
-                functions.push(behavior);
+                functions.extend(function_behavior(project, &mut engine, contract, owner, func));
             }
             functions.sort_by(|a, b| (&a.name, &a.owner).cmp(&(&b.name, &b.owner)));
             let transitions = transitions(&functions);
@@ -158,6 +147,28 @@ impl ProjectAnalysis {
     }
 }
 
+/// `func`, declared in `owner`, as `contract` runs it.
+pub(crate) fn function_behavior<'p>(
+    project: &'p Project,
+    engine: &mut EffectEngine<'p>,
+    contract: &'p ContractDef,
+    owner: &'p ContractDef,
+    func: &'p FunctionDef,
+) -> Option<FunctionBehavior> {
+    let summary = engine.summary(contract, owner, func)?;
+    let mut behavior =
+        direct_behavior(owner.key(), &func.key, &summary.annotations, summary.returns, !summary.reverts.is_empty());
+    let guards = function_guard_scan(Some(project), contract, owner, func);
+    behavior.guards = guards.facts;
+    behavior.guards_incomplete = guards.incomplete;
+    let facts = code_facts(Some(project), contract, func);
+    behavior.builtin_uses = facts.builtin_uses;
+    behavior.unchecked_blocks = facts.unchecked_blocks;
+    let effects = engine.effects(contract, owner, func);
+    apply_effects(&mut behavior, summary, &effects, func);
+    Some(behavior)
+}
+
 fn queue_dependency_callees<'p>(
     project: &'p Project,
     summary: &CfgSummary,
@@ -174,7 +185,7 @@ fn queue_dependency_callees<'p>(
     }
 }
 
-fn overrides_modifiers(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> bool {
+pub(crate) fn overrides_modifiers(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> bool {
     func.modifiers.iter().any(|m| {
         let there = project.resolve_modifier(context, &m.name).map(|d| d as *const _);
         let here = project.resolve_modifier(owner, &m.name).map(|d| d as *const _);

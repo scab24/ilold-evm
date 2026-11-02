@@ -180,7 +180,7 @@ pub fn statement_text(stmt: &Statement) -> String {
             Some(v) => format!("return {}", expr_to_text(v)),
             None => "return".to_string(),
         },
-        StatementKind::Emit { event_name, arguments } => {
+        StatementKind::Emit { event_name, arguments, .. } => {
             let args = arguments.iter().map(expr_to_text).collect::<Vec<_>>().join(", ");
             format!("emit {}({})", event_name, args)
         }

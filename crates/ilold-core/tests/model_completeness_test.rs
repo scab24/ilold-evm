@@ -294,6 +294,11 @@ fn broken_test_files_keep_the_source_model_with_a_warning() {
         assert!(parsed.lookup_contract("BrokenTest").is_err());
         assert_eq!(parsed.warnings.len(), 1, "attempt {attempt}: {:?}", parsed.warnings);
         assert!(parsed.warnings[0].contains("test/Broken.t.sol"), "{}", parsed.warnings[0]);
+        let failure = &parsed.compile_failures[..];
+        assert_eq!(failure.len(), 1, "attempt {attempt}: {failure:?}");
+        assert_eq!((failure[0].path.as_deref(), failure[0].line), (Some("test/Broken.t.sol"), Some(9)), "attempt {attempt}");
+        assert!(failure[0].message.contains("not a number"), "{}", failure[0].message);
+        assert_eq!(parsed.solc_versions, ["0.8.28"], "attempt {attempt}");
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -301,11 +306,13 @@ fn broken_test_files_keep_the_source_model_with_a_warning() {
 #[test]
 fn broken_sources_fail_with_the_message_and_a_span() {
     match SolcFrontend.parse_project(&fixture("broken_src")) {
-        Err(ParseError::SyntaxError { path, message, span }) => {
+        Err(ParseError::SyntaxError { path, message, span, failures }) => {
             assert!(path.ends_with("src/Bad.sol"), "{path}");
             assert!(message.contains("not a number"), "{message}");
             let span = span.expect("error span");
             assert_eq!(span.start_line, 6, "{span:?}");
+            assert_eq!(failures.len(), 1, "{failures:?}");
+            assert_eq!((failures[0].path.as_deref(), failures[0].line), (Some("src/Bad.sol"), Some(6)));
         }
         other => panic!("expected a syntax error, got {:?}", other.map(|p| p.contracts.len())),
     }
