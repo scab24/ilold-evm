@@ -1,6 +1,6 @@
 use colored::{Colorize, ColoredString};
 use ilold_core::classify::entry_points::AccessLevel;
-use ilold_core::classify::guards::GuardFact;
+use ilold_core::classify::guards::{GuardFact, GuardScope};
 
 pub fn c_accent(s: &str) -> ColoredString { s.truecolor(140, 170, 210) }
 pub fn c_warn(s: &str) -> ColoredString { s.truecolor(180, 150, 80) }
@@ -18,11 +18,12 @@ pub fn access_colored(access: &AccessLevel) -> ColoredString {
     }
 }
 
-/// `?` marks guards taken from a modifier name.
+/// `?` marks guards taken from a modifier name, `*` checks that hold on some paths only.
 pub fn guard_badges(guards: &[GuardFact]) -> String {
     let mut tags: Vec<String> = Vec::new();
     for g in guards {
-        let tag = format!("{{{}{}}}", g.kind.label(), if g.heuristic { "?" } else { "" });
+        let conditional = if g.scope == GuardScope::Conditional { "*" } else { "" };
+        let tag = format!("{{{}{}{conditional}}}", g.kind.label(), if g.heuristic { "?" } else { "" });
         if !tags.contains(&tag) {
             tags.push(tag);
         }
@@ -36,7 +37,16 @@ mod tests {
     use ilold_core::classify::guards::GuardKind;
 
     fn guard(kind: GuardKind, heuristic: bool) -> GuardFact {
-        GuardFact { kind, condition: String::new(), via: Vec::new(), span: None, heuristic }
+        GuardFact {
+            kind,
+            condition: String::new(),
+            via: Vec::new(),
+            span: None,
+            heuristic,
+            scope: GuardScope::Unconditional,
+            compared_against: None,
+            checked_by: None,
+        }
     }
 
     #[test]
@@ -46,8 +56,9 @@ mod tests {
             guard(GuardKind::CallerEquals, false),
             guard(GuardKind::Pause, false),
             guard(GuardKind::AccessByName, true),
+            GuardFact { scope: GuardScope::Conditional, ..guard(GuardKind::RoleCheck, false) },
         ];
-        assert_eq!(guard_badges(&guards), "{caller} {pause} {access?}");
+        assert_eq!(guard_badges(&guards), "{caller} {pause} {access?} {role*}");
         assert_eq!(guard_badges(&[]), "");
     }
 }

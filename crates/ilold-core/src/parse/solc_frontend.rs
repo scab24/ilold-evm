@@ -836,8 +836,8 @@ fn map_function(node: &Node, index: &LineIndex) -> FunctionDef {
         kind,
         visibility: vis,
         mutability: mutability(node),
-        modifiers: modifier_refs(node, false),
-        base_constructor_calls: modifier_refs(node, true),
+        modifiers: modifier_refs(node, false, index),
+        base_constructor_calls: modifier_refs(node, true, index),
         params,
         returns: param_list(node, "returnParameters"),
         body: node.body.as_deref().map(|b| map_body(b, index)),
@@ -1480,7 +1480,7 @@ fn literal_value(node: &Node) -> String {
 }
 
 // solc lists constructor base calls among the modifiers
-fn modifier_refs(node: &Node, base_constructors: bool) -> Vec<ModifierRef> {
+fn modifier_refs(node: &Node, base_constructors: bool, index: &LineIndex) -> Vec<ModifierRef> {
     node.attribute::<Vec<serde_json::Value>>("modifiers")
         .unwrap_or_default()
         .iter()
@@ -1494,7 +1494,13 @@ fn modifier_refs(node: &Node, base_constructors: bool) -> Vec<ModifierRef> {
                 .and_then(|s| s.as_str())
                 .map(|name| ModifierRef {
                     name: name.to_string(),
-                    arguments: Vec::new(),
+                    arguments: m
+                        .get("arguments")
+                        .and_then(|a| serde_json::from_value::<Vec<Node>>(a.clone()).ok())
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|a| map_expression(a, index))
+                        .collect(),
                 })
         })
         .collect()

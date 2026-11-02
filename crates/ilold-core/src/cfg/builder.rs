@@ -3,7 +3,7 @@ use petgraph::stable_graph::NodeIndex;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::model::common::{Param, SourceSpan};
+use crate::model::common::{Param, SourceSpan, StateVar};
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::{
@@ -12,7 +12,8 @@ use crate::model::expression::{
 use crate::model::function::FunctionDef;
 use crate::model::modifier::ModifierDef;
 use crate::model::project::Project;
-use crate::model::statement::{Statement, StatementKind};
+use crate::model::source::{value_source, ValueSource};
+use crate::model::statement::{walk_all, Statement, StatementKind};
 use crate::util::push_unique;
 
 use super::types::*;
@@ -40,6 +41,10 @@ pub struct CfgBuilder<'p> {
     level: usize,
     // where a `return` of each inlined body continues: after its placeholder, innermost last
     exits: Vec<Option<NodeIndex>>,
+    // constants and immutables included: they name call targets
+    state_vars: Vec<StateVar>,
+    // low-level calls whose result nothing reads
+    discarded: Vec<SourceSpan>,
 }
 
 #[derive(Clone)]
@@ -159,13 +164,13 @@ impl<'p> CfgBuilder<'p> {
             Some(p) => p.inherited_state_vars(contract),
             None => contract.state_vars.clone(),
         };
-        let state: Vec<_> = state.into_iter().filter(|v| v.is_storage()).collect();
+        let storage: Vec<_> = state.iter().filter(|v| v.is_storage()).collect();
         let by_name = function.id.is_none()
-            && state.iter().all(|v| v.id.is_none())
+            && storage.iter().all(|v| v.id.is_none())
             && function.params.iter().all(|p| p.id.is_none());
         let scope = Scope {
-            state_ids: state.iter().filter_map(|v| Some((v.id?, v.name.clone()))).collect(),
-            state_names: state.iter().map(|v| v.name.clone()).collect(),
+            state_ids: storage.iter().filter_map(|v| Some((v.id?, v.name.clone()))).collect(),
+            state_names: storage.iter().map(|v| v.name.clone()).collect(),
             params: function.params.clone(),
             by_name,
             ..Scope::default()
@@ -173,16 +178,9 @@ impl<'p> CfgBuilder<'p> {
         let levels = function
             .modifiers
             .iter()
-            .map(|mref| {
-                let def = match project {
-                    Some(proj) => proj.resolve_modifier(contract, &mref.name),
-                    None => contract.modifiers.iter().find(|m| m.name == mref.name),
-                };
-                // a modifier declared without a body (`virtual;`) has no code to inline
-                match def {
-                    Some(def) if !def.body.is_empty() => Level::Modifier(Rc::new(def.clone())),
-                    _ => Level::Unresolved(mref.name.clone()),
-                }
+            .map(|mref| match modifier_code(project, contract, &mref.name) {
+                Some(def) => Level::Modifier(Rc::new(def.clone())),
+                None => Level::Unresolved(mref.name.clone()),
             })
             .collect();
         let mut builder = CfgBuilder {
@@ -201,6 +199,8 @@ impl<'p> CfgBuilder<'p> {
             body: Rc::new(Vec::new()),
             level: 0,
             exits: Vec::new(),
+            state_vars: state,
+            discarded: Vec::new(),
         };
 
         let entry = builder.add_block(BlockKind::Entry);
@@ -376,6 +376,15 @@ impl<'p> CfgBuilder<'p> {
                         self.pointer_effects(val);
                         self.scope.point(key, places);
                     } else {
+                        // a tuple declaration is named `(first, ...)`, `_` for a skipped slot
+                        let first = name.strip_prefix('(').map(|n| n.split(',').next().unwrap_or_default().trim());
+                        let unread = || match first {
+                            Some(first) => first == "_" || !self.read_later(first, None, 0),
+                            None => !self.read_later(name, *id, 0),
+                        };
+                        if is_low_level_call(val) && unread() {
+                            self.discarded.push(val.span);
+                        }
                         self.add_effects(val);
                     }
                     let from_modifier = self.current_modifier.clone();
@@ -580,7 +589,7 @@ impl<'p> CfgBuilder<'p> {
     // The known places the `return`s of a callee returning one storage pointer may yield.
     fn returned_place(&self, callee: &Expression, arguments: &[Expression], kind: CallKind) -> Vec<StorageRef> {
         let Some(def) = self.callee_def(callee) else { return Vec::new() };
-        let ([ret], Some(body)) = (def.returns.as_slice(), def.body.as_deref()) else { return Vec::new() };
+        let [ret] = def.returns.as_slice() else { return Vec::new() };
         if !ret.is_storage {
             return Vec::new();
         }
@@ -591,8 +600,7 @@ impl<'p> CfgBuilder<'p> {
             by_name: self.scope.by_name,
             ..Scope::default()
         };
-        let mut returned = Vec::new();
-        collect_returned(body, ret, &mut returned);
+        let returned = def.returned_values();
         let args = call_arguments(callee, arguments, kind);
         let mut out: Vec<StorageRef> = Vec::new();
         for place in returned.into_iter().flat_map(|e| self.place_in(&callee_scope, e, false)) {
@@ -1118,7 +1126,58 @@ impl<'p> CfgBuilder<'p> {
             }
         }
 
+        let result = match &expr.kind {
+            _ if is_low_level_call(expr) => Some(expr),
+            ExpressionKind::Assignment { target, operator: AssignOperator::Assign, value } if is_low_level_call(value) => {
+                let slot = match &target.kind {
+                    ExpressionKind::Tuple { elements } => elements.first().and_then(Option::as_ref),
+                    _ => Some(target.as_ref()),
+                };
+                let unread = match slot.map(|e| &e.kind) {
+                    None => true,
+                    // the assignment itself names it once
+                    Some(ExpressionKind::Identifier { name, resolved }) => !self.read_later(name, *resolved, 1),
+                    Some(_) => false,
+                };
+                unread.then_some(value.as_ref())
+            }
+            _ => None,
+        };
+        if let Some(result) = result {
+            self.discarded.push(result.span);
+        }
         self.evaluate(expr);
+    }
+
+    // with assembly in the code a Yul read cannot be ruled out
+    fn read_later(&self, name: &str, id: Option<DeclId>, written: usize) -> bool {
+        let code: &[Statement] = match self.levels.get(self.level) {
+            Some(Level::Modifier(def)) => &def.body,
+            _ => &self.body,
+        };
+        let mut uses = 0;
+        let mut assembly = false;
+        let on_stmt = &mut |s: &Statement| assembly |= matches!(s.kind, StatementKind::Assembly { .. });
+        walk_all(code, on_stmt, &mut |e: &Expression| {
+            if let ExpressionKind::Identifier { name: n, resolved } = &e.kind {
+                uses += usize::from(match id {
+                    Some(id) => *resolved == Some(id),
+                    None => n == name,
+                });
+            }
+        });
+        assembly || uses > written
+    }
+
+    fn source_of(&self, expr: &Expression) -> ValueSource {
+        let scope = &self.scope;
+        value_source(self.project, &self.state_vars, expr, |name, resolved| {
+            let index = scope.params.iter().position(|p| match resolved {
+                Some(id) => p.id == Some(id),
+                None => scope.by_name && p.name == name,
+            })?;
+            Some(ValueSource::Param { index, name: scope.params[index].name.clone() })
+        })
     }
 
     fn process_require(&mut self, arguments: &[Expression]) {
@@ -1268,7 +1327,8 @@ impl<'p> CfgBuilder<'p> {
                 match call {
                     CallType::Call(kind) => {
                         let storage_args = self.storage_args(callee, arguments, *call);
-                        stmts.push(self.typed_call(callee, *kind, args, options, storage_args));
+                        let used = !self.discarded.contains(&expr.span);
+                        stmts.push(self.typed_call(callee, *kind, args, options, storage_args, used));
                     }
                     CallType::Builtin => {
                         if let ExpressionKind::MemberAccess { object, member, .. } = &callee.kind {
@@ -1334,6 +1394,8 @@ impl<'p> CfgBuilder<'p> {
                         contract: Some(type_name.clone()),
                         options: option_strings(options),
                         storage_args: Vec::new(),
+                        target_source: None,
+                        result_used: None,
                     });
                 }
             }
@@ -1354,6 +1416,7 @@ impl<'p> CfgBuilder<'p> {
         arguments: String,
         options: &[CallOption],
         storage_args: Vec<StorageArg>,
+        used: bool,
     ) -> CfgStatement {
         let from_modifier = self.current_modifier.clone();
         let decls = self.decls;
@@ -1361,10 +1424,14 @@ impl<'p> CfgBuilder<'p> {
             resolved.and_then(|id| decls?.lookup(id)).map(|t| t.contract.clone())
         };
         let mut contract = None;
+        let mut target_source = None;
         let (target, function, resolved) = match &callee.kind {
             ExpressionKind::Identifier { name, resolved } => (None, name.clone(), *resolved),
             ExpressionKind::MemberAccess { object, member, resolved, object_type } => {
                 contract = object_type.as_deref().and_then(type_contract_name);
+                if !kind.is_internal() && !matches!(kind, CallKind::LibraryDelegatecall | CallKind::Creation) {
+                    target_source = Some(self.source_of(object));
+                }
                 let target = match &object.kind {
                     ExpressionKind::Identifier { name, .. } if name == "super" || name == "this" => name.clone(),
                     // a library function, named or bound through `using for`
@@ -1410,6 +1477,8 @@ impl<'p> CfgBuilder<'p> {
                 contract,
                 options: option_strings(options),
                 storage_args,
+                target_source,
+                result_used: is_low_level(kind).then_some(used),
             }
         }
     }
@@ -1428,8 +1497,8 @@ impl<'p> CfgBuilder<'p> {
             declaration: None,
             storage_args: Vec::new(),
         };
-        let external = |target: String, function: String, resolved, kind| CfgStatement::ExternalCall {
-            target,
+        let external = |object: &Expression, function: String, resolved, kind| CfgStatement::ExternalCall {
+            target: expr_to_string(object),
             function,
             span: None,
             from_modifier: from_modifier.clone(),
@@ -1439,6 +1508,8 @@ impl<'p> CfgBuilder<'p> {
             contract: None,
             options: Vec::new(),
             storage_args: Vec::new(),
+            target_source: Some(self.source_of(object)),
+            result_used: None,
         };
         match &callee.kind {
             ExpressionKind::TypeMeta { .. } => {}
@@ -1455,11 +1526,11 @@ impl<'p> CfgBuilder<'p> {
                         stmts.push(internal(member.clone(), Some("super".into())));
                     }
                     ExpressionKind::Identifier { name, .. } if name == "this" => {
-                        stmts.push(external(name.clone(), member.clone(), *resolved, CallKind::ExternalSelf));
+                        stmts.push(external(object, member.clone(), *resolved, CallKind::ExternalSelf));
                     }
                     ExpressionKind::Identifier { name, .. }
                         if resolved.is_none() && crate::util::is_builtin_namespace(name) => {}
-                    _ => stmts.push(external(expr_to_string(object), member.clone(), *resolved, CallKind::External)),
+                    _ => stmts.push(external(object, member.clone(), *resolved, CallKind::External)),
                 }
             }
             // `push`/`pop` without types
@@ -1471,6 +1542,15 @@ impl<'p> CfgBuilder<'p> {
             _ => stmts.push(internal(expr_to_string(callee), None)),
         }
     }
+}
+
+/// A modifier declared without a body (`virtual;`) has no code to inline.
+pub(crate) fn modifier_code<'a>(project: Option<&'a Project>, contract: &'a ContractDef, name: &str) -> Option<&'a ModifierDef> {
+    let def = match project {
+        Some(project) => project.resolve_modifier(contract, name),
+        None => contract.modifiers.iter().find(|m| m.name == name),
+    };
+    def.filter(|d| !d.body.is_empty())
 }
 
 // Lines a block covers: its own code, or the modifier code when it has no other.
@@ -1492,6 +1572,14 @@ fn block_span(statements: &[CfgStatement]) -> Option<SourceSpan> {
     }))
 }
 
+fn is_low_level(kind: CallKind) -> bool {
+    matches!(kind, CallKind::LowLevelCall | CallKind::LowLevelDelegatecall | CallKind::LowLevelStaticcall | CallKind::Send)
+}
+
+fn is_low_level_call(expr: &Expression) -> bool {
+    matches!(&expr.kind, ExpressionKind::FunctionCall { call: CallType::Call(kind), .. } if is_low_level(*kind))
+}
+
 fn storage_write(place: StorageRef, from_modifier: Option<String>) -> CfgStatement {
     CfgStatement::StateWrite { variable: place.path, span: None, from_modifier, param: place.param }
 }
@@ -1511,77 +1599,18 @@ pub(crate) fn call_arguments<'e>(callee: &'e Expression, arguments: &'e [Express
 }
 
 fn collect_repoints<'a>(stmts: &'a [Statement], out: &mut Vec<(&'a Expression, &'a Expression)>) {
-    for stmt in stmts {
-        match &stmt.kind {
-            StatementKind::ExpressionStmt { expression } => repoint(expression, out),
-            StatementKind::If { then_body, else_body, .. } => {
-                collect_repoints(then_body, out);
-                if let Some(else_body) = else_body {
-                    collect_repoints(else_body, out);
-                }
-            }
-            StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => {
-                collect_repoints(statements, out);
-            }
-            StatementKind::For { init, increment, body, .. } => {
-                if let Some(init) = init {
-                    collect_repoints(std::slice::from_ref(init.as_ref()), out);
-                }
-                if let Some(incr) = increment {
-                    repoint(incr, out);
-                }
-                collect_repoints(body, out);
-            }
-            StatementKind::While { body, .. } | StatementKind::DoWhile { body, .. } => collect_repoints(body, out),
-            StatementKind::TryCatch { clauses, .. } => {
-                for clause in clauses {
-                    collect_repoints(&clause.body, out);
-                }
-            }
-            _ => {}
-        }
-    }
+    let on_stmt = &mut |s: &'a Statement| match &s.kind {
+        StatementKind::ExpressionStmt { expression } => repoint(expression, out),
+        StatementKind::For { increment: Some(incr), .. } => repoint(incr, out),
+        _ => {}
+    };
+    walk_all(stmts, on_stmt, &mut |_| {});
 }
 
 fn repoint<'a>(expr: &'a Expression, out: &mut Vec<(&'a Expression, &'a Expression)>) {
     if let ExpressionKind::Assignment { target, operator: AssignOperator::Assign, value } = &expr.kind {
         if matches!(target.kind, ExpressionKind::Identifier { .. }) {
             out.push((target, value));
-        }
-    }
-}
-
-// Values a function returns through `ret`: `return e` and assignments to the named variable.
-fn collect_returned<'a>(stmts: &'a [Statement], ret: &Param, out: &mut Vec<&'a Expression>) {
-    for stmt in stmts {
-        match &stmt.kind {
-            StatementKind::Return { value: Some(value) } => out.push(value),
-            StatementKind::ExpressionStmt { expression } => {
-                if let ExpressionKind::Assignment { target, operator: AssignOperator::Assign, value } = &expression.kind {
-                    if let ExpressionKind::Identifier { name, resolved } = &target.kind {
-                        let named = match (resolved, ret.id) {
-                            (Some(a), Some(b)) => *a == b,
-                            _ => !ret.name.is_empty() && *name == ret.name,
-                        };
-                        if named {
-                            out.push(value);
-                        }
-                    }
-                }
-            }
-            StatementKind::If { then_body, else_body, .. } => {
-                collect_returned(then_body, ret, out);
-                if let Some(else_body) = else_body {
-                    collect_returned(else_body, ret, out);
-                }
-            }
-            StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => {
-                collect_returned(statements, ret, out);
-            }
-            StatementKind::For { body, .. } | StatementKind::While { body, .. } | StatementKind::DoWhile { body, .. } => {
-                collect_returned(body, ret, out);
-            }
-            _ => {}
         }
     }
 }

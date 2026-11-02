@@ -29,7 +29,9 @@ The badges in braces are the function's guards, read from code: revert checks on
 
 A check counts only when its condition must hold for the caller to get through: `require(msg.sender != owner)` and `if (msg.sender == owner) revert` let everyone but the owner in and are not access guards, and `require(msg.sender == admin || open)` is not one either because anyone passes while `open` is true. A call that takes the caller is a role check only when the called function is `view` or `pure`; `require(token.transferFrom(msg.sender, ...))` is not.
 
-Guards are read along the straight-line entry path only. Checks inside loops, inside `if`/`else` branches that do not simply revert, or after a branch, loop or assembly block that may return early are not reported, so a function can be `[P]` and still check its caller on some paths. Check its trace (`tr`) or source before concluding it is unguarded.
+A check inside a loop, inside an `if`/`else` branch that does not simply revert, or after a branch, loop or assembly block that may return early holds on some paths only. It is still reported, with scope `Conditional` and a badge ending in `*` (`{caller*}`), but never makes the function `[R]`. Helpers are followed 12 calls deep; a function whose guard walk was cut there is marked `guards_incomplete`.
+
+Each access guard records what the caller is compared with (`compared_against`): a state variable, immutable, constant, parameter, literal, `msg.sender` or another expression, so `require(msg.sender == owner)` and `require(msg.sender == to)` differ. A role check records the role argument and what it consults (`checked_by`, the called function or the mapping).
 
 State guards do not restrict the caller and leave the function `[P]`: `{pause}`, `{reentrancy}` and `{initializer}`. A modifier whose name sounds like access control but whose check reads a flag is not an access guard. Only a modifier with no code to read falls back to its name; its badge ends in `?` (`{access?}`).
 

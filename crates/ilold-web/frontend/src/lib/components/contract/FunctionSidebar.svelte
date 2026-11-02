@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
   import { visibilityLabel } from '$lib/utils/visibility';
-  import { describeGuard, formatAccess, isAccessGuard } from '$lib/utils/access';
+  import { describeGuard, formatAccess, isAccessGuard, isConditional, restricts } from '$lib/utils/access';
 
   let {
     contract,
@@ -31,11 +31,13 @@
     visibility: string;
     path_count: number;
     guarded: string | null;
+    conditionallyGuarded: string | null;
     stateGuarded: string | null;
     source: 'own' | 'inherited';
   };
   function toRow(f: FunctionSummary, source: Row['source']): Row {
-    const accessGuards = f.guards.filter(isAccessGuard);
+    const accessGuards = f.guards.filter(restricts);
+    const conditionalGuards = f.guards.filter((g) => isAccessGuard(g) && isConditional(g));
     const stateGuards = f.guards.filter((g) => !isAccessGuard(g));
     const restricted = (typeof f.access === 'object' && 'Restricted' in f.access) || accessGuards.length > 0;
     return {
@@ -44,6 +46,9 @@
       visibility: f.visibility,
       path_count: f.path_count,
       guarded: restricted ? [formatAccess(f.access), ...accessGuards.map(describeGuard)].join('\n') : null,
+      conditionallyGuarded: conditionalGuards.length > 0
+        ? ['Checked on some paths only', ...conditionalGuards.map(describeGuard)].join('\n')
+        : null,
       stateGuarded: stateGuards.length > 0 ? stateGuards.map(describeGuard).join('\n') : null,
       source,
     };
@@ -148,7 +153,7 @@
         class="chip"
         class:active={onlyAccessControl}
         onclick={() => onlyAccessControl = !onlyAccessControl}
-        title="Only access-controlled functions (caller or role checks)"
+        title="Only access-controlled functions (caller or role checks on every path)"
         aria-pressed={onlyAccessControl}
       >🔒</button>
       {#if canClear}
@@ -212,6 +217,9 @@
       <span class="row-vis {visShort(row.visibility)}">{visShort(row.visibility)}</span>
       {#if row.guarded}
         <span class="row-lock" title={row.guarded}>🔒</span>
+      {/if}
+      {#if row.conditionallyGuarded}
+        <span class="row-lock row-conditional" title={row.conditionallyGuarded}>🔓</span>
       {/if}
       {#if row.stateGuarded}
         <span class="row-lock" title={row.stateGuarded}>🚦</span>
@@ -430,6 +438,7 @@
   }
 
   .row-lock { font-size: 10px; line-height: 1; }
+  .row-conditional { opacity: 0.6; }
 
   .row-paths {
     font-size: 9px;

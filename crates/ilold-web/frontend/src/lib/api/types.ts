@@ -220,6 +220,19 @@ export type GuardKind =
   | "Reentrancy"
   | "Initializer";
 
+/** Where a value comes from: a call's receiver or what a guard compares the caller with. */
+export type ValueSource =
+  | { StateVar: { name: string; key: string | null } }
+  | { Immutable: { name: string; key: string | null } }
+  | { Constant: { name: string; key: string | null } }
+  | { Param: { index: number; name: string } }
+  | { Literal: { text: string } }
+  | 'MsgSender'
+  | { Expression: { text: string } };
+
+/** A conditional guard holds on some paths only and never restricts the caller. */
+export type GuardScope = 'Unconditional' | 'Conditional';
+
 /** `via` is empty for the body. */
 export interface GuardFact {
   kind: GuardKind;
@@ -228,6 +241,10 @@ export interface GuardFact {
   span: { file_index: number; start_line: number; start_col: number; end_line: number; end_col: number } | null;
   /** The modifier has no code to read. */
   heuristic: boolean;
+  /** Absent in older snapshots, which only had unconditional guards. */
+  scope?: GuardScope;
+  compared_against?: ValueSource;
+  checked_by?: string;
 }
 
 export interface TransitiveEffect {

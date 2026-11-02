@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::model::common::SourceSpan;
 use crate::model::decl_id::DeclId;
 use crate::model::expression::{AssignOperator, CallKind};
+use crate::model::source::ValueSource;
 
 pub type CfgGraph = StableDiGraph<BasicBlock, BranchEdge>;
 
@@ -119,6 +120,12 @@ pub enum CfgStatement {
         options: Vec<(String, String)>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         storage_args: Vec<StorageArg>,
+        /// The receiver of a call to an address; none for library and creation calls.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_source: Option<ValueSource>,
+        /// Low-level calls and `send` only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result_used: Option<bool>,
     },
     InternalCall {
         function: String,

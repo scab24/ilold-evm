@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::classify::entry_points::{classify_in, AccessLevel};
-use ilold_core::classify::guards::{GuardFact, GuardKind};
+use ilold_core::classify::guards::{GuardFact, GuardKind, GuardScope};
 use ilold_core::model::contract::ContractDef;
 use ilold_core::model::project::Project;
 use ilold_core::narrative::function::build_function_narrative;
@@ -295,8 +295,9 @@ fn no_access_control_observation_follows_guard_facts() {
 // checks that must not be reported as access guards
 
 #[test]
-fn checks_after_an_early_return_are_not_guards() {
-    assert_eq!(facts("Lookalikes", "setAfterEarlyReturn"), []);
+fn checks_after_an_early_return_are_conditional_guards() {
+    assert_eq!(facts("Lookalikes", "setAfterEarlyReturn"), [fact(GuardKind::CallerEquals, "require(msg.sender == admin)", &[])]);
+    assert!(guards("Lookalikes", "setAfterEarlyReturn").iter().all(|g| g.scope == GuardScope::Conditional));
     assert_eq!(access("Lookalikes", "setAfterEarlyReturn"), AccessLevel::Public);
 }
 

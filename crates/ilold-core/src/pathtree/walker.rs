@@ -85,12 +85,7 @@ pub fn build_path_tree(
             continue;
         }
 
-        tree.blocks.entry(block.id).or_insert_with(|| {
-            let mut annotations = PathAnnotations::default();
-            collect_reads(&block.reads, &mut annotations);
-            collect_annotations(&block.statements, &mut annotations);
-            annotations
-        });
+        tree.blocks.entry(block.id).or_insert_with(|| block_annotations(block));
 
         let terminal = match block.kind {
             BlockKind::Return => Some(TerminalKind::Return),
@@ -154,6 +149,13 @@ pub fn normalize_path(target: &str) -> String {
         }
     }
     out
+}
+
+pub(crate) fn block_annotations(block: &BasicBlock) -> PathAnnotations {
+    let mut annotations = PathAnnotations::default();
+    collect_reads(&block.reads, &mut annotations);
+    collect_annotations(&block.statements, &mut annotations);
+    annotations
 }
 
 // reads through `storage` parameters are summarised per function

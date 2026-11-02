@@ -32,7 +32,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_entry_points",
-            "Functions the contract runs, own and inherited (origin, is_inherited), with their access level (public, restricted, internal or special), guards read from code (kind CallerEquals/RoleCheck/TxOrigin for access, Pause/Reentrancy/Initializer for state; condition, via chain, span; heuristic when only a modifier name was available), state-write and external-call flags. Entries not internal are the externally reachable attack surface.",
+            "Functions the contract runs, own and inherited (origin, is_inherited), with their access level (public, restricted, internal or special), guards read from code (kind CallerEquals/RoleCheck/TxOrigin for access, Pause/Reentrancy/Initializer for state; condition, via chain, span; heuristic when only a modifier name was available; scope Conditional for a check on some paths only, which never restricts; compared_against and checked_by), state-write and external-call flags. Entries not internal are the externally reachable attack surface.",
             contract_schema(),
         ),
         tool(

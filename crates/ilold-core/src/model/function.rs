@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use super::common::{Param, SourceSpan};
 use super::decl_id::DeclId;
 use super::modifier::ModifierRef;
-use super::statement::Statement;
+use super::expression::{AssignOperator, Expression, ExpressionKind};
+use super::statement::{walk_all, Statement, StatementKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionDef {
@@ -37,6 +38,30 @@ impl FunctionDef {
     /// Hand-built models fall back to the name.
     pub fn match_signature(&self) -> &str {
         if self.signature.is_empty() { &self.name } else { &self.signature }
+    }
+
+    /// Every `return e` and every assignment to a named return variable, anywhere in the body.
+    pub fn returned_values<'a>(&'a self) -> Vec<&'a Expression> {
+        let names_return = |name: &str, resolved: Option<DeclId>| {
+            self.returns.iter().any(|r| match (resolved, r.id) {
+                (Some(a), Some(b)) => a == b,
+                _ => !r.name.is_empty() && r.name == name,
+            })
+        };
+        let mut out = Vec::new();
+        let on_stmt = &mut |s: &'a Statement| match &s.kind {
+            StatementKind::Return { value: Some(value) } => out.push(value),
+            StatementKind::ExpressionStmt { expression } => {
+                if let ExpressionKind::Assignment { target, operator: AssignOperator::Assign, value } = &expression.kind {
+                    if matches!(&target.kind, ExpressionKind::Identifier { name, resolved } if names_return(name, *resolved)) {
+                        out.push(value);
+                    }
+                }
+            }
+            _ => {}
+        };
+        walk_all(self.body.as_deref().unwrap_or_default(), on_stmt, &mut |_| {});
+        out
     }
 }
 
