@@ -49,6 +49,8 @@ pub enum GuardKind {
     Pause,
     Reentrancy,
     Initializer,
+    /// Only a term of a compound check: a test on neither the caller nor a flag.
+    Condition,
 }
 
 impl GuardKind {
@@ -65,6 +67,7 @@ impl GuardKind {
             GuardKind::Pause => "pause",
             GuardKind::Reentrancy => "reentrancy",
             GuardKind::Initializer => "initializer",
+            GuardKind::Condition => "condition",
         }
     }
 }
@@ -81,12 +84,107 @@ pub struct GuardFact {
     pub heuristic: bool,
     #[serde(default)]
     pub scope: GuardScope,
-    /// What the caller is compared with, or the role a role check asks for.
+    /// The tested call or comparison must be false to pass: a deny-list, which never restricts.
+    #[serde(default)]
+    pub negated: bool,
+    /// Every way to pass needs a caller test that must hold.
+    #[serde(default)]
+    pub requires_caller: bool,
+    /// What the caller is compared with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compared_against: Option<ValueSource>,
     /// The function or mapping a role check consults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checked_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ValueSource>,
+    /// The predicate that names the role when no argument does, as in `isPoolAdmin(msg.sender)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_implied_by: Option<String>,
+    /// Whose access is checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<ValueSource>,
+    /// Every way to pass a disjunction; a compound guard leaves who and what is checked to its parts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<GuardTerm>,
+    /// Every test of a conjunction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conjuncts: Vec<GuardTerm>,
+    /// Part of the condition tests the caller in a way the walk cannot read, so it is not split into terms.
+    #[serde(default)]
+    pub ambiguous: bool,
+}
+
+/// A test inside a guard's condition; a compound one lists its parts and takes only its kind and polarity from the part that decides it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuardTerm {
+    pub kind: GuardKind,
+    pub condition: String,
+    #[serde(default)]
+    pub negated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compared_against: Option<ValueSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ValueSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_implied_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<ValueSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<GuardTerm>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conjuncts: Vec<GuardTerm>,
+}
+
+impl GuardTerm {
+    /// `holds` is the value `condition` must have to pass.
+    fn leaf(kind: GuardKind, condition: &Expression, holds: bool) -> Self {
+        let (compared_against, checked_by, role, role_implied_by, account) = (None, None, None, None, None);
+        let (alternatives, conjuncts) = (Vec::new(), Vec::new());
+        let condition = expr_to_string(condition);
+        Self { kind, condition, negated: !holds, compared_against, checked_by, role, role_implied_by, account, alternatives, conjuncts }
+    }
+
+    /// `all` for a conjunction; nested parts of the same operator are merged.
+    fn compound(all: bool, condition: &Expression, parts: [GuardTerm; 2]) -> Self {
+        let mut flat = Vec::new();
+        for part in parts {
+            let same = if all { &part.conjuncts } else { &part.alternatives };
+            if same.is_empty() { flat.push(part) } else { flat.extend(same.iter().cloned()) }
+        }
+        // a conjunction is decided by a test that restricts, else by one that denies
+        let rank = |t: &&GuardTerm| if all && t.restricts() { 0 } else if all && t.denies() { 1 } else if t.has_access() { 2 } else { 3 };
+        let decides = flat.iter().min_by_key(rank).expect("a compound has parts");
+        let (kind, holds) = (decides.kind, !decides.negated);
+        let (alternatives, conjuncts) = if all { (Vec::new(), flat) } else { (flat, Vec::new()) };
+        GuardTerm { alternatives, conjuncts, ..GuardTerm::leaf(kind, condition, holds) }
+    }
+
+    fn has_access(&self) -> bool {
+        self.kind.is_access() || self.alternatives.iter().chain(&self.conjuncts).any(GuardTerm::has_access)
+    }
+
+    /// Every way to pass needs a caller test that must hold.
+    fn restricts(&self) -> bool {
+        self.decide(|t| t.kind.is_access() && !t.negated)
+    }
+
+    /// Every way to pass needs a caller test that must fail.
+    fn denies(&self) -> bool {
+        self.decide(|t| t.kind.is_access() && t.negated)
+    }
+
+    fn decide(&self, leaf: fn(&GuardTerm) -> bool) -> bool {
+        if !self.conjuncts.is_empty() {
+            self.conjuncts.iter().any(|t| t.decide(leaf))
+        } else if !self.alternatives.is_empty() {
+            self.alternatives.iter().all(|t| t.decide(leaf))
+        } else {
+            leaf(self)
+        }
+    }
 }
 
 /// A conditional guard holds on some paths only, so it never restricts the function.
@@ -98,9 +196,35 @@ pub enum GuardScope {
 }
 
 impl GuardFact {
-    /// Only an access check on every path restricts who may call.
+    /// A guard read without its access details.
+    pub fn plain(kind: GuardKind, condition: String, via: Vec<String>, span: Option<SourceSpan>, heuristic: bool, scope: GuardScope) -> Self {
+        let (compared_against, checked_by, role, role_implied_by, account) = (None, None, None, None, None);
+        let (alternatives, conjuncts, negated, ambiguous) = (Vec::new(), Vec::new(), false, false);
+        Self {
+            kind, condition, via, span, heuristic, scope, negated, requires_caller: kind.is_access(), compared_against, checked_by, role,
+            role_implied_by, account, alternatives, conjuncts, ambiguous,
+        }
+    }
+
+    /// Only an access check on every path that must hold restricts who may call.
     pub fn restricts(&self) -> bool {
-        self.kind.is_access() && self.scope == GuardScope::Unconditional
+        self.requires_caller && self.scope == GuardScope::Unconditional
+    }
+
+    /// The guard's own test, its condition being the whole statement.
+    pub fn term(&self) -> GuardTerm {
+        GuardTerm {
+            kind: self.kind,
+            condition: self.condition.clone(),
+            negated: self.negated,
+            compared_against: self.compared_against.clone(),
+            checked_by: self.checked_by.clone(),
+            role: self.role.clone(),
+            role_implied_by: self.role_implied_by.clone(),
+            account: self.account.clone(),
+            alternatives: self.alternatives.clone(),
+            conjuncts: self.conjuncts.clone(),
+        }
     }
 }
 
@@ -143,6 +267,23 @@ impl Caller {
             (Caller::Sender, false) => GuardKind::RoleCheck,
         }
     }
+
+    fn account(self) -> ValueSource {
+        match self {
+            Caller::Sender => ValueSource::MsgSender,
+            Caller::Origin => ValueSource::TxOrigin,
+        }
+    }
+
+    /// A predicate on the caller; without a role argument the predicate itself names the role.
+    fn checked(self, cond: &Expression, holds: bool, checked_by: Option<String>, role: Option<ValueSource>) -> GuardTerm {
+        let role_implied_by = if role.is_none() { checked_by.clone() } else { None };
+        GuardTerm { checked_by, role, role_implied_by, account: Some(self.account()), ..GuardTerm::leaf(self.kind(false), cond, holds) }
+    }
+
+    fn compared(self, cond: &Expression, equal: bool, against: ValueSource) -> GuardTerm {
+        GuardTerm { compared_against: Some(against), account: Some(self.account()), ..GuardTerm::leaf(self.kind(true), cond, equal) }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -156,14 +297,6 @@ fn var_key(name: &str, id: Option<DeclId>) -> VarKey {
         Some(id) => VarKey::Id(id),
         None => VarKey::Name(name.to_string()),
     }
-}
-
-/// A caller test; a role check also names the role and what consults it.
-#[derive(Clone)]
-struct Access {
-    kind: GuardKind,
-    against: Option<ValueSource>,
-    checked_by: Option<String>,
 }
 
 #[derive(Clone)]
@@ -270,7 +403,7 @@ impl<'a> Walker<'a> {
             if p.names.iter().any(|n| set_before.contains(n) && set_after.contains(n)) {
                 let kind = GuardKind::Reentrancy;
                 let (via, span, scope) = (p.via, Some(p.span), p.scope);
-                self.push(GuardFact { kind, condition: p.condition, via, span, heuristic: false, scope, compared_against: None, checked_by: None });
+                self.push(GuardFact::plain(kind, p.condition, via, span, false, scope));
             }
         }
         // any fact read from code, conditional ones too, rules the name out: a false restriction is worse than a gap
@@ -289,7 +422,7 @@ impl<'a> Walker<'a> {
             return;
         };
         let condition = format!("{name} (no code to read; assumed from the name)");
-        self.push(GuardFact { kind, condition, via, span: None, heuristic: true, scope, compared_against: None, checked_by: None });
+        self.push(GuardFact::plain(kind, condition, via, None, true, scope));
     }
 
     fn resolve_modifier(&self, frame: &Frame<'a>, name: &str) -> Option<(&'a ContractDef, &'a ModifierDef)> {
@@ -386,75 +519,74 @@ impl<'a> Walker<'a> {
     /// `holds` is the value `cond` must have for execution to go on.
     fn check(&mut self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, condition: String, span: SourceSpan) {
         let (via, scope) = (frame.via.clone(), frame.scope());
-        if let Some(access) = self.access_kind(frame, cond, holds, 0) {
-            let (kind, compared_against, checked_by) = (access.kind, access.against, access.checked_by);
-            self.push(GuardFact { kind, condition, via, span: Some(span), heuristic: false, scope, compared_against, checked_by });
+        let mut opaque = false;
+        let term = self.term(frame, cond, holds, 0, &mut opaque);
+        if term.has_access() {
+            let requires_caller = term.restricts();
+            let (alternatives, conjuncts) = if opaque { Default::default() } else { (term.alternatives, term.conjuncts) };
+            self.push(GuardFact {
+                negated: term.negated,
+                requires_caller,
+                compared_against: term.compared_against,
+                checked_by: term.checked_by,
+                role: term.role,
+                role_implied_by: term.role_implied_by,
+                account: term.account,
+                alternatives,
+                conjuncts,
+                ambiguous: opaque,
+                ..GuardFact::plain(term.kind, condition, via, Some(span), false, scope)
+            });
             return;
         }
         let names = names_in(cond);
-        let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
-        let kind = if lower.iter().any(|n| n.contains("paused")) {
-            Some(GuardKind::Pause)
-        } else if lower.iter().any(|n| n.contains("initializ")) {
-            Some(GuardKind::Initializer)
-        } else {
-            None
-        };
-        match kind {
-            Some(kind) => {
-                self.push(GuardFact { kind, condition, via, span: Some(span), heuristic: false, scope, compared_against: None, checked_by: None })
-            }
+        match state_kind(&names) {
+            Some(kind) => self.push(GuardFact::plain(kind, condition, via, Some(span), false, scope)),
             None => self.pending.push(Pending { condition, via, span, names, scope }),
         }
     }
 
-    /// Only a caller-dependent test that must hold restricts access; a disjunction only when every disjunct does.
-    fn access_kind(&self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, depth: usize) -> Option<Access> {
-        let compared = |kind: GuardKind, other: &'a Expression| Access { kind, against: Some(self.source(frame, other, 0)), checked_by: None };
+    /// The test `cond` must pass with value `holds`; `opaque` is set when it tests the caller in a way not read here.
+    fn term(&self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, depth: usize, opaque: &mut bool) -> GuardTerm {
+        let compared = |c: Caller, other: &'a Expression, equal: bool| c.compared(cond, equal, self.source(frame, other, 0));
         match &cond.kind {
-            ExpressionKind::UnaryOp { operator: UnaryOperator::Not, operand } => self.access_kind(frame, operand, !holds, depth),
-            ExpressionKind::Tuple { elements } if elements.len() == 1 => {
-                self.access_kind(frame, elements[0].as_ref()?, holds, depth)
-            }
+            ExpressionKind::UnaryOp { operator: UnaryOperator::Not, operand } => self.term(frame, operand, !holds, depth, opaque),
+            ExpressionKind::Tuple { elements } => match elements.as_slice() {
+                [Some(inner)] => self.term(frame, inner, holds, depth, opaque),
+                _ => self.other(frame, cond, holds, opaque),
+            },
             ExpressionKind::BinaryOp { left, operator: op @ (BinaryOperator::And | BinaryOperator::Or), right } => {
-                let (l, r) = (self.access_kind(frame, left, holds, depth), self.access_kind(frame, right, holds, depth));
+                let parts = [self.term(frame, left, holds, depth, opaque), self.term(frame, right, holds, depth, opaque)];
                 // `a && b` holding, or `a || b` failing, needs both sides
-                let both_needed = matches!(op, BinaryOperator::And) == holds;
-                if both_needed { l.or(r) } else { r.and(l) }
+                GuardTerm::compound(matches!(op, BinaryOperator::And) == holds, cond, parts)
             }
             ExpressionKind::BinaryOp { left, operator: op @ (BinaryOperator::Eq | BinaryOperator::Neq), right } => {
                 let equal = matches!(op, BinaryOperator::Eq) == holds;
                 if let Some(b) = bool_literal(right) {
-                    return self.access_kind(frame, left, equal == b, depth);
+                    return self.term(frame, left, equal == b, depth, opaque);
                 }
                 if let Some(b) = bool_literal(left) {
-                    return self.access_kind(frame, right, equal == b, depth);
-                }
-                // only an equality that must hold restricts the caller
-                if !equal {
-                    return None;
+                    return self.term(frame, right, equal == b, depth, opaque);
                 }
                 match (self.caller_of(frame, left), self.caller_of(frame, right)) {
-                    (Some(c), None) if !is_zero(right) => Some(compared(c.kind(true), right)),
-                    (None, Some(c)) if !is_zero(left) => Some(compared(c.kind(true), left)),
+                    (Some(c), None) if !is_zero(right) => compared(c, right, equal),
+                    (None, Some(c)) if !is_zero(left) => compared(c, left, equal),
                     // `tx.origin == msg.sender`: only externally owned accounts
-                    (Some(a), Some(b)) if a != b => {
-                        Some(Access { kind: GuardKind::TxOrigin, against: Some(ValueSource::MsgSender), checked_by: None })
-                    }
-                    _ => None,
+                    (Some(a), Some(b)) if a != b => Caller::Origin.compared(cond, equal, ValueSource::MsgSender),
+                    // a zero address is a sanity check, not a caller check
+                    (Some(_), None) | (None, Some(_)) => GuardTerm::leaf(GuardKind::Condition, cond, holds),
+                    _ => self.other(frame, cond, holds, opaque),
                 }
             }
-            // a test that passes for some callers only when it must be true
-            _ if !holds => None,
             ExpressionKind::FunctionCall { callee, arguments, call, .. } => {
                 let kind = match call {
-                    CallType::Builtin => return None,
+                    CallType::Builtin => return self.other(frame, cond, holds, opaque),
                     CallType::Call(kind) => Some(*kind),
                     CallType::Unknown => None,
                 };
                 // a state-changing call that takes the caller is not a check
                 if !self.is_view_call(frame, callee, kind) {
-                    return None;
+                    return GuardTerm::leaf(GuardKind::Condition, cond, holds);
                 }
                 let args = match kind {
                     Some(kind) => call_arguments(callee, arguments, kind),
@@ -462,28 +594,43 @@ impl<'a> Walker<'a> {
                 };
                 if let Some(c) = args.iter().find_map(|a| self.caller_of(frame, a)) {
                     let role = args.iter().copied().find(|a| self.caller_of(frame, a).is_none());
-                    let against = role.map(|r| self.source(frame, r, 0));
-                    return Some(Access { kind: c.kind(false), against, checked_by: Some(expr_to_string(callee)) });
+                    return c.checked(cond, holds, Some(expr_to_string(callee)), role.map(|r| self.source(frame, r, 0)));
                 }
-                // a boolean helper every return of which is a guard
-                if self.cap(depth + 1) {
-                    return None;
+                // a boolean helper every return of which tests the caller
+                let helper = if self.cap(depth + 1) { None } else { self.callee(frame, callee, arguments, kind) };
+                let Some((inner, func)) = helper else { return self.other(frame, cond, holds, opaque) };
+                let mut inner_opaque = false;
+                let found: Vec<GuardTerm> =
+                    func.returned_values().iter().map(|r| self.term(&inner, r, holds, depth + 1, &mut inner_opaque)).collect();
+                match found.first() {
+                    Some(first) if found.iter().all(GuardTerm::has_access) => {
+                        *opaque |= inner_opaque;
+                        first.clone()
+                    }
+                    _ => self.other(frame, cond, holds, opaque),
                 }
-                let (inner, func) = self.callee(frame, callee, arguments, kind)?;
-                let values = func.returned_values();
-                let found: Vec<Option<Access>> = values.iter().map(|r| self.access_kind(&inner, r, true, depth + 1)).collect();
-                found.iter().all(Option::is_some).then(|| found.into_iter().next().flatten()).flatten()
             }
             ExpressionKind::IndexAccess { .. } => {
                 let mut indexes = Vec::new();
                 index_chain(cond, &mut indexes);
-                let c = indexes.iter().find_map(|i| self.caller_of(frame, i))?;
+                let Some(c) = indexes.iter().find_map(|i| self.caller_of(frame, i)) else { return self.other(frame, cond, holds, opaque) };
                 let role = indexes.iter().copied().find(|i| self.caller_of(frame, i).is_none());
-                Some(Access { kind: c.kind(false), against: role.map(|r| self.source(frame, r, 0)), checked_by: root_name(cond) })
+                c.checked(cond, holds, root_name(cond), role.map(|r| self.source(frame, r, 0)))
             }
-            ExpressionKind::MemberAccess { object, .. } => self.access_kind(frame, object, holds, depth),
-            _ => None,
+            ExpressionKind::MemberAccess { object, .. } => {
+                let inner = self.term(frame, object, holds, depth, opaque);
+                if inner.has_access() { inner } else { self.other(frame, cond, holds, opaque) }
+            }
+            _ => self.other(frame, cond, holds, opaque),
         }
+    }
+
+    /// A flag, or any other test; one that still involves the caller is opaque.
+    fn other(&self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, opaque: &mut bool) -> GuardTerm {
+        let mut caller = false;
+        cond.walk(&mut |e| caller |= self.caller_of(frame, e).is_some());
+        *opaque |= caller;
+        GuardTerm::leaf(state_kind(&names_in(cond)).unwrap_or(GuardKind::Condition), cond, holds)
     }
 
     /// A public state variable's getter counts; unknown callees do not.
@@ -756,6 +903,18 @@ fn index_chain<'e>(expr: &'e Expression, out: &mut Vec<&'e Expression>) {
         }
         ExpressionKind::MemberAccess { object, .. } => index_chain(object, out),
         _ => {}
+    }
+}
+
+/// A pause or initialization flag, by name.
+fn state_kind(names: &BTreeSet<String>) -> Option<GuardKind> {
+    let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+    if lower.iter().any(|n| n.contains("paused")) {
+        Some(GuardKind::Pause)
+    } else if lower.iter().any(|n| n.contains("initializ")) {
+        Some(GuardKind::Initializer)
+    } else {
+        None
     }
 }
 

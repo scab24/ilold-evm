@@ -83,7 +83,7 @@ Counts of where the analysis stopped, and the limits it used. Exported facts nev
 
 `<path>` is the declaring file relative to the git root. A function signature is its name and parameter types: `deposit(uint256)`. Contract types appear by name (`setFeed(IFeed)`). Internal and private functions keep data locations, because overloads may differ only by them: `_sum(uint256[] storage)` and `_sum(uint256[] memory)`. `receive()`, `fallback()` and `constructor(...)` follow the same form. The `selector` field carries the ABI selector where one exists.
 
-Edge ids are `<kind>:<from>#<hash>`, where the hash covers the whole record. Equal facts therefore collapse into one line.
+Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
 
 ## Common fields
 
@@ -153,7 +153,7 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 | `reads`, `writes` | `state_var`, `path` (`balances[]`, `s.x`), `param` (the storage parameter it goes through, then `state_var` is `null`), `via`. |
 | `emits` | `event` (the declaration solc resolved; without an id, the one event with that name, else `null`), `event_text`, `via`. An emit reached through a call yields one edge per event declaration the callee emits under that name. |
 | `reverts` | `reason` (`require(cond)`, `revert Err(args)`, ...), `via`. |
-| `guards` | `guard_kind` (`caller_equals`, `role_check`, `tx_origin`, `access_by_name`, `pause`, `reentrancy`, `initializer`), `condition_text`, `scope` (`unconditional`, `conditional`), `compared_against`, `checked_by` (the function or mapping a role check consults), `heuristic`, `via`. |
+| `guards` | `guard_kind` (`caller_equals`, `role_check`, `tx_origin`, `access_by_name`, `pause`, `reentrancy`, `initializer`), `condition_text`, `scope` (`unconditional`, `conditional`), `restricts`, `negated`, `compared_against` (caller and `tx.origin` comparisons only), `checked_by` (the function or mapping a role check consults), `role` (the role argument), `role_implied_by` (the predicate that names the role when no argument does, as `aclManager.isPoolAdmin` in `aclManager.isPoolAdmin(msg.sender)`), `account` (whose access is checked: `msg_sender`, `tx_origin`), `alternatives`, `conjuncts`, `heuristic`, `via`. See [Guard conditions](#guard-conditions). |
 | `uses_modifier` | `modifier` (its declaration in this context, `null` if none), `name`, `order`. |
 | `builtin_use` | `name`: `ecrecover`, `selfdestruct`, `tx.origin`, `block.timestamp`, `block.number`, `blockhash`, `code.length`, `gasleft`, `msg.value`, `balance`, `block.chainid`, `abi.encodePacked`. |
 | `unchecked_block` | The span of the block. |
@@ -161,17 +161,28 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 
 `call_kind` is `internal`, `internal_library`, `library_delegatecall`, `external`, `external_self`, `low_level_call`, `low_level_delegatecall`, `low_level_staticcall`, `transfer`, `send` or `creation`. Builtins are never calls. A call whose target is unknown, a low-level call to an address included, has `to: null` and tag `AMBIGUOUS`.
 
-`target_source` (the receiver of a call to an address) and `compared_against` (what a guard compares the caller with, or the role it asks for) are one of:
+`target_source` (the receiver of a call to an address), `compared_against` (what a guard compares the caller with), `role` and `account` are one of:
 
 | `kind` | Fields |
 | --- | --- |
 | `state_var`, `immutable`, `constant` | `name`, `id` |
 | `param` | `index`, `name` |
 | `literal` | `text` |
-| `msg_sender` | — |
+| `msg_sender`, `tx_origin` | — |
 | `expression` | `text` |
 
 So `require(msg.sender == owner)` compares against `{kind: "state_var", name: "owner", id: ...}` and `require(msg.sender == to)` against `{kind: "param", index: 0, name: "to"}`.
+
+### Guard conditions
+
+An access guard's condition is split into terms. A term is `{guard_kind, condition_text, negated, compared_against, checked_by, role, role_implied_by, account, alternatives, conjuncts}`, `condition_text` being its part of the condition:
+
+- `alternatives` lists every disjunct of an `||`, `conjuncts` every conjunct of an `&&`, in source order; a chain of the same operator is one list. Each part is itself a term, so a mix of `&&` and `||` is a tree: `require((isA(msg.sender) || msg.sender == owner) && !paused)` has two `conjuncts`, the first with two `alternatives`. Both lists are empty for a single test.
+- A term that is not about the caller has the kind of its flag, `pause` or `initializer`, else `condition`.
+- A compound term, and a compound guard, carry no partial fact: `compared_against`, `checked_by`, `role`, `role_implied_by` and `account` are `null`, the parts carry them. Its `guard_kind` and `negated` come from the part that decides it: in a conjunction the first part that restricts, else the first that denies; in a disjunction the first part about the caller.
+- `negated` is the polarity of the requirement, not of the syntax: `true` when the call must be false to pass. `if (!hasRole(r, msg.sender)) revert` has `negated: false` (a role is required); `require(!isBlacklisted(msg.sender))` has `negated: true`. A negated caller-dependent predicate is a deny-list: it is exported as a guard with `negated: true` and never restricts access. For a term that is not about the caller, `negated` is the same polarity: `!paused` is `{guard_kind: "pause", condition_text: "paused", negated: true}`.
+- `restricts` is `true` when the guard holds on every path (`scope: unconditional`) and every way to pass needs a caller test that must hold. A disjunction one of whose branches lets any caller through, as `require(msg.sender == admin || open)`, is still exported, with `open` as an alternative of kind `condition`, and has `restricts: false`. A deny-list has `restricts: false` too.
+- A guard whose condition also tests the caller in a way the analysis does not read (a comparison of `uint160(msg.sender)`, a ternary) has tag `AMBIGUOUS` and empty `alternatives` and `conjuncts`: `condition_text` holds the whole condition. When the condition is compound, the guard's own `compared_against`, `checked_by`, `role`, `role_implied_by` and `account` are `null` too; `guard_kind`, `negated` and `restricts` still reflect what was read.
 
 ### Spans
 
@@ -180,6 +191,7 @@ A direct fact points at its statement; a read or revert, which the control-flow 
 ## Known gaps
 
 - `dispatch_target` is computed for internal calls only; an external call keeps the interface declaration.
+- A condition that tests the caller only in a way the analysis does not read yields no access guard.
 
 ## Out of v1
 

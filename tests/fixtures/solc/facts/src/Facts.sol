@@ -148,6 +148,80 @@ contract Guards {
         value = 3;
     }
 
+    function isA(address who) public view returns (bool) {
+        return roles[keccak256("A")][who];
+    }
+
+    function isB(address who) public view returns (bool) {
+        return roles[keccak256("B")][who];
+    }
+
+    function eitherRole() external {
+        require(isA(msg.sender) || isB(msg.sender), "either");
+        value = 7;
+    }
+
+    function _msgSender() internal view returns (address) {
+        return msg.sender;
+    }
+
+    function _checkRole(bytes32 role) internal view {
+        _checkRole(role, _msgSender());
+    }
+
+    function _checkRole(bytes32 role, address account) internal view {
+        if (!hasRole(role, account)) revert("account");
+    }
+
+    modifier onlyRoleChecked(bytes32 role) {
+        _checkRole(role);
+        _;
+    }
+
+    function roleViaHelper() external onlyRoleChecked(ADMIN) {
+        value = 8;
+    }
+
+    function originCheck() external {
+        require(tx.origin == owner, "origin");
+        value = 9;
+    }
+
+    bool public paused;
+    mapping(address => bool) public blacklisted;
+
+    function ownerUnpaused() external {
+        require(msg.sender == owner && !paused, "owner, unpaused");
+        value = 10;
+    }
+
+    function roleOrOwnerUnpaused() external {
+        if (!((isA(msg.sender) || msg.sender == owner) && !paused)) revert("nested");
+        value = 11;
+    }
+
+    function notBlacklisted() external {
+        require(!blacklisted[msg.sender], "blacklisted");
+        value = 12;
+    }
+
+    function ifNotRole() external {
+        if (!hasRole(ADMIN, msg.sender)) revert("role");
+        value = 13;
+    }
+
+    bool public open;
+
+    function ownerOrOpen() external {
+        require(msg.sender == owner || open, "closed");
+        value = 15;
+    }
+
+    function unreadable() external {
+        require(hasRole(ADMIN, msg.sender) && uint160(msg.sender) > 7, "opaque");
+        value = 14;
+    }
+
     function deep() external {
         _d1();
         value = 4;
@@ -198,6 +272,11 @@ contract Targets {
 
     function fromSender() external {
         IPool(msg.sender).supply(address(0), 1);
+    }
+
+    function twice() external {
+        pool.supply(address(0), 1);
+        pool.supply(address(0), 1);
     }
 
     function fromExpression(uint256 i) external {

@@ -17,6 +17,7 @@ pub enum ValueSource {
     Param { index: usize, name: String },
     Literal { text: String },
     MsgSender,
+    TxOrigin,
     Expression { text: String },
 }
 

@@ -37,16 +37,7 @@ mod tests {
     use ilold_core::classify::guards::GuardKind;
 
     fn guard(kind: GuardKind, heuristic: bool) -> GuardFact {
-        GuardFact {
-            kind,
-            condition: String::new(),
-            via: Vec::new(),
-            span: None,
-            heuristic,
-            scope: GuardScope::Unconditional,
-            compared_against: None,
-            checked_by: None,
-        }
+        GuardFact::plain(kind, String::new(), Vec::new(), None, heuristic, GuardScope::Unconditional)
     }
 
     #[test]

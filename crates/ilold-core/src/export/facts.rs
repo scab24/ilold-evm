@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use crate::analysis::{function_behavior, overrides_modifiers, ProjectAnalysis};
 use crate::cfg::builder::{modifier_code, CfgBuilder};
 use crate::cfg::types::{CfgGraph, CfgStatement};
-use crate::classify::guards::{GuardFact, GuardScope};
+use crate::classify::guards::{GuardFact, GuardScope, GuardTerm};
 use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::{ContractDef, ContractKind};
 use crate::model::decl_id::{DeclId, DeclKind};
@@ -72,7 +72,8 @@ pub(super) struct Builder<'p> {
     project: &'p Project,
     analysis: &'p ProjectAnalysis,
     ids: Ids<'p>,
-    edges: BTreeMap<String, Value>,
+    /// Distinct facts by id without its occurrence index.
+    edges: BTreeMap<String, Vec<Value>>,
     /// Per function id, its flags in each context.
     flags: BTreeMap<String, BTreeMap<String, Value>>,
     truncation: Truncation,
@@ -157,20 +158,36 @@ impl<'p> Builder<'p> {
                 self.exposes(c);
             }
         }
-        let nodes = self.nodes();
-        Graph { nodes, edges: self.edges, truncation: self.truncation }
+        let edges = self.numbered();
+        let nodes = self.nodes(&edges);
+        Graph { nodes, edges, truncation: self.truncation }
     }
 
-    /// The id hashes the record, so equal facts collapse and distinct ones never collide in practice.
+    /// The hash leaves out the position, so moving other code keeps the id; equal facts collapse.
     fn edge(&mut self, kind: &str, from: &str, mut record: Value, span: Option<SourceSpan>, tag: &str, rule: &str) {
         record["kind"] = Value::from(kind);
+        let hash = digest(record.to_string().as_bytes());
         record["span"] = span.map_or(Value::Null, |s| self.ids.span(s));
         record["tag"] = Value::from(tag);
         record["rule"] = Value::from(rule);
-        let hash = digest(record.to_string().as_bytes());
-        let id = format!("{kind}:{from}#{}", &hash[..16]);
-        record["id"] = Value::from(id.as_str());
-        self.edges.entry(id).or_insert(record);
+        let same = self.edges.entry(format!("{kind}:{from}#{}", &hash[..16])).or_default();
+        if !same.contains(&record) {
+            same.push(record);
+        }
+    }
+
+    /// Facts differing only in position are numbered from 0 in source order.
+    fn numbered(&mut self) -> BTreeMap<String, Value> {
+        let mut edges = BTreeMap::new();
+        for (prefix, mut same) in std::mem::take(&mut self.edges) {
+            same.sort_by_cached_key(|record| (position(&record["span"]), record.to_string()));
+            for (n, mut record) in same.into_iter().enumerate() {
+                let id = format!("{prefix}.{n}");
+                record["id"] = Value::from(id.as_str());
+                edges.insert(id, record);
+            }
+        }
+        edges
     }
 
     fn fact(&mut self, site: &Site, kind: &str, mut record: Value, span: SourceSpan, tag: &str, rule: &str) {
@@ -393,17 +410,35 @@ impl<'p> Builder<'p> {
     }
 
     fn guard(&mut self, site: &Site, func: &FunctionDef, guard: &GuardFact) {
-        let inferred = guard.heuristic || guard.scope == GuardScope::Conditional;
-        let record = json!({
-            "guard_kind": snake(guard.kind),
-            "condition_text": guard.condition,
-            "via": self.via(site.context, &guard.via),
-            "scope": snake(guard.scope),
-            "compared_against": guard.compared_against.as_ref().map(|s| self.source(s)),
-            "checked_by": guard.checked_by,
-            "heuristic": guard.heuristic,
-        });
-        self.fact(site, "guards", record, guard.span.unwrap_or(func.span), if inferred { INFERRED } else { EXTRACTED }, "guards");
+        let tag = if guard.ambiguous {
+            AMBIGUOUS
+        } else if guard.heuristic || guard.scope == GuardScope::Conditional {
+            INFERRED
+        } else {
+            EXTRACTED
+        };
+        let mut record = self.term(&guard.term());
+        record["via"] = Value::from(self.via(site.context, &guard.via));
+        record["scope"] = Value::from(snake(guard.scope));
+        record["restricts"] = Value::from(guard.restricts());
+        record["heuristic"] = Value::from(guard.heuristic);
+        self.fact(site, "guards", record, guard.span.unwrap_or(func.span), tag, "guards");
+    }
+
+    fn term(&self, term: &GuardTerm) -> Value {
+        let source = |s: &Option<ValueSource>| s.as_ref().map(|s| self.source(s));
+        json!({
+            "guard_kind": snake(term.kind),
+            "condition_text": term.condition,
+            "negated": term.negated,
+            "compared_against": source(&term.compared_against),
+            "checked_by": term.checked_by,
+            "role": source(&term.role),
+            "role_implied_by": term.role_implied_by,
+            "account": source(&term.account),
+            "alternatives": term.alternatives.iter().map(|t| self.term(t)).collect::<Vec<_>>(),
+            "conjuncts": term.conjuncts.iter().map(|t| self.term(t)).collect::<Vec<_>>(),
+        })
     }
 
     fn in_modifier(&self, site: &Site, modifier: Option<&str>) -> Vec<Value> {
@@ -478,6 +513,7 @@ impl<'p> Builder<'p> {
             ValueSource::Param { index, name } => json!({"kind": "param", "index": index, "name": name}),
             ValueSource::Literal { text } => json!({"kind": "literal", "text": text}),
             ValueSource::MsgSender => json!({"kind": "msg_sender"}),
+            ValueSource::TxOrigin => json!({"kind": "tx_origin"}),
             ValueSource::Expression { text } => json!({"kind": "expression", "text": text}),
         }
     }
@@ -526,12 +562,12 @@ impl<'p> Builder<'p> {
     }
 
     /// A dependency contract is a stub unless project code inherits it; its other members appear once an edge reaches them.
-    fn nodes(&mut self) -> BTreeMap<String, Value> {
+    fn nodes(&mut self, edges: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
         let project = self.project;
         let inherited: BTreeSet<&str> =
             project.project_contracts().flat_map(|c| project.linearization(c)).filter(|c| c.is_dependency).map(|c| c.key()).collect();
         let mut referenced = BTreeSet::new();
-        for edge in self.edges.values() {
+        for edge in edges.values() {
             collect_ids(edge, &mut referenced);
         }
         referenced.extend(self.flags.keys().cloned());
@@ -615,6 +651,12 @@ impl<'p> Builder<'p> {
         }
         out
     }
+}
+
+fn position(span: &Value) -> (String, [u64; 4]) {
+    let at = |field: &str| span[field].as_u64().unwrap_or_default();
+    let file = span["file"].as_str().unwrap_or_default().to_string();
+    (file, [at("start_line"), at("start_col"), at("end_line"), at("end_col")])
 }
 
 fn collect_ids(value: &Value, out: &mut BTreeSet<String>) {

@@ -150,6 +150,31 @@ fn exit_0_on_a_complete_export_with_guards_calls_and_code_facts() {
     let role = find(&records, "guards", |g| g["function"] == facts_id("Guards.roleViaModifier()"));
     assert_eq!(role["via"], serde_json::json!([facts_id("Guards.onlyRole")]));
     assert_eq!(role["checked_by"], "hasRole");
+    assert_eq!(role["role"], serde_json::json!({"kind": "constant", "name": "ADMIN", "id": facts_id("Guards.ADMIN")}));
+    assert_eq!((&role["account"], &role["role_implied_by"]), (&serde_json::json!({"kind": "msg_sender"}), &Value::Null));
+    assert_eq!((&role["compared_against"], &role["alternatives"]), (&Value::Null, &serde_json::json!([])));
+    let either = find(&records, "guards", |g| g["function"] == facts_id("Guards.eitherRole()"));
+    let implied: Vec<&Value> = either["alternatives"].as_array().unwrap().iter().map(|a| &a["role_implied_by"]).collect();
+    assert_eq!(implied, ["isA", "isB"]);
+    for field in ["checked_by", "role", "role_implied_by", "account", "compared_against"] {
+        assert_eq!(either[field], Value::Null, "{field}: a compound guard leaves it to its parts");
+    }
+    assert_eq!((&either["restricts"], &role["restricts"]), (&Value::from(true), &Value::from(true)));
+    let open = find(&records, "guards", |g| g["function"] == facts_id("Guards.ownerOrOpen()"));
+    assert_eq!((&open["restricts"], &open["guard_kind"], &open["account"]), (&Value::from(false), &Value::from("caller_equals"), &Value::Null));
+    assert_eq!((&open["alternatives"][1]["guard_kind"], &open["alternatives"][1]["condition_text"]), (&Value::from("condition"), &Value::from("open")));
+    let alternative = &either["alternatives"][1];
+    assert_eq!((&alternative["checked_by"], &alternative["role"]), (&Value::from("isB"), &Value::Null));
+    assert_eq!((&alternative["guard_kind"], &alternative["account"]), (&Value::from("role_check"), &serde_json::json!({"kind": "msg_sender"})));
+    let guard_of = |function: &str| find(&records, "guards", |g| g["function"] == facts_id(function));
+    let unpaused = &guard_of("Guards.ownerUnpaused()")["conjuncts"];
+    assert_eq!((&unpaused[1]["guard_kind"], &unpaused[1]["condition_text"], &unpaused[1]["negated"]), (&Value::from("pause"), &Value::from("paused"), &Value::from(true)));
+    assert_eq!(unpaused[0]["conjuncts"], serde_json::json!([]));
+    let deny = guard_of("Guards.notBlacklisted()");
+    assert_eq!((&deny["negated"], &deny["tag"]), (&Value::from(true), &Value::from("EXTRACTED")));
+    let unreadable = guard_of("Guards.unreadable()");
+    assert_eq!((&unreadable["tag"], &unreadable["conjuncts"]), (&Value::from("AMBIGUOUS"), &serde_json::json!([])));
+    assert_eq!(unreadable["condition_text"], "require(hasRole(ADMIN, msg.sender) && uint160(msg.sender) > 7)");
 
     let call = |function: &str| find(&records, "calls", |c| c["from"] == facts_id(function));
     let from_state = call("Targets.fromState()");
@@ -354,16 +379,7 @@ fn ids_are_relative_to_the_git_root_of_a_nested_project() {
     let dir = scratch("git");
     let project = dir.join("repo/contracts/core");
     copy_dir(&fixture("facts"), &project);
-    let git = |args: &[&str]| {
-        let out = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
-            .args(args).current_dir(dir.join("repo")).output().unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    };
-    git(&["init", "-q"]);
-    git(&["add", "."]);
-    git(&["commit", "-q", "-m", "fixture"]);
-    let head = git(&["rev-parse", "HEAD"]);
+    let head = commit_all(&dir.join("repo"));
 
     let out = dir.join("graph.jsonl");
     let run = graph(&project.join("src"), &out, &dir.join("cache"));
@@ -377,6 +393,59 @@ fn ids_are_relative_to_the_git_root_of_a_nested_project() {
     find(&records, "contract", |c| c["id"] == "evm:contracts/core/src/Facts.sol:Guards");
     assert!(records[1..].iter().all(|r| r["span"]["file"].as_str().is_some_and(|f| f.starts_with("contracts/core/"))));
     fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn edge_ids_survive_moving_unrelated_code() {
+    let dir = scratch("moved");
+    let repo = dir.join("repo");
+    copy_dir(&fixture("facts"), &repo);
+    commit_all(&repo);
+    let edge_ids = |name: &str| -> Vec<String> {
+        let out = dir.join(name);
+        let run = graph(&repo, &out, &dir.join("cache"));
+        assert_eq!(run.status.code(), Some(0), "{}", String::from_utf8_lossy(&run.stderr));
+        records(&out)[1..].iter().filter(|r| !is_node(r))
+            .map(|r| r["id"].as_str().unwrap().to_string()).filter(|id| !id.contains("Moved")).collect()
+    };
+    let before = edge_ids("before.jsonl");
+    let source = repo.join("src/Facts.sol");
+    let text = fs::read_to_string(&source).unwrap();
+    let (head, rest) = text.split_once("// Facts a code map").unwrap();
+    fs::write(&source, format!("{head}\n\n\ncontract Moved {{\n    function added() external {{}}\n}}\n\n// Facts a code map{rest}")).unwrap();
+    let after = edge_ids("after.jsonl");
+    assert!(before.len() > 100, "{}", before.len());
+    let changed: Vec<&String> = before.iter().filter(|id| !after.contains(id)).collect();
+    assert!(changed.is_empty() && before.len() == after.len(), "{changed:?}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn identical_calls_in_one_function_get_distinct_ids_ordered_by_position() {
+    let records = export(&fixture("facts"), "twice", 0);
+    let calls: Vec<&Value> = of_kind(&records, "calls").into_iter().filter(|c| c["from"] == facts_id("Targets.twice()")).collect();
+    let ids: Vec<&str> = calls.iter().map(|c| c["id"].as_str().unwrap()).collect();
+    let [first, second] = ids.as_slice() else { panic!("{ids:?}") };
+    let prefix = format!("calls:{}#", facts_id("Targets.twice()"));
+    let hash = |id: &str| id.strip_prefix(&prefix).and_then(|h| h.split_once('.')).map(|(h, n)| (h.to_string(), n.to_string()));
+    let ((h0, n0), (h1, n1)) = (hash(first).unwrap(), hash(second).unwrap());
+    assert!(h0 == h1 && is_hex(&Value::from(h0.as_str()), 16), "{ids:?}");
+    assert_eq!((n0.as_str(), n1.as_str()), ("0", "1"));
+    assert!(calls[0]["span"]["start_line"].as_u64() < calls[1]["span"]["start_line"].as_u64(), "{calls:?}");
+}
+
+/// A git repository at `repo` with everything in it committed; returns HEAD.
+fn commit_all(repo: &Path) -> String {
+    let git = |args: &[&str]| {
+        let out = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args).current_dir(repo).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "fixture"]);
+    git(&["rev-parse", "HEAD"])
 }
 
 fn copy_dir(from: &Path, to: &Path) {

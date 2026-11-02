@@ -7,7 +7,7 @@ use ilold_core::callgraph::builder::build_call_graph;
 use ilold_core::cfg::types::CfgStatement;
 use ilold_core::classify::code_facts::Builtin;
 use ilold_core::classify::entry_points::AccessLevel;
-use ilold_core::classify::guards::{GuardFact, GuardKind, GuardScope};
+use ilold_core::classify::guards::{GuardFact, GuardKind, GuardScope, GuardTerm};
 use ilold_core::model::common::SourceSpan;
 use ilold_core::model::expression::CallKind;
 use ilold_core::model::project::Project;
@@ -167,13 +167,127 @@ fn guards_record_what_the_caller_is_compared_against() {
     assert_eq!(access_guard("Guards", "toCheck").compared_against, Some(ValueSource::Param { index: 0, name: "to".into() }));
     assert_eq!(access_guard("Guards", "viaGetter").compared_against, Some(state("owner", "Guards")), "through the getter");
 
+    assert_eq!(access_guard("Guards", "writeThenCheck").account, Some(ValueSource::MsgSender));
+
     let role = access_guard("Guards", "roleCheck");
     assert_eq!(role.kind, GuardKind::RoleCheck);
+    assert_admin_role(&role);
+}
+
+fn admin() -> ValueSource {
+    ValueSource::Constant { name: "ADMIN".into(), key: Some("src/Facts.sol:Guards::ADMIN".into()) }
+}
+
+fn assert_admin_role(g: &GuardFact) {
+    assert_eq!(g.role, Some(admin()), "{g:?}");
+    assert_eq!(g.account, Some(ValueSource::MsgSender), "{g:?}");
+    assert_eq!(g.checked_by.as_deref(), Some("hasRole"), "{g:?}");
+    assert_eq!((&g.compared_against, &g.role_implied_by), (&None, &None), "{g:?}");
+    assert!(g.alternatives.is_empty(), "{g:?}");
+}
+
+#[test]
+fn a_disjunction_of_role_predicates_lists_every_alternative() {
+    let g = access_guard("Guards", "eitherRole");
+    assert_eq!((g.kind, g.scope), (GuardKind::RoleCheck, GuardScope::Unconditional));
+    let alternatives: Vec<_> = g
+        .alternatives
+        .iter()
+        .map(|a| (a.kind, a.checked_by.as_deref(), a.role.clone(), a.role_implied_by.as_deref(), a.account.clone()))
+        .collect();
+    let sender = Some(ValueSource::MsgSender);
     assert_eq!(
-        role.compared_against,
-        Some(ValueSource::Constant { name: "ADMIN".into(), key: Some("src/Facts.sol:Guards::ADMIN".into()) })
+        alternatives,
+        [
+            (GuardKind::RoleCheck, Some("isA"), None, Some("isA"), sender.clone()),
+            (GuardKind::RoleCheck, Some("isB"), None, Some("isB"), sender.clone()),
+        ]
     );
-    assert_eq!(role.checked_by.as_deref(), Some("hasRole"));
+    assert_no_partial_fact(&g);
+}
+
+/// A compound guard leaves who and what is checked to its parts.
+fn assert_no_partial_fact(g: &GuardFact) {
+    assert_eq!((&g.checked_by, &g.role_implied_by), (&None, &None), "{g:?}");
+    assert_eq!((&g.role, &g.account, &g.compared_against), (&None, &None, &None), "{g:?}");
+}
+
+#[test]
+fn the_account_is_bound_through_helper_parameters_and_msg_sender_helpers() {
+    let g = access_guard("Guards", "roleViaHelper");
+    assert_eq!((g.kind, g.scope), (GuardKind::RoleCheck, GuardScope::Unconditional));
+    assert_admin_role(&g);
+}
+
+/// (kind, condition text, negated) of each term.
+fn terms(terms: &[GuardTerm]) -> Vec<(GuardKind, &str, bool)> {
+    terms.iter().map(|t| (t.kind, t.condition.as_str(), t.negated)).collect()
+}
+
+#[test]
+fn a_conjunction_keeps_every_conjunct_with_its_polarity() {
+    let g = access_guard("Guards", "ownerUnpaused");
+    assert_eq!((g.kind, g.negated, g.ambiguous), (GuardKind::CallerEquals, false, false));
+    assert_eq!(terms(&g.conjuncts), [(GuardKind::CallerEquals, "msg.sender == owner", false), (GuardKind::Pause, "paused", true)]);
+    assert_eq!((&g.conjuncts[0].account, &g.conjuncts[0].compared_against), (&Some(ValueSource::MsgSender), &Some(state("owner", "Guards"))));
+    assert!(g.alternatives.is_empty() && g.restricts(), "{g:?}");
+    assert_no_partial_fact(&g);
+    assert_eq!(access("Guards", "ownerUnpaused"), AccessLevel::Restricted { role: g.condition.clone() });
+}
+
+#[test]
+fn nested_conjunctions_and_disjunctions_form_a_tree() {
+    let g = access_guard("Guards", "roleOrOwnerUnpaused");
+    assert_eq!((g.kind, g.negated), (GuardKind::RoleCheck, false));
+    assert_no_partial_fact(&g);
+    let either = "isA(msg.sender) || msg.sender == owner";
+    assert_eq!(terms(&g.conjuncts), [(GuardKind::RoleCheck, either, false), (GuardKind::Pause, "paused", true)]);
+    let alternatives = &g.conjuncts[0].alternatives;
+    assert_eq!(terms(alternatives), [(GuardKind::RoleCheck, "isA(msg.sender)", false), (GuardKind::CallerEquals, "msg.sender == owner", false)]);
+    assert_eq!(alternatives[0].role_implied_by.as_deref(), Some("isA"));
+    let either = &g.conjuncts[0];
+    assert_eq!((&either.checked_by, &either.role_implied_by, &either.account), (&None, &None, &None), "{either:?}");
+    assert!(g.restricts());
+}
+
+#[test]
+fn a_disjunction_open_to_any_caller_is_a_guard_that_does_not_restrict() {
+    let g = access_guard("Guards", "ownerOrOpen");
+    assert_eq!((g.kind, g.negated, g.scope), (GuardKind::CallerEquals, false, GuardScope::Unconditional));
+    assert_eq!(terms(&g.alternatives), [(GuardKind::CallerEquals, "msg.sender == owner", false), (GuardKind::Condition, "open", false)]);
+    assert_no_partial_fact(&g);
+    assert!(!g.restricts(), "{g:?}");
+    assert_eq!(access("Guards", "ownerOrOpen"), AccessLevel::Public);
+}
+
+#[test]
+fn negated_is_the_polarity_of_the_requirement_and_a_deny_list_never_restricts() {
+    let deny = access_guard("Guards", "notBlacklisted");
+    assert_eq!((deny.kind, deny.negated, deny.checked_by.as_deref()), (GuardKind::RoleCheck, true, Some("blacklisted")));
+    assert_eq!(deny.account, Some(ValueSource::MsgSender));
+    assert!(!deny.restricts());
+    assert_eq!(access("Guards", "notBlacklisted"), AccessLevel::Public);
+
+    let required = access_guard("Guards", "ifNotRole");
+    assert_eq!((required.kind, required.negated), (GuardKind::RoleCheck, false));
+    assert_admin_role(&required);
+    assert!(required.restricts());
+}
+
+#[test]
+fn a_caller_test_the_walk_cannot_read_leaves_the_guard_ambiguous_and_undecomposed() {
+    let g = access_guard("Guards", "unreadable");
+    assert_eq!((g.kind, g.ambiguous), (GuardKind::RoleCheck, true));
+    assert!(g.conjuncts.is_empty() && g.alternatives.is_empty(), "{g:?}");
+    assert_no_partial_fact(&g);
+    assert!(g.restricts(), "the role check still restricts");
+}
+
+#[test]
+fn a_tx_origin_check_names_tx_origin_as_the_account() {
+    let g = access_guard("Guards", "originCheck");
+    assert_eq!(g.kind, GuardKind::TxOrigin);
+    assert_eq!((g.account, g.compared_against), (Some(ValueSource::TxOrigin), Some(state("owner", "Guards"))));
 }
 
 #[test]
@@ -190,11 +304,7 @@ fn a_role_passed_to_a_modifier_is_resolved_to_its_argument() {
     let g = access_guard("Guards", "roleViaModifier");
     assert_eq!((g.kind, g.scope), (GuardKind::RoleCheck, GuardScope::Unconditional));
     assert_eq!(g.via, ["modifier onlyRole"]);
-    assert_eq!(
-        g.compared_against,
-        Some(ValueSource::Constant { name: "ADMIN".into(), key: Some("src/Facts.sol:Guards::ADMIN".into()) })
-    );
-    assert_eq!(g.checked_by.as_deref(), Some("hasRole"));
+    assert_admin_role(&g);
 }
 
 #[test]
