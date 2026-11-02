@@ -198,7 +198,7 @@ async fn cfg_blocks_carry_source_lines() {
 }
 
 #[tokio::test]
-async fn inspection_routes_highlight_only_on_request() {
+async fn reads_never_highlight_and_highlight_is_a_same_origin_post() {
     use ilold_core::exploration::commands::CanvasPatch;
     let (state, port) = ilold_web::start_server(vec![fixture()], 0, 2).await.unwrap();
     let client = reqwest::Client::new();
@@ -206,12 +206,6 @@ async fn inspection_routes_highlight_only_on_request() {
     let call = serde_json::json!({ "contract": "Vault", "command": { "Call": { "func": "deposit" } } });
     assert!(client.post(format!("{base}/cmd")).json(&call).send().await.unwrap().status().is_success());
     let mut rx = state.session_tx.subscribe();
-    let routes = [
-        "session/function/Vault/deposit",
-        "session/trace/Vault/owner",
-        "session/step/0/narrative?contract=Vault",
-        "session/step/0/trace?contract=Vault",
-    ];
     let highlighted = |rx: &mut tokio::sync::broadcast::Receiver<ilold_web::state::SessionBroadcast>| {
         let mut seen = Vec::new();
         while let Ok(update) = rx.try_recv() {
@@ -222,17 +216,42 @@ async fn inspection_routes_highlight_only_on_request() {
         seen
     };
 
-    for route in routes {
+    for route in [
+        "session/function/Vault/deposit",
+        "session/function/Vault/deposit?highlight=true",
+        "session/trace/Vault/owner?highlight=true",
+        "session/step/0/narrative?contract=Vault&highlight=true",
+        "session/step/0/trace?contract=Vault&highlight=true",
+    ] {
         let (status, body) = get(&client, format!("{base}/{route}")).await;
         assert!(status.is_success(), "{route}: {body}");
     }
-    assert_eq!(highlighted(&mut rx), Vec::new(), "plain reads affect no other client");
+    assert_eq!(highlighted(&mut rx), Vec::new(), "reads affect no other client");
 
-    for route in routes {
-        let sep = if route.contains('?') { '&' } else { '?' };
-        let (status, body) = get(&client, format!("{base}/{route}{sep}highlight=true")).await;
-        assert!(status.is_success(), "{route}: {body}");
+    let post = |body: Value| client.post(format!("{base}/session/highlight")).json(&body).send();
+    for body in [
+        serde_json::json!({ "contract": "Vault", "function": "deposit" }),
+        serde_json::json!({ "contract": "Vault", "function": "owner" }),
+        serde_json::json!({ "contract": "Vault", "step": 0 }),
+    ] {
+        let response = post(body.clone()).await.unwrap();
+        assert!(response.status().is_success(), "{body}: {}", response.status());
     }
     let expected = |f: &str| ("Vault".to_string(), "main".to_string(), f.to_string());
-    assert_eq!(highlighted(&mut rx), vec![expected("deposit"), expected("owner"), expected("deposit"), expected("deposit")]);
+    assert_eq!(highlighted(&mut rx), vec![expected("deposit"), expected("owner"), expected("deposit")]);
+
+    for (body, status) in [
+        (serde_json::json!({ "contract": "Vault", "function": "nope" }), 404),
+        (serde_json::json!({ "contract": "Vault", "step": 9 }), 404),
+        (serde_json::json!({ "contract": "Vault" }), 400),
+        (serde_json::json!({ "contract": "Vault", "function": "deposit", "step": 0 }), 400),
+    ] {
+        assert_eq!(post(body.clone()).await.unwrap().status().as_u16(), status, "{body}");
+    }
+    let foreign = client.post(format!("{base}/session/highlight"))
+        .header("Origin", "http://evil.example")
+        .json(&serde_json::json!({ "contract": "Vault", "function": "deposit" }))
+        .send().await.unwrap();
+    assert_eq!(foreign.status().as_u16(), 403);
+    assert_eq!(highlighted(&mut rx), Vec::new());
 }

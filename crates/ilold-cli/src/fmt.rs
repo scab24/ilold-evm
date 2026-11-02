@@ -359,11 +359,7 @@ fn render_entries(entries: &[TimelineEntry], out: &mut String) {
             prev_step = Some(entry.session_step_index);
         }
 
-        let change = if entry.value_expr.is_empty() {
-            "written".to_string()
-        } else {
-            format!("{} {}", entry.operator.as_str(), entry.value_expr)
-        };
+        let change = entry.operator.describe_change(&entry.value_expr);
         let flow_ref = entry.flow_step_id
             .map(|id| format!(" [trace step {}]", id))
             .unwrap_or_default();

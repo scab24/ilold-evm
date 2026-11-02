@@ -117,7 +117,9 @@ pub async fn dispatch(
         "ilold_function_analysis" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/session/function/{}/{}?highlight=true", encode_component(&c), encode_component(&f))).await
+            let result = client.get(&format!("/api/session/function/{}/{}", encode_component(&c), encode_component(&f))).await;
+            highlight(client, &c, &f, &result).await;
+            result
         }
         "ilold_cfg" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
@@ -138,7 +140,7 @@ pub async fn dispatch(
         "ilold_trace" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            let mut q = vec!["highlight=true".to_string()];
+            let mut q = Vec::new();
             if let Some(d) = arg_u64(arguments, "depth") {
                 q.push(format!("depth={d}"));
             }
@@ -148,7 +150,10 @@ pub async fn dispatch(
             if let Some(e) = arg_str(arguments, "expand") {
                 q.push(format!("expand={}", encode_component(&e)));
             }
-            client.get(&format!("/api/session/trace/{}/{}?{}", encode_component(&c), encode_component(&f), q.join("&"))).await
+            let query = if q.is_empty() { String::new() } else { format!("?{}", q.join("&")) };
+            let result = client.get(&format!("/api/session/trace/{}/{}{query}", encode_component(&c), encode_component(&f))).await;
+            highlight(client, &c, &f, &result).await;
+            result
         }
         "ilold_entry_points" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
@@ -256,6 +261,13 @@ pub async fn dispatch(
             None => ok_result(value),
         },
         Err(err) => error_result(err.to_string()),
+    }
+}
+
+// the analysis is the answer; selecting the function on open canvases is best effort
+async fn highlight<T, E>(client: &IloldClient, contract: &str, function: &str, read: &Result<T, E>) {
+    if read.is_ok() {
+        client.post("/api/session/highlight", json!({ "contract": contract, "function": function })).await.ok();
     }
 }
 

@@ -23,7 +23,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 ## Tool conventions
 
 - Tool names are prefixed `ilold_`.
-- Analysis tools (orientation, structure, function, dataflow, sequence) do not change the analysis or any session's steps, and the same call on the same server returns the same result. Their side effects: `ilold_entry_points` and `ilold_who_touches` go through `POST /api/cmd`, so the contract they name becomes the server's current contract, and `ilold_function_analysis` and `ilold_trace` ask the server to highlight the function on the canvas (`?highlight=true`).
+- Analysis tools (orientation, structure, function, dataflow, sequence) do not change the analysis or any session's steps, and the same call on the same server returns the same result. Their side effects: `ilold_entry_points` and `ilold_who_touches` go through `POST /api/cmd`, so the contract they name becomes the server's current contract, and `ilold_function_analysis` and `ilold_trace` ask the server to highlight the function on the canvas (`POST /api/session/highlight` after the read succeeds).
 - Session and findings tools mutate the active session. They operate on the contract set by `ilold_use`.
 - Responses are shaped for context economy: overviews return names and counts and detail tools return one contract or one function. Nothing is summarized by a model: long lists are paged (`ilold_function_paths`, `ilold_sequences` take `offset` and `limit`), `ilold_function_analysis` narrates the first 100 paths and counts the rest in `paths_omitted`, and `ilold_trace` inlines calls down to `depth`. `ilold_project_map` and `ilold_callgraph` are returned whole and grow with the project.
 

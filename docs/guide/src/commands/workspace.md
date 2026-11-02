@@ -46,6 +46,10 @@ scenarios; if the file belongs to another contract the REPL switches to it.
 Opens the web UI. ilold starts an API server on startup; `browser` provides the URL.
 The server listens on 127.0.0.1 unless `ilold explore` gets `--host <addr>`;
 `--host 0.0.0.0` exposes the API and the embedded terminal to the network.
+Only pages served by ilold itself can drive the server from a browser, and
+requests must address it by `localhost`, a loopback address, the `--host` address
+or, when bound to `0.0.0.0`, the machine's interface address; see
+[Security](../reference/api-endpoints.md#security).
 
 ```
 ilold[Staking]> browser

@@ -198,7 +198,7 @@ impl ExplorationSession {
                     Some(chain) => format!(" via {}", chain),
                     None => String::new(),
                 };
-                let change = if m.value_expr.is_empty() { "written".to_string() } else { format!("{} {}", m.operator.as_str(), m.value_expr) };
+                let change = m.operator.describe_change(&m.value_expr);
                 format!("{change} ({step_ref}, {func}{suffix})")
             }).collect();
 

@@ -158,11 +158,12 @@ async fn highlight_names_the_resolved_overload_by_key() {
     use ilold_core::exploration::commands::CanvasPatch;
     let (state, port) = ilold_web::start_server(vec![fixture()], 0, 2).await.unwrap();
     let client = reqwest::Client::new();
-    let base = format!("http://127.0.0.1:{port}/api/session");
+    let url = format!("http://127.0.0.1:{port}/api/session/highlight");
     let mut rx = state.session_tx.subscribe();
-    for route in ["function/Over/put(uint256,%20bool)", "trace/Over/put(address)", "trace/Over/put"] {
-        let (status, body) = get(&client, format!("{base}/{route}?highlight=true")).await;
-        assert!(status.is_success(), "{route}: {body}");
+    for function in ["put(uint256, bool)", "put(address)", "put"] {
+        let body = serde_json::json!({ "contract": "Over", "function": function });
+        let response = client.post(&url).json(&body).send().await.unwrap();
+        assert!(response.status().is_success(), "{function}: {}", response.status());
     }
     let mut seen = Vec::new();
     while let Ok(update) = rx.try_recv() {

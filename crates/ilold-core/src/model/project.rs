@@ -22,7 +22,7 @@ pub struct Project {
     pub decl_table: DeclTable,
     #[serde(default)]
     pub warnings: Vec<String>,
-    /// The configured test and script directories, relative to the project root.
+    /// Lets the default contract skip Foundry test and script directories.
     #[serde(default)]
     pub test_dirs: Vec<String>,
 }
@@ -397,7 +397,7 @@ impl Project {
 const AUXILIARY_DIRS: &[&str] = &["mock", "mocks", "test", "tests", "harness", "harnesses", "script", "scripts"];
 
 /// Non-auxiliary contracts first, then deployable ones, then the most derived one (most ancestors), ties by name.
-pub fn pick_default_contract<'a>(
+fn pick_default_contract<'a>(
     candidates: impl IntoIterator<Item = (&'a str, ContractKind, &'a [String], bool)>,
 ) -> Option<&'a str> {
     let candidates: Vec<(&str, ContractKind, &[String], bool)> = candidates

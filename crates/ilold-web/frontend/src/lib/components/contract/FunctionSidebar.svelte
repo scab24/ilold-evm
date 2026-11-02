@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
   import { visibilityLabel } from '$lib/utils/visibility';
-  import { formatAccess } from '$lib/utils/access';
+  import { describeGuard, formatAccess, isAccessGuard } from '$lib/utils/access';
 
   let {
     contract,
@@ -30,19 +30,21 @@
     key: string;
     visibility: string;
     path_count: number;
-    modifiers: string[];
     guarded: string | null;
+    stateGuarded: string | null;
     source: 'own' | 'inherited';
   };
   function toRow(f: FunctionSummary, source: Row['source']): Row {
-    const restricted = typeof f.access === 'object' || f.guards.length > 0;
+    const accessGuards = f.guards.filter(isAccessGuard);
+    const stateGuards = f.guards.filter((g) => !isAccessGuard(g));
+    const restricted = (typeof f.access === 'object' && 'Restricted' in f.access) || accessGuards.length > 0;
     return {
       name: f.name,
       key: f.key,
       visibility: f.visibility,
       path_count: f.path_count,
-      modifiers: f.modifiers ?? [],
-      guarded: restricted ? [formatAccess(f.access), ...f.guards.map((g) => `${g.kind}: ${g.condition}`)].join('\n') : null,
+      guarded: restricted ? [formatAccess(f.access), ...accessGuards.map(describeGuard)].join('\n') : null,
+      stateGuarded: stateGuards.length > 0 ? stateGuards.map(describeGuard).join('\n') : null,
       source,
     };
   }
@@ -55,7 +57,7 @@
     const q = query.trim().toLowerCase();
     return allRows.filter((r) => {
       if (!visFilter.has(r.visibility as Visibility)) return false;
-      if (onlyAccessControl && r.modifiers.length === 0 && !r.guarded) return false;
+      if (onlyAccessControl && !r.guarded) return false;
       if (q && !r.name.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -146,7 +148,7 @@
         class="chip"
         class:active={onlyAccessControl}
         onclick={() => onlyAccessControl = !onlyAccessControl}
-        title="Only access-controlled functions (guards or modifiers)"
+        title="Only access-controlled functions (caller or role checks)"
         aria-pressed={onlyAccessControl}
       >🔒</button>
       {#if canClear}
@@ -208,8 +210,11 @@
     >
       <span class="row-name" title={row.key}>{row.name}{#if row.key !== row.name}<span class="row-sig">{row.key.slice(row.name.length)}</span>{/if}</span>
       <span class="row-vis {visShort(row.visibility)}">{visShort(row.visibility)}</span>
-      {#if row.guarded || row.modifiers.length > 0}
-        <span class="row-lock" title={row.guarded ?? row.modifiers.join(', ')}>🔒</span>
+      {#if row.guarded}
+        <span class="row-lock" title={row.guarded}>🔒</span>
+      {/if}
+      {#if row.stateGuarded}
+        <span class="row-lock" title={row.stateGuarded}>🚦</span>
       {/if}
       <span class="row-paths">{row.path_count}p</span>
     </button>

@@ -784,8 +784,11 @@ fn handle_input(
                 eprintln!("  {}", c_danger(&format!("info takes one function name; unexpected: '{extra}'")));
                 return InputResult::Continue;
             }
-            match send_get(handle, client, &format!("{base_url}/api/session/function/{}/{}?highlight=true", enc(contract), enc(arg))) {
-                Ok(val) => print_narrative(&val),
+            match send_get(handle, client, &format!("{base_url}/api/session/function/{}/{}", enc(contract), enc(arg))) {
+                Ok(val) => {
+                    highlight(handle, client, base_url, serde_json::json!({ "contract": contract, "function": arg }));
+                    print_narrative(&val);
+                }
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
             InputResult::Continue
@@ -803,8 +806,11 @@ fn handle_input(
                     return InputResult::Continue;
                 }
             };
-            let url = match &parsed.target {
-                TraceTarget::Function(func_name) => function_trace_url(base_url, contract, func_name, &parsed),
+            let (url, target) = match &parsed.target {
+                TraceTarget::Function(func_name) => (
+                    function_trace_url(base_url, contract, func_name, &parsed),
+                    serde_json::json!({ "contract": contract, "function": func_name }),
+                ),
                 TraceTarget::SessionStep(idx) => {
                     if let Err(e) = check_step_index(*idx, steps) {
                         eprintln!("  {}", c_danger(&e));
@@ -814,15 +820,22 @@ fn handle_input(
                         // the persisted trace has a fixed shape, so flags rebuild it from the function
                         let func_name = &steps[*idx];
                         println!("  {}", c_muted(&format!("step {idx} ({func_name}) rebuilt with the given flags")));
-                        function_trace_url(base_url, contract, func_name, &parsed)
+                        (
+                            function_trace_url(base_url, contract, func_name, &parsed),
+                            serde_json::json!({ "contract": contract, "function": func_name }),
+                        )
                     } else {
-                        format!("{base_url}/api/session/step/{idx}/trace?contract={}&highlight=true", enc(contract))
+                        (
+                            format!("{base_url}/api/session/step/{idx}/trace?contract={}", enc(contract)),
+                            serde_json::json!({ "contract": contract, "step": idx }),
+                        )
                     }
                 }
             };
             match send_get(handle, client, &url) {
                 Ok(val) => match serde_json::from_value::<ilold_core::narrative::trace::FlowTree>(val) {
                     Ok(tree) => {
+                        highlight(handle, client, base_url, target);
                         if parsed.interactive {
                             if let Err(e) = crate::interactive::run_trace_viewer(tree) {
                                 eprintln!("  {} interactive viewer: {}", c_danger("✗"), e);
@@ -917,8 +930,11 @@ fn handle_input(
                     return InputResult::Continue;
                 }
             };
-            match send_get(handle, client, &format!("{base_url}/api/session/step/{idx}/narrative?contract={}&highlight=true", enc(contract))) {
-                Ok(val) => print_narrative(&val),
+            match send_get(handle, client, &format!("{base_url}/api/session/step/{idx}/narrative?contract={}", enc(contract))) {
+                Ok(val) => {
+                    highlight(handle, client, base_url, serde_json::json!({ "contract": contract, "step": idx }));
+                    print_narrative(&val);
+                }
                 Err(e) => eprintln!("  {}", c_danger(&e)),
             }
             InputResult::Continue
@@ -1060,6 +1076,11 @@ fn send_command(
     serde_json::from_value(value).map_err(|e| format!("Parse failed: {e}"))
 }
 
+// the answer is already shown; selecting it on open canvases is best effort
+fn highlight(handle: &tokio::runtime::Handle, client: &reqwest::Client, base_url: &str, target: serde_json::Value) {
+    handle.block_on(json_body(client.post(format!("{base_url}/api/session/highlight")).json(&target))).ok();
+}
+
 fn send_get(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
@@ -1182,7 +1203,7 @@ fn parse_trace_args(arg: &str) -> Result<TraceArgs, String> {
 
 fn function_trace_url(base_url: &str, contract: &str, func_name: &str, parsed: &TraceArgs) -> String {
     let mut url = format!("{base_url}/api/session/trace/{}/{}", enc(contract), enc(func_name));
-    let mut params: Vec<String> = vec!["highlight=true".into()];
+    let mut params: Vec<String> = Vec::new();
     if let Some(d) = parsed.depth.or(if parsed.interactive { Some(4) } else { None }) {
         params.push(format!("depth={d}"));
     }
@@ -1193,8 +1214,10 @@ fn function_trace_url(base_url: &str, contract: &str, func_name: &str, parsed: &
         let csv = parsed.expand.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
         params.push(format!("expand={csv}"));
     }
-    url.push('?');
-    url.push_str(&params.join("&"));
+    if !params.is_empty() {
+        url.push('?');
+        url.push_str(&params.join("&"));
+    }
     url
 }
 
@@ -2500,14 +2523,14 @@ mod tests {
     #[test]
     fn function_trace_url_encodes_flags() {
         let t = trace("f --depth 3 --reverts +1 +2").unwrap();
-        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?highlight=true&depth=3&reverts=true&expand=1,2");
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?depth=3&reverts=true&expand=1,2");
         let t = trace("f -i").unwrap();
-        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?highlight=true&depth=4");
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?depth=4");
         let t = trace("f").unwrap();
-        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f?highlight=true");
+        assert_eq!(function_trace_url("http://h", "C", "f", &t), "http://h/api/session/trace/C/f");
         assert_eq!(
             function_trace_url("http://h", "src/a b.sol:A", "f(uint256[] storage)", &t),
-            "http://h/api/session/trace/src%2Fa%20b.sol:A/f(uint256%5B%5D%20storage)?highlight=true",
+            "http://h/api/session/trace/src%2Fa%20b.sol:A/f(uint256%5B%5D%20storage)",
         );
     }
 

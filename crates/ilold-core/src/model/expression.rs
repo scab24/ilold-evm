@@ -280,6 +280,11 @@ impl AssignOperator {
             AssignOperator::Unknown => "<?>=",
         }
     }
+
+    /// Writes made through a call have no value expression to show.
+    pub fn describe_change(self, value_expr: &str) -> String {
+        if value_expr.is_empty() { "written".to_string() } else { format!("{} {}", self.as_str(), value_expr) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

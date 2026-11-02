@@ -62,20 +62,6 @@ pub struct ContractQuery {
     pub contract: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub struct HighlightQuery {
-    #[serde(default)]
-    pub highlight: bool,
-}
-
-#[derive(Deserialize)]
-pub struct StepQuery {
-    #[serde(default)]
-    pub contract: Option<String>,
-    #[serde(default)]
-    pub highlight: bool,
-}
-
 /// Does not change ownership; a contract with no store yet reads as an empty one.
 fn read_store<R>(
     state: &AppState,
@@ -96,19 +82,48 @@ fn broadcast(state: &AppState, contract: &str, patch: Option<CanvasPatch>) {
     }
 }
 
-/// Only on `?highlight=true`, so a plain read has no effect on other clients.
-fn highlight(state: &AppState, contract: &str, function: &str) {
-    let scenario = state.scenarios.read().unwrap()
-        .store(contract)
-        .map_or(DEFAULT_SCENARIO.to_string(), |s| s.active().to_string());
-    broadcast(state, contract, Some(CanvasPatch::Highlight { scenario, function: function.to_string() }));
+#[derive(Deserialize)]
+pub struct HighlightRequest {
+    #[serde(default)]
+    pub contract: Option<String>,
+    #[serde(default)]
+    pub function: Option<String>,
+    #[serde(default)]
+    pub step: Option<usize>,
 }
 
-// canvases and steps name an overload by its key, not by the query that selected it
-fn highlight_function(state: &AppState, data: &AnalysisData, query: &str) {
-    if let Some((_, function)) = data.project.resolve_function(data.contract, query) {
-        highlight(state, data.contract.key(), &data.project.route_key(data.contract, function));
-    }
+#[derive(Serialize)]
+pub struct Highlighted {
+    pub contract: String,
+    pub function: String,
+}
+
+// a POST, so other sites cannot select functions on open canvases
+pub async fn post_highlight(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<HighlightRequest>,
+) -> Result<Json<Highlighted>, ApiError> {
+    let (contract, function) = match (request.function, request.step) {
+        (Some(query), None) => {
+            let contract = resolve_contract(&state, request.contract.as_deref())?;
+            let data = build_analysis_data(&state, &contract)?;
+            let (_, function) = data.project.resolve_function(data.contract, &query)
+                .ok_or((StatusCode::NOT_FOUND, format!("function '{query}' not found in {contract}")))?;
+            // canvases and steps name an overload by its key, not by the query that selected it
+            (data.contract.key().to_string(), data.project.route_key(data.contract, function))
+        }
+        (None, Some(index)) => read_store(&state, request.contract.as_deref(), |store| {
+            let step = store.active_session().steps.get(index)
+                .ok_or((StatusCode::NOT_FOUND, format!("step {index} not found")))?;
+            Ok((store.contract.clone(), step.function.clone()))
+        })?,
+        _ => return Err((StatusCode::BAD_REQUEST, "name either a function or a step".to_string()).into()),
+    };
+    let scenario = state.scenarios.read().unwrap()
+        .store(&contract)
+        .map_or(DEFAULT_SCENARIO.to_string(), |s| s.active().to_string());
+    broadcast(&state, &contract, Some(CanvasPatch::Highlight { scenario, function: function.clone() }));
+    Ok(Json(Highlighted { contract, function }))
 }
 
 fn timestamp_now() -> String {
@@ -279,35 +294,26 @@ pub async fn handle_command(
 pub async fn get_step_detail(
     State(state): State<Arc<AppState>>,
     Path(step_index): Path<usize>,
-    Query(query): Query<StepQuery>,
+    Query(query): Query<ContractQuery>,
 ) -> Result<Json<FunctionNarrative>, ApiError> {
-    let (narrative, contract, function) = read_store(&state, query.contract.as_deref(), |store| {
-        let session = store.active_session();
+    read_store(&state, query.contract.as_deref(), |store| {
         let data = build_analysis_data(&state, &store.contract)?;
-        let narrative = get_step_narrative(session, step_index, &data, MAX_NARRATIVE_PATHS)
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-        Ok((narrative, store.contract.clone(), session.steps[step_index].function.clone()))
-    })?;
-    if query.highlight {
-        highlight(&state, &contract, &function);
-    }
-    Ok(Json(narrative))
+        get_step_narrative(store.active_session(), step_index, &data, MAX_NARRATIVE_PATHS)
+            .map(Json)
+            .map_err(|e| (StatusCode::NOT_FOUND, e).into())
+    })
 }
 
 pub async fn get_session_step_trace(
     State(state): State<Arc<AppState>>,
     Path(step_index): Path<usize>,
-    Query(query): Query<StepQuery>,
+    Query(query): Query<ContractQuery>,
 ) -> Result<Json<FlowTree>, ApiError> {
-    let (tree, contract, function) = read_store(&state, query.contract.as_deref(), |store| {
+    read_store(&state, query.contract.as_deref(), |store| {
         let step = store.active_session().steps.get(step_index)
             .ok_or((StatusCode::NOT_FOUND, format!("step {} not found", step_index)))?;
-        Ok((step_trace(step, step_index)?, store.contract.clone(), step.function.clone()))
-    })?;
-    if query.highlight {
-        highlight(&state, &contract, &function);
-    }
-    Ok(Json(tree))
+        step_trace(step, step_index).map(Json)
+    })
 }
 
 fn step_trace(step: &ExplorationStep, step_index: usize) -> Result<FlowTree, ApiError> {
@@ -358,15 +364,11 @@ pub async fn get_sequence_detail(
 pub async fn get_function_detail(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-    Query(query): Query<HighlightQuery>,
 ) -> Result<Json<FunctionNarrative>, ApiError> {
     let data = build_analysis_data(&state, &contract_name)?;
-    let narrative = get_function_info(&func_name, &data, MAX_NARRATIVE_PATHS)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    if query.highlight {
-        highlight_function(&state, &data, &func_name);
-    }
-    Ok(Json(narrative))
+    get_function_info(&func_name, &data, MAX_NARRATIVE_PATHS)
+        .map(Json)
+        .map_err(|e| (StatusCode::NOT_FOUND, e).into())
 }
 
 /// The path pages hold every path.
@@ -380,8 +382,6 @@ pub struct TraceQuery {
     pub reverts: Option<bool>,
     #[serde(default)]
     pub expand: Option<String>,
-    #[serde(default)]
-    pub highlight: bool,
 }
 
 pub async fn get_flow_trace(
@@ -396,12 +396,9 @@ pub async fn get_flow_trace(
     let expand_set = parse_expand_set(params.expand.as_deref())
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    let tree = get_flow_tree(&func_name, &data, max_depth, include_reverts, expand_set)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    if params.highlight {
-        highlight_function(&state, &data, &func_name);
-    }
-    Ok(Json(tree))
+    get_flow_tree(&func_name, &data, max_depth, include_reverts, expand_set)
+        .map(Json)
+        .map_err(|e| (StatusCode::NOT_FOUND, e).into())
 }
 
 #[derive(Deserialize)]

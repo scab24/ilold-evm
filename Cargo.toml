@@ -22,7 +22,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
-tower-http = { version = "0.6", features = ["cors", "fs"] }
+tower-http = { version = "0.6", features = ["fs"] }
 rmcp = { version = "1.6", features = ["server", "transport-io"] }
 
 [profile.release]

@@ -255,7 +255,6 @@ pub struct AppState {
     pub annotations: RwLock<Vec<Annotation>>,
     pub scenarios: RwLock<ScenarioRegistry>,
     pub session_tx: broadcast::Sender<SessionBroadcast>,
-    /// The listener's bound address.
     pub addr: std::net::SocketAddr,
     pub contract_path: PathBuf,
 }

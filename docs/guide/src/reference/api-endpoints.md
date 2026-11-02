@@ -2,6 +2,23 @@
 
 ilold exposes an HTTP API on the server port: `ilold serve --port` (default 8080), or a free port `ilold explore` picks and prints. Both listen on 127.0.0.1 unless `--host <addr>` says otherwise; `--host 0.0.0.0` exposes the API, including `/ws/pty`, to the network. Endpoints return JSON except `/ws` and `/ws/pty`. The API is split into the command bus, session queries, contract queries, annotations and WebSockets.
 
+## Security
+
+Every request, WebSockets included, must pass these checks or it gets `403 Forbidden`:
+
+- **Host** (against DNS rebinding): the `Host` header must carry the server port and name `localhost`, a loopback address (`127.0.0.1`, `[::1]`) or the `--host` address. With `--host 0.0.0.0` or `--host ::` it may also name the interface address the connection arrived on, for example `http://192.168.1.5:8080` from another machine. Host names other than `localhost` are refused, so reach a remote server by IP address.
+- **Origin** (against cross-site requests): a request without an `Origin` header (the REPL, the MCP server, curl) passes; a browser request passes only when its `Origin` is the server itself (scheme `http` or `https` and the same host and port as `Host`). Other pages cannot open `/ws/pty`, post to `/api/cmd` or change annotations.
+- **Sec-Fetch-Site** (against cross-site reads such as `<img>` or `<script>`, which carry no `Origin`): `cross-site` and `same-site` are refused; `same-origin`, `none` (a typed URL or bookmark) and a missing header (non-browser clients) pass.
+
+`GET` routes only read: they never change sessions, notify other clients or start processes. The one exception is the `/ws/pty` WebSocket upgrade, which must be a `GET` and starts the embedded terminal's REPL only after the checks above.
+
+The API sends no CORS headers; the web UI is served from the same origin. In frontend development, the Vite dev server proxies `/api` and `/ws` to port 8080 with the backend's own `Host`; start the backend with `ILOLD_DEV_ORIGIN` naming the dev page so its `Origin` is accepted:
+
+```
+ILOLD_DEV_ORIGIN=http://localhost:5173 ilold serve <path> --port 8080
+cd crates/ilold-web/frontend && npm run dev
+```
+
 ## Command bus
 
 ### POST /api/cmd
@@ -76,7 +93,7 @@ Returns the function narrative for a specific session step.
 
 **Path params:** `index` -- zero-based step index.
 
-**Response:** `FunctionNarrative` with paths, state writes, external calls, and conditions; paths are capped as in `GET /api/session/function/{contract}/{func}`. With `?highlight=true` it also [highlights](#get-ws) the step's function.
+**Response:** `FunctionNarrative` with paths, state writes, external calls, and conditions; paths are capped as in `GET /api/session/function/{contract}/{func}`.
 
 ### GET /api/session/step/{index}/trace
 
@@ -84,7 +101,7 @@ Returns the persisted FlowTree of a session step. This is the tree captured when
 
 **Path params:** `index` -- zero-based step index.
 
-**Response:** `FlowTree` with step nodes, each containing operation type, target, conditions, and child steps. Returns 404 if the step has no persisted tree (sessions saved without one). With `?highlight=true` it also [highlights](#get-ws) the step's function.
+**Response:** `FlowTree` with step nodes, each containing operation type, target, conditions, and child steps. Returns 404 if the step has no persisted tree (sessions saved without one).
 
 ### GET /api/session/timeline/{variable}
 
@@ -122,7 +139,6 @@ Returns a FlowTree for the given function, computed on demand from the current a
 | `depth` | integer | 2 | Maximum inline depth for internal calls |
 | `reverts` | boolean | false | Include revert paths in the tree |
 | `expand` | string | empty | Comma-separated step IDs to force-inline beyond max depth (e.g., `17,24`) |
-| `highlight` | boolean | false | Also [highlight](#get-ws) the function on canvases showing the contract |
 
 **Response:** `FlowTree` with nested step nodes representing the execution flow, and `path_stats` (see [Path stats](#path-stats)) for the traced function.
 
@@ -132,7 +148,15 @@ Returns a function narrative without requiring a session step. Useful for inspec
 
 **Path params:** `contract` -- contract name (404 unknown, 409 ambiguous), `func` -- function name.
 
-**Response:** `FunctionNarrative` with paths, state effects, and behavioral summary. `path_stats` holds the [path stats](#path-stats); the response narrates at most the first 100 paths step by step and `paths_omitted` counts the rest (every path is in `GET /api/contract/{name}/{func}/paths`). With `?highlight=true` the function is also [highlighted](#get-ws) on canvases showing the contract.
+**Response:** `FunctionNarrative` with paths, state effects, and behavioral summary. `path_stats` holds the [path stats](#path-stats); the response narrates at most the first 100 paths step by step and `paths_omitted` counts the rest (every path is in `GET /api/contract/{name}/{func}/paths`).
+
+### POST /api/session/highlight
+
+Selects a function on every canvas showing the contract, through a `session_highlight` [WebSocket](#get-ws) message. The REPL's `info`, `trace` and `step` and the MCP's `ilold_function_analysis` and `ilold_trace` send it after a successful read; the reads themselves never affect other clients.
+
+**Request body:** `{"contract": "Vault", "function": "deposit"}` or `{"contract": "Vault", "step": 0}`. `contract` is optional (the current contract) and goes in the body, not the query; give exactly one of `function` (name or signature, inherited functions included) and `step` (an index into the contract's active scenario).
+
+**Response:** `{"contract": ..., "function": ...}` with the contract key and the function's key (its name, or its signature when the name is overloaded). 400 without exactly one target, 404 for an unknown function or step.
 
 ## Contract query endpoints
 
@@ -246,14 +270,14 @@ Upgrades to a WebSocket connection. The server pushes JSON messages when session
 - `session_add_node`: a step was added (scenario, function, access level, step index)
 - `session_remove_node`: the last step was removed
 - `session_clear`: all steps were cleared
-- `session_highlight`: a client inspected `function` (scenario, and the function's key: its name, or its signature when the name is overloaded) through `GET /api/session/function`, `/api/session/trace` or a step's narrative or trace with `?highlight=true` (the REPL's `info`, `trace` and `step`, the MCP's `ilold_function_analysis` and `ilold_trace`); canvases showing the contract select it. Without the parameter these reads affect no other client; the web UI's own reads never pass it
+- `session_highlight`: a client asked to show `function` (scenario, and the function's key: its name, or its signature when the name is overloaded) through [`POST /api/session/highlight`](#post-apisessionhighlight); canvases showing the contract select it
 - `scenario_created`, `scenario_switched`, `scenario_deleted`, `scenario_forked`, `scenario_store_reloaded`: scenario lifecycle events
 - `search_result`, then `search_complete` with `total` and `truncated`: the answer to a `{"type": "search", "query": ..., "contract": ..., "function": ...}` message (`contract` and `function` optional) streams the first 100 matching paths, `total` counts every match. Each result names the `function` as its declaring contract keys it and the `key` to use as `{func}` for the result's `contract`. With `contract`, the search covers the functions it runs, inherited ones included, and reports them under that contract; an unknown or ambiguous `contract` gets an `error` message instead
 - `session_resync` (no `contract`): the client fell behind and messages were dropped; refetch the session with `GET /api/scenarios/all?contract=<name>`
 
 ### GET /ws/pty
 
-Upgrades to a WebSocket bridged to an `ilold explore --attach` REPL, which is used by the embedded terminal. The optional `?contract=<name>` parameter starts the REPL on that contract (it must exist, otherwise the socket reports an error and closes).
+Upgrades to a WebSocket bridged to an `ilold explore --attach` REPL, which is used by the embedded terminal. A request from another origin is refused before any REPL starts (see [Security](#security)). The optional `?contract=<name>` parameter starts the REPL on that contract (it must exist, otherwise the socket reports an error and closes).
 
 ## Related pages
 

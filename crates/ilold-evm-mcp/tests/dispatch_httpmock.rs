@@ -65,6 +65,10 @@ async fn unknown_tool_errors() {
     assert_eq!(res.is_error, Some(true));
 }
 
+fn no_highlight_query(req: &httpmock::prelude::HttpMockRequest) -> bool {
+    req.query_params.iter().flatten().all(|(name, _)| name != "highlight")
+}
+
 #[tokio::test]
 async fn p2_get_tools_route_to_endpoints() {
     let server = MockServer::start();
@@ -73,15 +77,19 @@ async fn p2_get_tools_route_to_endpoints() {
         t.status(200).json_body(json!({}));
     });
     let narrative = server.mock(|w, t| {
-        w.method(GET).path("/api/session/function/Vault/deposit").query_param("highlight", "true");
+        w.method(GET).path("/api/session/function/Vault/deposit").matches(no_highlight_query);
         t.status(200).json_body(json!({}));
     });
     let trace = server.mock(|w, t| {
         w.method(GET)
             .path("/api/session/trace/Vault/deposit")
-            .query_param("highlight", "true")
+            .matches(no_highlight_query)
             .query_param("depth", "3")
             .query_param("reverts", "true");
+        t.status(200).json_body(json!({}));
+    });
+    let highlight = server.mock(|w, t| {
+        w.method(POST).path("/api/session/highlight").json_body(json!({"contract":"Vault","function":"deposit"}));
         t.status(200).json_body(json!({}));
     });
     let client = IloldClient::new(server.base_url());
@@ -93,6 +101,7 @@ async fn p2_get_tools_route_to_endpoints() {
     narrative.assert();
     dispatch(&client, &current, "ilold_trace", Some(&json!({"contract":"Vault","function":"deposit","depth":3,"reverts":true}))).await;
     trace.assert();
+    highlight.assert_hits(2);
 }
 
 #[tokio::test]

@@ -1,4 +1,5 @@
 pub mod api;
+mod guard;
 pub mod state;
 pub mod ui;
 pub mod ws;
@@ -9,11 +10,13 @@ use std::sync::Arc;
 
 use axum::routing::{delete, get, post, put};
 use axum::Router;
-use tower_http::cors::CorsLayer;
+use tower_http::validate_request::ValidateRequestHeaderLayer;
 
+use guard::{LocalAddr, RequestGuard};
 use state::AppState;
 
 fn build_router(state: Arc<AppState>) -> Router {
+    let guard = RequestGuard::new(state.addr, std::env::var("ILOLD_DEV_ORIGIN").ok());
     Router::new()
         .route("/api/project", get(api::project::get_project))
         .route("/api/project/map", get(api::project::get_project_map))
@@ -32,6 +35,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/annotations/{id}", put(api::annotations::update_annotation))
         .route("/api/annotations/{id}", delete(api::annotations::delete_annotation))
         .route("/api/cmd", post(api::session::handle_command))
+        .route("/api/session/highlight", post(api::session::post_highlight))
         .route("/api/session/step/{index}/narrative", get(api::session::get_step_detail))
         .route("/api/session/step/{index}/trace", get(api::session::get_session_step_trace))
         .route("/api/session/timeline/{variable}", get(api::session::get_variable_timeline_handler))
@@ -45,8 +49,9 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/ws", get(ws::handler::ws_handler))
         .route("/ws/pty", get(ws::pty::ws_pty_handler))
         .route("/", get(ui::root))
+        .route("/favicon.ico", get(ui::favicon))
         .fallback(get(ui::ui_path))
-        .layer(CorsLayer::permissive())
+        .layer(ValidateRequestHeaderLayer::custom(move |request: &mut axum::extract::Request| guard.check(request)))
         .with_state(state)
 }
 
@@ -88,11 +93,10 @@ pub async fn serve(paths: Vec<PathBuf>, addr: SocketAddr, max_seq_depth: usize) 
 
     let app = build_router(state);
     println!("Server running at {} (listening on {addr})", local_url(addr));
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<LocalAddr>()).await?;
     Ok(())
 }
 
-/// Listens on loopback.
 pub async fn start_server(
     paths: Vec<PathBuf>, port: u16, max_seq_depth: usize,
 ) -> anyhow::Result<(Arc<AppState>, u16)> {
@@ -110,7 +114,7 @@ pub async fn start_server_with_handle(
     let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, addr, contract_path)?);
     let app = build_router(state.clone());
     let server = tokio::spawn(async move {
-        let result = axum::serve(listener, app).await.map_err(anyhow::Error::from);
+        let result = axum::serve(listener, app.into_make_service_with_connect_info::<LocalAddr>()).await.map_err(anyhow::Error::from);
         if let Err(ref error) = result { eprintln!("Explore server stopped: {error:#}"); }
         result
     });
