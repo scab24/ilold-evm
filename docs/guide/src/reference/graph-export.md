@@ -36,7 +36,7 @@ The same commit, the same `foundry.toml` profile and the same ilold version prod
 | Field | Meaning |
 | --- | --- |
 | `kind` | `"envelope"`. |
-| `schema_version` | `"1.0.0-draft"`. |
+| `schema_version` | `"1.0.0"`. |
 | `tool` | `{name, version, git_commit, dirty}`. `git_commit` is the commit ilold was built from and `dirty` whether its sources (`crates/`, `Cargo.toml`, `Cargo.lock`, untracked files included) differed from it; both are `null` for a build outside a git checkout. |
 | `target` | `{git_commit, dirty, sources_sha256}`. `git_commit` and `dirty` are `null` outside a git repository; `git_commit` is also `null` before the first commit. `dirty` covers the Foundry root, untracked files included. `sources_sha256` hashes every analysed source in path order: `path`, a NUL byte, the SHA-256 of its content, a newline. |
 | `project_root` | The Foundry root relative to the git root; `""` when they are the same directory. |

@@ -18,8 +18,8 @@ use crate::sequence::effects::MAX_ROUNDS;
 use ids::{Ids, Paths};
 use inventory::Repo;
 
-/// Until the consumers confirm the schema.
-pub const SCHEMA_VERSION: &str = "1.0.0-draft";
+/// Changes whenever a record kind or field changes meaning.
+pub const SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
