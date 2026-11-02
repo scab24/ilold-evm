@@ -27,6 +27,7 @@ The output is written to a temporary file next to `<out>` and renamed into place
 The same commit, the same `foundry.toml` profile and the same ilold version produce byte-identical output, whether the caches are cold or warm.
 
 - No timestamps. Every path is relative to the git root (`git rev-parse --show-toplevel` run from the Foundry root); outside a git repository, to the Foundry root.
+- No absolute paths, so a copy of the project in another directory exports the same bytes. Absolute paths inside compiler messages (`files[].error`, `warnings[].message`) are rewritten: under the root, symlinks such as `/tmp` → `/private/tmp` resolved, they become root-relative (`.` for the root itself); anywhere else they become `<outside-root>/<file name>`.
 - Every line is compact JSON with its keys sorted.
 - Line 1 is the envelope. Nodes follow, then edges; each part is sorted by `id`. Ids are unique, so the order needs no tie-break.
 
@@ -44,7 +45,7 @@ The same commit, the same `foundry.toml` profile and the same ilold version prod
 | `remappings_sha256` | SHA-256 of the remappings solc received, one `context:name=path` per line, paths relative to the Foundry root. |
 | `status` | `complete`, `complete_with_warnings` or `no_facts` (exit codes 0, 3 and 4). |
 | `files` | The file inventory, below. |
-| `warnings` | `{kind: "partial_compile", message}` when files outside the sources failed; `{kind: "compile_error", message}` for a compiler error without a file. |
+| `warnings` | `{kind: "partial_compile", message}` when files outside the sources failed; `{kind: "compile_error", message}` for a compiler error without a file; then one `{kind: "empty_dependency", message: "<dir> is empty (git submodule not initialised?)"}` per directory, sorted by path. `<dir>` is the first empty directory on the way to a remapping target, or a submodule declared in the git root's `.gitmodules` that is empty or missing. A missing remapping target that no submodule declares gives no warning. These warnings do not change `status`. |
 | `truncation` | Where the analysis stopped early, below. |
 | `counts` | Number of records per `kind`. |
 

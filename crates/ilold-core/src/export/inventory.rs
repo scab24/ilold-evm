@@ -97,7 +97,7 @@ pub(super) fn files(layout: &ProjectLayout, paths: &Paths, project: Option<&Proj
                 "path": paths.relative(file),
                 "status": status,
                 "reason": reason,
-                "error": errors.map(|e| e.iter().map(|f| f.message.as_str()).collect::<Vec<_>>().join("; ")),
+                "error": errors.map(|e| paths.relative_text(&e.iter().map(|f| f.message.as_str()).collect::<Vec<_>>().join("; "))),
                 "line": errors.and_then(|e| e.iter().find_map(|f| f.line)),
             })
         })
@@ -106,13 +106,34 @@ pub(super) fn files(layout: &ProjectLayout, paths: &Paths, project: Option<&Proj
     entries
 }
 
-/// Compile errors without a file, and the note that a partial compile left files out.
-pub(super) fn warnings(failures: &[CompileFailure], partial: bool) -> Vec<Value> {
+/// Compile errors without a file, the note that a partial compile left files out, and empty dependency directories.
+pub(super) fn warnings(layout: &ProjectLayout, paths: &Paths, failures: &[CompileFailure], partial: bool) -> Vec<Value> {
     let partial = partial.then(|| {
         json!({"kind": "partial_compile", "message": "files outside the sources failed to compile; facts cover the sources and their imports"})
     });
+    let empty = empty_dependencies(layout, paths).into_iter()
+        .map(|dir| json!({"kind": "empty_dependency", "message": format!("{dir} is empty (git submodule not initialised?)")}));
     partial
         .into_iter()
-        .chain(failures.iter().filter(|f| f.path.is_none()).map(|f| json!({"kind": "compile_error", "message": f.message})))
+        .chain(failures.iter().filter(|f| f.path.is_none()).map(|f| json!({"kind": "compile_error", "message": paths.relative_text(&f.message)})))
+        .chain(empty)
         .collect()
+}
+
+/// The first empty directory on the way to each remapping target, and declared submodules that are empty or missing.
+fn empty_dependencies(layout: &ProjectLayout, paths: &Paths) -> BTreeSet<String> {
+    let is_empty = |dir: &Path| std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none());
+    // a missing directory on the way is a stale remapping, not an uninitialised submodule
+    let remapped = layout.remappings.iter().filter_map(|r| r.split_once('=')).filter_map(|(_, target)| {
+        let target = layout.root.join(target);
+        let mut below: Vec<&Path> =
+            target.ancestors().take_while(|dir| *dir != paths.base && dir.starts_with(&paths.base)).collect();
+        below.reverse();
+        below.into_iter().take_while(|dir| dir.exists()).find(|dir| is_empty(dir)).map(Path::to_path_buf)
+    });
+    let modules = git(&paths.base, &["config", "--null", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"]);
+    let declared = modules.iter().flat_map(|m| m.split('\0')).filter_map(|entry| entry.split_once('\n'))
+        .map(|(_, path)| paths.base.join(path))
+        .filter(|dir| !dir.exists() || is_empty(dir));
+    remapped.chain(declared).map(|dir| paths.relative(&dir)).collect()
 }

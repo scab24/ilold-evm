@@ -434,10 +434,60 @@ fn identical_calls_in_one_function_get_distinct_ids_ordered_by_position() {
     assert!(calls[0]["span"]["start_line"].as_u64() < calls[1]["span"]["start_line"].as_u64(), "{calls:?}");
 }
 
+#[cfg(unix)]
+#[test]
+fn output_does_not_depend_on_where_the_project_lives() {
+    let dir = scratch("relocated");
+    let warning = |lib: &str| serde_json::json!({"kind": "empty_dependency", "message": format!("{lib} is empty (git submodule not initialised?)")});
+    for (case, populated, code, expected) in
+        [("complete", true, 0, vec![]), ("failing", false, 4, vec![warning("lib/dep"), warning("lib/gone")])]
+    {
+        let copies = [dir.join(case).join("first/repo"), dir.join(case).join("second/deeper/elsewhere")];
+        // the second copy is reached through a symlink, so the given path is not the canonical one
+        let given = [copies[0].clone(), dir.join(case).join("link")];
+        fs::create_dir_all(&copies[1]).unwrap();
+        std::os::unix::fs::symlink(&copies[1], &given[1]).unwrap();
+        let outputs: Vec<String> = copies.iter().zip(&given).enumerate().map(|(i, (copy, given))| {
+            copy_dir(&fixture("export/kinds"), copy);
+            if !populated {
+                fs::remove_dir_all(copy.join("lib/dep")).unwrap();
+                fs::create_dir(copy.join("lib/dep")).unwrap();
+            }
+            let modules = "[submodule \"dep\"]\n\tpath = lib/dep\n\turl = https://example.invalid/dep\n";
+            let gone = "[submodule \"gone\"]\n\tpath = lib/gone\n\turl = https://example.invalid/gone\n";
+            fs::write(copy.join(".gitmodules"), if populated { modules.to_string() } else { format!("{modules}{gone}") }).unwrap();
+            commit_all(copy);
+            let out = dir.join(format!("{case}-{i}.jsonl"));
+            let run = graph(given, &out, &dir.join(format!("cache-{case}-{i}")));
+            assert_eq!(run.status.code(), Some(code), "{}", String::from_utf8_lossy(&run.stderr));
+            fs::read_to_string(&out).unwrap()
+        }).collect();
+        assert!(outputs[0] == outputs[1], "{case}: the copies differ\n{}\n{}", outputs[0], outputs[1]);
+        let mut needles = vec!["/private".to_string(), "/var".into(), "/Users".into(), "/tmp".into(), "\"/".into()];
+        for path in copies.iter().chain(&given) {
+            needles.extend(path.components().skip(1).map(|c| format!("/{}/", c.as_os_str().to_string_lossy())));
+        }
+        for needle in needles {
+            assert!(!outputs[0].contains(&needle), "{case}: {needle} in {}", outputs[0]);
+        }
+        let envelope: Value = serde_json::from_str(outputs[0].lines().next().unwrap()).unwrap();
+        let empty: Vec<&Value> = envelope["warnings"].as_array().unwrap().iter().filter(|w| w["kind"] == "empty_dependency").collect();
+        assert_eq!(empty, expected.iter().collect::<Vec<_>>(), "{case}");
+        if !populated {
+            let vault = file_status(&envelope, "src/Vault.sol");
+            assert_eq!(vault["status"], "failed_compile");
+            assert!(vault["error"].as_str().is_some_and(|e| e.contains("dep/Ownable.sol")), "{vault}");
+        }
+    }
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 /// A git repository at `repo` with everything in it committed; returns HEAD.
 fn commit_all(repo: &Path) -> String {
     let git = |args: &[&str]| {
+        // fixed dates keep HEAD identical for identical content
         let out = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z").env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z")
             .args(args).current_dir(repo).output().unwrap();
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).trim().to_string()

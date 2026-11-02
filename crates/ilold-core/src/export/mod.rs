@@ -139,7 +139,7 @@ impl Envelope<'_> {
             "remappings_sha256": inventory::remappings_sha256(layout),
             "status": status.label(),
             "files": inventory::files(layout, paths, self.project, self.failures),
-            "warnings": inventory::warnings(self.failures, status == Status::CompleteWithWarnings),
+            "warnings": inventory::warnings(layout, paths, self.failures, status == Status::CompleteWithWarnings),
             "truncation": truncation,
             "counts": counts,
         })
