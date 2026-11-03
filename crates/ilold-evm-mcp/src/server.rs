@@ -9,7 +9,7 @@ use rmcp::service::{RequestContext, RoleServer};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use crate::client::IloldClient;
+use crate::client::{encode_component, IloldClient};
 use crate::tools;
 
 pub struct EvmMcpServer {
@@ -91,50 +91,51 @@ pub async fn dispatch(
         "ilold_dependency_graph" => client.get("/api/project/depgraph").await,
         "ilold_contract_dependencies" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/depgraph")).await
+            client.get(&format!("/api/contract/{}/depgraph", encode_component(&c))).await
         }
         "ilold_contract_detail" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}")).await
+            client.get(&format!("/api/contract/{}", encode_component(&c))).await
         }
         "ilold_callgraph" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/callgraph")).await
+            client.get(&format!("/api/contract/{}/callgraph", encode_component(&c))).await
         }
         "ilold_search" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/suggestions")).await
+            client.get(&format!("/api/contract/{}/suggestions", encode_component(&c))).await
         }
         "ilold_sequence_analysis" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{c}/analysis")).await
+            client.get(&format!("/api/contract/{}/analysis", encode_component(&c))).await
         }
         "ilold_sequences" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            let q = arg_u64(arguments, "depth")
-                .map(|d| format!("?depth={d}"))
-                .unwrap_or_default();
-            client.get(&format!("/api/contract/{c}/sequences{q}")).await
+            let q = uint_query(arguments, &["depth", "offset", "limit"]);
+            client.get(&format!("/api/contract/{}/sequences{q}", encode_component(&c))).await
         }
         "ilold_function_analysis" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/session/function/{c}/{f}")).await
+            let result = client.get(&format!("/api/session/function/{}/{}", encode_component(&c), encode_component(&f))).await;
+            highlight(client, &c, &f, &result).await;
+            result
         }
         "ilold_cfg" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{c}/{f}/cfg")).await
+            client.get(&format!("/api/contract/{}/{}/cfg", encode_component(&c), encode_component(&f))).await
         }
         "ilold_function_paths" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{c}/{f}/paths")).await
+            let q = uint_query(arguments, &["offset", "limit"]);
+            client.get(&format!("/api/contract/{}/{}/paths{q}", encode_component(&c), encode_component(&f))).await
         }
         "ilold_source" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             let f = need!(arg_str(arguments, "function"), "function");
-            client.get(&format!("/api/contract/{c}/{f}/source")).await
+            client.get(&format!("/api/contract/{}/{}/source", encode_component(&c), encode_component(&f))).await
         }
         "ilold_trace" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
@@ -147,19 +148,17 @@ pub async fn dispatch(
                 q.push("reverts=true".to_string());
             }
             if let Some(e) = arg_str(arguments, "expand") {
-                q.push(format!("expand={e}"));
+                q.push(format!("expand={}", encode_component(&e)));
             }
-            let qs = if q.is_empty() {
-                String::new()
-            } else {
-                format!("?{}", q.join("&"))
-            };
-            client.get(&format!("/api/session/trace/{c}/{f}{qs}")).await
+            let query = if q.is_empty() { String::new() } else { format!("?{}", q.join("&")) };
+            let result = client.get(&format!("/api/session/trace/{}/{}{query}", encode_component(&c), encode_component(&f))).await;
+            highlight(client, &c, &f, &result).await;
+            result
         }
         "ilold_entry_points" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             client
-                .post("/api/cmd", json!({ "contract": c, "command": "Functions" }))
+                .post("/api/cmd", json!({ "contract": c, "command": "FunctionsAll" }))
                 .await
         }
         "ilold_who_touches" => {
@@ -174,7 +173,7 @@ pub async fn dispatch(
         }
         "ilold_use" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
-            if let Err(e) = client.get(&format!("/api/contract/{c}")).await {
+            if let Err(e) = client.get(&format!("/api/contract/{}", encode_component(&c))).await {
                 return error_result(format!("contract '{c}' not found: {e}"));
             }
             if let Err(e) = client
@@ -206,16 +205,19 @@ pub async fn dispatch(
             client.post("/api/cmd", json!({ "contract": c, "command": "Clear" })).await
         }
         "ilold_timeline" => {
-            let _ = active!();
+            let c = active!();
             let v = need!(arg_str(arguments, "variable"), "variable");
-            client.get(&format!("/api/session/timeline/{v}")).await
+            client.get(&format!("/api/session/timeline/{}?contract={}", encode_component(&v), encode_component(&c))).await
         }
         "ilold_slice" => {
-            let _ = active!();
+            let c = active!();
             let f = need!(arg_str(arguments, "function"), "function");
             let v = need!(arg_str(arguments, "variable"), "variable");
             let dir = arg_str(arguments, "direction").unwrap_or_else(|| "both".to_string());
-            client.get(&format!("/api/session/slice/{f}/{v}?direction={dir}")).await
+            client.get(&format!(
+                "/api/session/slice/{}/{}?direction={}&contract={}",
+                encode_component(&f), encode_component(&v), encode_component(&dir), encode_component(&c),
+            )).await
         }
         "ilold_record_finding" => {
             let c = active!();
@@ -262,6 +264,13 @@ pub async fn dispatch(
     }
 }
 
+// the analysis is the answer; selecting the function on open canvases is best effort
+async fn highlight<T, E>(client: &IloldClient, contract: &str, function: &str, read: &Result<T, E>) {
+    if read.is_ok() {
+        client.post("/api/session/highlight", json!({ "contract": contract, "function": function })).await.ok();
+    }
+}
+
 fn command_error(value: &Value) -> Option<String> {
     value.get("Error")?.get("message")?.as_str().map(str::to_string)
 }
@@ -282,6 +291,13 @@ fn arg_u64(arguments: Option<&Value>, key: &str) -> Option<u64> {
         .and_then(|v| v.as_u64())
 }
 
+fn uint_query(arguments: Option<&Value>, keys: &[&str]) -> String {
+    let pairs: Vec<String> = keys.iter()
+        .filter_map(|k| arg_u64(arguments, k).map(|v| format!("{k}={v}")))
+        .collect();
+    if pairs.is_empty() { String::new() } else { format!("?{}", pairs.join("&")) }
+}
+
 fn arg_bool(arguments: Option<&Value>, key: &str) -> bool {
     arguments
         .and_then(|v| v.as_object())
@@ -299,4 +315,15 @@ fn ok_result(value: Value) -> CallToolResult {
 
 fn error_result(message: String) -> CallToolResult {
     CallToolResult::error(vec![Content::text(message)])
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn qualified_contract_ids_stay_one_path_segment() {
+        assert_eq!(super::encode_component("Pool"), "Pool");
+        assert_eq!(super::encode_component("src/core/IToken.sol:IToken"), "src%2Fcore%2FIToken.sol:IToken");
+        assert_eq!(super::encode_component("f(uint256[] storage)"), "f(uint256%5B%5D%20storage)");
+        assert_eq!(super::encode_component("a&b=c#d?e+f%"), "a%26b%3Dc%23d%3Fe%2Bf%25");
+    }
 }

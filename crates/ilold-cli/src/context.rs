@@ -3,22 +3,24 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
+use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::cfg::builder::CfgBuilder;
 use ilold_core::cfg::types::CfgGraph;
-use ilold_core::classify::entry_points::{classify_all, AccessLevel};
+use ilold_core::classify::entry_points::{classify_contract, AccessLevel};
 use ilold_core::model::contract::ContractDef;
 use ilold_core::model::project::Project;
 use ilold_core::narrative::function::build_function_narrative;
 use ilold_core::narrative::sequence::build_sequence_narrative;
 use ilold_core::narrative::types::*;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::parse::ProjectParser;
 use ilold_core::pathtree::config::PruningConfig;
 use ilold_core::pathtree::types::{PathTree, TerminalKind};
 use ilold_core::pathtree::walker::build_path_tree;
-use ilold_core::sequence::analysis::{analyze_project, analyze_sequences};
+use ilold_core::sequence::analysis::analyze_sequences;
 
 use crate::colors::*;
+
+const SHARED_SEQ_DEPTH: usize = 3;
 
 pub fn run(
     path: &PathBuf,
@@ -30,11 +32,11 @@ pub fn run(
     let paths = vec![crate::foundry_root(path)?];
 
     let parser = SolcFrontend;
-    let mut project = parser.parse(&paths).context("Failed to parse")?;
+    let (mut project, key) = parser.parse_keyed(&paths).context("Failed to parse")?;
     project.rebuild_index();
 
     let contract = find_contract(&project, contract_filter)?;
-    let classifications = classify_all(contract);
+    let classifications = classify_contract(&project, contract);
 
     if list {
         print_list(contract, &classifications);
@@ -44,59 +46,46 @@ pub fn run(
     let config = PruningConfig::default();
     let mut cfgs: HashMap<(String, String), CfgGraph> = HashMap::new();
     let mut pt_map: HashMap<(String, String), PathTree> = HashMap::new();
-    let combined_state_vars = project.inherited_state_vars(contract);
     for func in &contract.functions {
-        if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(&project)) {
-            let pt = build_path_tree(&cfg, &contract.name, &func.name, &combined_state_vars, &config);
-            let key = (contract.name.clone(), func.name.clone());
-            cfgs.insert(key.clone(), cfg);
-            pt_map.insert(key, pt);
-        }
+        let cfg = CfgBuilder::build_with_project(func, contract, Some(&project));
+        let pt = build_path_tree(&cfg, contract.key(), &func.key, &config);
+        let key = (contract.key().to_string(), func.key.clone());
+        cfgs.insert(key.clone(), cfg);
+        pt_map.insert(key, pt);
     }
-    let mut all_sequence_analyses: HashMap<String, ilold_core::sequence::analysis::SequenceAnalysis> = HashMap::new();
-    for c in &project.contracts {
-        let combined = project.inherited_state_vars(c);
-        let mut c_pt_map: HashMap<(String, String), PathTree> = HashMap::new();
-        for func in &c.functions {
-            if let Ok(cfg) = CfgBuilder::build_with_project(func, c, Some(&project)) {
-                let pt = build_path_tree(&cfg, &c.name, &func.name, &combined, &config);
-                c_pt_map.insert((c.name.clone(), func.name.clone()), pt);
-            }
-        }
-        let a = analyze_sequences(&c_pt_map, &c.name);
-        all_sequence_analyses.insert(c.name.clone(), a);
-    }
-    analyze_project(&project, &mut all_sequence_analyses);
+    // sequence depth does not affect what context prints, so the CLI default shares the cached analysis
+    let params = AnalysisParams::new(SHARED_SEQ_DEPTH);
+    let all_sequence_analyses =
+        ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;
     let analysis = all_sequence_analyses
-        .get(&contract.name)
+        .get(contract.key())
         .cloned()
-        .unwrap_or_else(|| analyze_sequences(&pt_map, &contract.name));
+        .unwrap_or_else(|| analyze_sequences(&pt_map, contract.key()));
 
     if let Some(seq_str) = sequence_filter {
         let names: Vec<&str> = seq_str.split(',').map(|s| s.trim()).collect();
-        let narrative = build_sequence_narrative(
-            &contract.name, &names, &analysis.functions, &analysis.transitions, &classifications,
-        );
+        let narrative = build_sequence_narrative(&project, contract, &names, &analysis.functions);
         print_sequence(&narrative);
         return Ok(());
     }
 
     if let Some(func_name) = function_filter {
-        let func = contract.functions.iter().find(|f| f.name == func_name)
+        let func = contract.functions.iter()
+            .find(|f| f.name == func_name || f.key == func_name || f.match_signature() == func_name)
             .ok_or_else(|| anyhow::anyhow!("Function '{}' not found. Use --list to see available functions.", func_name))?;
-        let key = (contract.name.clone(), func_name.to_string());
+        let key = (contract.key().to_string(), func.key.clone());
         let cfg = cfgs.get(&key).ok_or_else(|| anyhow::anyhow!("No CFG for {}", func_name))?;
         let pt = pt_map.get(&key).ok_or_else(|| anyhow::anyhow!("No paths for {}", func_name))?;
-        let narrative = build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses);
+        let narrative = build_function_narrative(contract, func, pt, cfg, &analysis.functions);
         print_function(&narrative);
         return Ok(());
     }
 
     let narratives: Vec<_> = contract.functions.iter().filter_map(|func| {
-        let key = (contract.name.clone(), func.name.clone());
+        let key = (contract.key().to_string(), func.key.clone());
         let cfg = cfgs.get(&key)?;
         let pt = pt_map.get(&key)?;
-        Some(build_function_narrative(contract, func, pt, cfg, &analysis.functions, &project, &all_sequence_analyses))
+        Some(build_function_narrative(contract, func, pt, cfg, &analysis.functions))
     }).collect();
     print_overview(contract, &narratives);
     Ok(())
@@ -139,6 +128,9 @@ fn print_function(n: &FunctionNarrative) {
     }
     println!("  {} {} ({} return, {} revert)",
         c_muted("Paths:"), n.total_paths, c_ok(&n.happy_paths.to_string()), c_danger(&n.revert_paths.to_string()));
+    if let Some(note) = n.path_stats.truncation_note() {
+        println!("  {}", c_warn(&note));
+    }
     if !n.state_writes.is_empty() {
         println!("  {} {}", c_muted("Writes:"), c_warn(&n.state_writes.join(", ")));
     }

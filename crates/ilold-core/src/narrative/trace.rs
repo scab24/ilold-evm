@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph, CfgStatement};
 use crate::model::contract::ContractDef;
+use crate::model::decl_id::DeclId;
 use crate::model::expression::AssignOperator;
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
+use crate::pathtree::types::PathTreeStats;
 
 const CANONICAL_WALK_SAFETY_CAP: usize = 32;
 
@@ -21,6 +23,8 @@ pub struct FlowTree {
     pub modifiers: Vec<String>,
     pub max_depth: usize,
     pub root: FlowNode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_stats: Option<PathTreeStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,7 +164,8 @@ fn build_canonical_tree(
     };
 
     let mut visited_calls: HashSet<(String, String)> = HashSet::new();
-    visited_calls.insert((contract.name.clone(), function.name.clone()));
+    let own_key = if function.key.is_empty() { &function.name } else { &function.key };
+    visited_calls.insert((contract.key().to_string(), own_key.clone()));
 
     walk_cfg(
         cfg,
@@ -175,12 +180,13 @@ fn build_canonical_tree(
     );
 
     FlowTree {
-        contract: contract.name.clone(),
+        contract: contract.key().to_string(),
         function: function.name.clone(),
         signature,
         modifiers: function.modifiers.iter().map(|m| m.name.clone()).collect(),
         max_depth: config.max_depth,
         root,
+        path_stats: None,
     }
 }
 
@@ -590,9 +596,10 @@ fn stmt_to_flow_node(
                 children: Vec::new(),
             })
         }
-        CfgStatement::InternalCall { function, from_modifier, .. } => {
+        CfgStatement::InternalCall { function, from_modifier, resolved, .. } => {
             Some(build_internal_call_node(
                 function,
+                *resolved,
                 from_modifier.clone(),
                 depth,
                 counter,
@@ -660,12 +667,26 @@ fn stmt_to_flow_node(
                 children: Vec::new(),
             })
         }
+        // shown as a call that cannot be expanded: the modifier's code is unknown
+        CfgStatement::UnresolvedModifier { name, from_modifier, .. } => Some(FlowNode {
+            step_id: next_id(counter),
+            depth,
+            kind: FlowKind::InternalCall {
+                function: format!("modifier {name}"),
+                origin: "unresolved".into(),
+                depth_limited: true,
+                ops_count: 0,
+            },
+            from_modifier: from_modifier.clone(),
+            children: Vec::new(),
+        }),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn build_internal_call_node(
     callee_name: &str,
+    resolved_decl: Option<DeclId>,
     from_modifier: Option<String>,
     depth: usize,
     counter: &mut usize,
@@ -675,7 +696,20 @@ fn build_internal_call_node(
     config: &FlowConfig,
     visited_calls: &mut HashSet<(String, String)>,
 ) -> FlowNode {
-    let resolved = resolve_callee_cfg(callee_name, contract, project, all_cfgs);
+    // the declaration solc resolved (super, library, base) wins over a lookup by name
+    let declared = resolved_decl
+        .and_then(|id| project.decl_table.function(id))
+        .and_then(|t| {
+            let key = (t.contract.clone(), t.function.clone());
+            all_cfgs.get(&key).map(|cfg| (key, cfg))
+        });
+    let (callee_key, resolved) = match declared {
+        Some(((owner, key), cfg)) => (key, Some((owner, cfg))),
+        None => (
+            callee_name.to_string(),
+            resolve_callee_cfg(callee_name, contract, project, all_cfgs),
+        ),
+    };
 
     let (owning_name, callee_cfg) = match resolved {
         Some(x) => x,
@@ -695,7 +729,7 @@ fn build_internal_call_node(
         }
     };
 
-    let call_key = (owning_name.clone(), callee_name.to_string());
+    let call_key = (owning_name.clone(), callee_key);
     let already_visited = visited_calls.contains(&call_key);
     let depth_exhausted = depth + 1 > CANONICAL_WALK_SAFETY_CAP;
 
@@ -718,9 +752,9 @@ fn build_internal_call_node(
     visited_calls.insert(call_key.clone());
 
     let owning_contract = project
-        .contracts
-        .iter()
-        .find(|c| c.name == owning_name)
+        .contract_index
+        .get(&owning_name)
+        .map(|&i| &project.contracts[i])
         .unwrap_or(contract);
 
     let mut children = Vec::new();
@@ -760,33 +794,11 @@ fn resolve_callee_cfg<'a>(
     project: &Project,
     all_cfgs: &'a HashMap<(String, String), CfgGraph>,
 ) -> Option<(String, &'a CfgGraph)> {
-    let key = (starting_contract.name.clone(), callee.to_string());
-    if let Some(cfg) = all_cfgs.get(&key) {
-        return Some((starting_contract.name.clone(), cfg));
-    }
-
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut queue: Vec<String> = starting_contract.inherits.clone();
-
-    while let Some(parent_name) = queue.pop() {
-        if !visited.insert(parent_name.clone()) {
-            continue;
-        }
-
-        let key = (parent_name.clone(), callee.to_string());
-        if let Some(cfg) = all_cfgs.get(&key) {
-            return Some((parent_name, cfg));
-        }
-
-        if let Some(parent_idx) = project.contract_index.get(&parent_name) {
-            let parent = &project.contracts[*parent_idx];
-            for grand in &parent.inherits {
-                queue.push(grand.clone());
-            }
-        }
-    }
-
-    None
+    // the first contract of the linearization that defines it
+    project.linearization(starting_contract).into_iter().find_map(|c| {
+        let key = (c.key().to_string(), callee.to_string());
+        all_cfgs.get(&key).map(|cfg| (key.0, cfg))
+    })
 }
 
 fn count_statements(cfg: &CfgGraph) -> usize {
@@ -848,6 +860,7 @@ mod tests {
             modifiers: Vec::new(),
             max_depth: 4,
             root,
+            path_stats: None,
         }
     }
 

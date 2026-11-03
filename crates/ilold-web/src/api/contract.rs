@@ -2,21 +2,34 @@ use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use ilold_core::model::common::SourceSpan;
-use ilold_core::pathtree::types::PathTree;
-use ilold_core::sequence::types::SequenceTree;
+use ilold_core::classify::entry_points::{classify_in, AccessLevel};
+use ilold_core::classify::guards::GuardFact;
+use ilold_core::model::common::{SourceSpan, StateVar};
+use ilold_core::model::contract::ContractDef;
+use ilold_core::model::function::FunctionDef;
+use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
+use ilold_core::pathtree::types::PathTreePage;
+use ilold_core::sequence::types::SequencePage;
+use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
 
+use super::ApiError;
 use crate::state::AppState;
 
 
 #[derive(Serialize)]
 pub struct ContractDetail {
+    /// The contract key: the bare name when unique, otherwise the qualified id.
     pub name: String,
+    pub display_name: String,
+    pub qualified_id: String,
+    pub is_dependency: bool,
     pub kind: String,
     pub inherits: Vec<String>,
+    pub inherit_keys: Vec<String>,
     pub functions: Vec<FunctionSummary>,
     pub state_vars: Vec<StateVarSummary>,
     pub inherited_functions: Vec<FunctionSummary>,
@@ -26,6 +39,9 @@ pub struct ContractDetail {
 #[derive(Serialize)]
 pub struct FunctionSummary {
     pub name: String,
+    /// The bare name when it selects the function on this contract, otherwise the signature.
+    pub key: String,
+    pub signature: String,
     pub kind: String,
     pub visibility: String,
     pub mutability: String,
@@ -33,7 +49,12 @@ pub struct FunctionSummary {
     pub path_count: usize,
     pub happy_paths: usize,
     pub revert_paths: usize,
+    /// Counts cover only the paths found.
+    pub paths_truncated: bool,
     pub modifiers: Vec<String>,
+    pub access: AccessLevel,
+    /// As this contract runs the function.
+    pub guards: Vec<GuardFact>,
 }
 
 #[derive(Serialize)]
@@ -51,97 +72,84 @@ pub struct StateVarSummary {
     pub is_immutable: bool,
 }
 
+/// A key, a qualified id or an unambiguous bare name; an ambiguous name is a 409 with candidates.
+pub(crate) fn route_contract<'a>(state: &'a AppState, name: &str) -> Result<&'a ContractDef, ApiError> {
+    state.project.lookup_contract(name).map_err(|e| ApiError::from(match e {
+        ContractLookupError::NotFound => {
+            (StatusCode::NOT_FOUND, format!("Contract '{name}' not found")).into_response()
+        }
+        ContractLookupError::Ambiguous(candidates) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": format!("contract name '{name}' is ambiguous; use a qualified id"),
+                "candidates": candidates,
+            })),
+        )
+            .into_response(),
+    }))
+}
+
 pub async fn get_contract(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<ContractDetail>, StatusCode> {
-    let contract = state
-        .project
-        .contracts
-        .iter()
-        .find(|c| c.name == name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<ContractDetail>, ApiError> {
+    let contract = route_contract(&state, &name)?;
 
-    let functions = contract
-        .functions
-        .iter()
-        .map(|f| {
-            let key = (contract.name.clone(), f.name.clone());
-            let pt = state.path_trees.get(&key);
-            FunctionSummary {
-                name: f.name.clone(),
-                kind: format!("{:?}", f.kind),
-                visibility: format!("{:?}", f.visibility),
-                mutability: format!("{:?}", f.mutability),
-                params: f.params.iter().map(|p| ParamSummary {
-                    name: p.name.clone(),
-                    type_name: p.type_name.clone(),
-                }).collect(),
-                path_count: pt.map(|p| p.stats.total_paths).unwrap_or(0),
-                happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
-                revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
-                modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
-            }
-        })
-        .collect();
+    let summary = |owner: &ContractDef, f: &FunctionDef| -> FunctionSummary {
+        let pt = state.path_trees.get(&(owner.key().to_string(), f.key.clone()));
+        let (access, guards) = classify_in(&state.project, contract, owner, f);
+        FunctionSummary {
+            name: f.name.clone(),
+            key: state.project.route_key(contract, f),
+            signature: f.match_signature().to_string(),
+            kind: format!("{:?}", f.kind),
+            visibility: format!("{:?}", f.visibility),
+            mutability: format!("{:?}", f.mutability),
+            params: f.params.iter().map(|p| ParamSummary {
+                name: p.name.clone(),
+                type_name: p.type_name.clone(),
+            }).collect(),
+            path_count: pt.map(|p| p.stats.total_paths).unwrap_or(0),
+            happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
+            revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
+            paths_truncated: pt.is_some_and(|p| p.stats.truncated),
+            modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
+            access,
+            guards,
+        }
+    };
+    let var_summary = |sv: &StateVar| StateVarSummary {
+        name: sv.name.clone(),
+        type_name: sv.type_name.clone(),
+        visibility: format!("{:?}", sv.visibility),
+        is_constant: sv.is_constant,
+        is_immutable: sv.is_immutable,
+    };
 
-    let state_vars = contract
-        .state_vars
-        .iter()
-        .map(|sv| StateVarSummary {
-            name: sv.name.clone(),
-            type_name: sv.type_name.clone(),
-            visibility: format!("{:?}", sv.visibility),
-            is_constant: sv.is_constant,
-            is_immutable: sv.is_immutable,
-        })
-        .collect();
-
-    let inherited_functions: Vec<FunctionSummary> = state.project
+    let functions = contract.functions.iter().map(|f| summary(contract, f)).collect();
+    let state_vars = contract.state_vars.iter().map(var_summary).collect();
+    let inherited_functions = state.project
         .accessible_functions(contract)
         .into_iter()
         .filter(|af| af.is_inherited)
-        .map(|af| {
-            let f = af.function;
-            let key = (af.origin.clone(), f.name.clone());
-            let pt = state.path_trees.get(&key);
-            FunctionSummary {
-                name: f.name.clone(),
-                kind: format!("{:?}", f.kind),
-                visibility: format!("{:?}", f.visibility),
-                mutability: format!("{:?}", f.mutability),
-                params: f.params.iter().map(|p| ParamSummary {
-                    name: p.name.clone(),
-                    type_name: p.type_name.clone(),
-                }).collect(),
-                path_count: pt.map(|p| p.stats.total_paths).unwrap_or(0),
-                happy_paths: pt.map(|p| p.stats.happy_paths).unwrap_or(0),
-                revert_paths: pt.map(|p| p.stats.revert_paths).unwrap_or(0),
-                modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
-            }
-        })
+        .map(|af| summary(af.owner, af.function))
         .collect();
-
-    let own_var_names: std::collections::HashSet<String> = contract.state_vars.iter()
-        .map(|sv| sv.name.clone())
-        .collect();
-    let inherited_state_vars: Vec<StateVarSummary> = state.project
-        .inherited_state_vars(contract)
+    // storage order, most base contract first
+    let inherited_state_vars = state.project
+        .accessible_state_vars(contract)
         .into_iter()
-        .filter(|sv| !own_var_names.contains(&sv.name))
-        .map(|sv| StateVarSummary {
-            name: sv.name.clone(),
-            type_name: sv.type_name.clone(),
-            visibility: format!("{:?}", sv.visibility),
-            is_constant: sv.is_constant,
-            is_immutable: sv.is_immutable,
-        })
+        .filter(|(_, _, inherited)| *inherited)
+        .map(|(sv, _, _)| var_summary(&sv))
         .collect();
 
     Ok(Json(ContractDetail {
-        name: contract.name.clone(),
+        name: contract.key().to_string(),
+        display_name: contract.name.clone(),
+        qualified_id: contract.qualified_id.clone(),
+        is_dependency: contract.is_dependency,
         kind: format!("{:?}", contract.kind),
         inherits: contract.inherits.clone(),
+        inherit_keys: state.project.base_keys(contract),
         functions,
         state_vars,
         inherited_functions,
@@ -165,11 +173,18 @@ pub struct CytoscapeNode {
 pub struct CytoscapeNodeData {
     pub id: String,
     pub label: String,
+    /// Call-graph nodes of functions the contract runs: the key its function routes take.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub node_type: String,
     pub contract: String,
     pub is_external: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub statements: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span: Option<SourceSpan>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -184,29 +199,43 @@ pub struct CytoscapeEdgeData {
     pub target: String,
     pub kind: String,
     pub call_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind_label: Option<String>,
+    /// Declaration named in the source when virtual dispatch picked another implementation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_target: Option<String>,
 }
 
 pub async fn get_callgraph(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<CytoscapeGraph>, StatusCode> {
+) -> Result<Json<CytoscapeGraph>, ApiError> {
+    let contract = route_contract(&state, &name)?;
     let cg = state
         .call_graphs
-        .get(&name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .get(contract.key())
+        .ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))?;
 
+    let accessible = state.project.accessible_functions(contract);
     let nodes: Vec<CytoscapeNode> = cg
         .node_indices()
         .map(|idx| {
             let node = &cg[idx];
+            let key = accessible
+                .iter()
+                .find(|af| af.owner.key() == node.contract && af.function.key == node.key)
+                .map(|af| state.project.route_key(contract, af.function));
             CytoscapeNode {
                 data: CytoscapeNodeData {
-                    id: format!("{}::{}", node.contract, node.function),
+                    id: node.id(),
                     label: node.function.clone(),
+                    key,
                     node_type: if node.is_external { "external" } else { "internal" }.into(),
                     contract: node.contract.clone(),
                     is_external: node.is_external,
                     statements: Vec::new(),
+                    span: None,
+                    file: None,
                 },
             }
         })
@@ -221,10 +250,12 @@ pub async fn get_callgraph(
             CytoscapeEdge {
                 data: CytoscapeEdgeData {
                     id: format!("e{i}"),
-                    source: format!("{}::{}", cg[src].contract, cg[src].function),
-                    target: format!("{}::{}", cg[dst].contract, cg[dst].function),
+                    source: cg[src].id(),
+                    target: cg[dst].id(),
                     kind: format!("{:?}", edge.kind),
                     call_count: edge.call_count,
+                    kind_label: Some(edge.kind.label().to_string()),
+                    static_target: edge.static_target.clone(),
                 },
             }
         })
@@ -234,19 +265,34 @@ pub async fn get_callgraph(
 }
 
 
+/// A bare name when unambiguous, or a full signature; an ambiguous name is a 409 with candidates.
+fn route_function<'a>(
+    state: &'a AppState,
+    contract_name: &str,
+    func: &str,
+) -> Result<(&'a ContractDef, &'a FunctionDef), ApiError> {
+    let contract = route_contract(state, contract_name)?;
+    state.project.lookup_function(contract, func).map_err(|e| ApiError::from(match e {
+        FunctionLookupError::NotFound => StatusCode::NOT_FOUND.into_response(),
+        FunctionLookupError::Ambiguous(candidates) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": format!("'{func}' is overloaded on {contract_name}; use a signature"),
+                "candidates": candidates,
+            })),
+        )
+            .into_response(),
+    }))
+}
+
 pub async fn get_cfg(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-) -> Result<Json<CytoscapeGraph>, StatusCode> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<CytoscapeGraph>, ApiError> {
+    let (owning, func) = route_function(&state, &contract_name, &func_name)?;
 
-    let (owning, _func) = state.project.resolve_function(contract, &func_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let key = (owning.name.clone(), func_name);
-    let cfg = state.cfgs.get(&key).ok_or(StatusCode::NOT_FOUND)?;
+    let key = (owning.key().to_string(), func.key.clone());
+    let cfg = state.cfgs.get(&key).ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))?;
 
     let nodes: Vec<CytoscapeNode> = cfg
         .node_indices()
@@ -258,10 +304,15 @@ pub async fn get_cfg(
                 data: CytoscapeNodeData {
                     id: format!("b{}", block.id),
                     label,
+                    key: None,
                     node_type: format!("{:?}", block.kind),
                     contract: key.0.clone(),
                     is_external: false,
                     statements: stmts,
+                    span: block.span,
+                    file: block.span
+                        .and_then(|span| state.project.source_files.get(span.file_index))
+                        .map(|f| f.path.clone()),
                 },
             }
         })
@@ -280,6 +331,8 @@ pub async fn get_cfg(
                     target: format!("b{}", cfg[dst].id),
                     kind: format!("{:?}", edge),
                     call_count: 0,
+                    kind_label: None,
+                    static_target: None,
                 },
             }
         })
@@ -299,16 +352,11 @@ pub struct FunctionSourceResponse {
 pub async fn get_function_source(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-) -> Result<Json<FunctionSourceResponse>, StatusCode> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let (_owning, func) = state.project.resolve_function(contract, &func_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<FunctionSourceResponse>, ApiError> {
+    let (_owning, func) = route_function(&state, &contract_name, &func_name)?;
 
     let file = state.project.source_files.get(func.span.file_index)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))?;
 
     let source = slice_lines(
         &file.content,
@@ -335,43 +383,65 @@ fn slice_lines(src: &str, start_1based: usize, end_1based: usize) -> String {
 }
 
 
+#[derive(Deserialize)]
+pub struct PageQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+impl PageQuery {
+    // larger limits are clamped; the response's `page` reports the one applied
+    fn window(&self) -> (usize, usize) {
+        (self.offset.unwrap_or(0), self.limit.unwrap_or(DEFAULT_PAGE_LIMIT).min(MAX_PAGE_LIMIT))
+    }
+}
+
 pub async fn get_paths(
     State(state): State<Arc<AppState>>,
     Path((contract_name, func_name)): Path<(String, String)>,
-) -> Result<Json<PathTree>, StatusCode> {
-    let contract = state.project.contracts.iter()
-        .find(|c| c.name == contract_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    Query(query): Query<PageQuery>,
+) -> Result<Json<PathTreePage>, ApiError> {
+    let (owning, func) = route_function(&state, &contract_name, &func_name)?;
 
-    let (owning, _func) = state.project.resolve_function(contract, &func_name)
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let key = (owning.name.clone(), func_name);
+    let key = (owning.key().to_string(), func.key.clone());
+    let (offset, limit) = query.window();
     state
         .path_trees
         .get(&key)
-        .cloned()
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+        .map(|pt| Json(pt.page(offset, limit)))
+        .ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))
 }
 
 
+pub const MAX_SEQUENCE_DEPTH: usize = 8;
+
+pub fn valid_sequence_depth(depth: usize) -> bool {
+    (1..=MAX_SEQUENCE_DEPTH).contains(&depth)
+}
+
 #[derive(Deserialize)]
-pub struct SequenceQuery {
+pub struct DepthQuery {
     pub depth: Option<usize>,
 }
 
 pub async fn get_sequences(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-    Query(_query): Query<SequenceQuery>,
-) -> Result<Json<SequenceTree>, StatusCode> {
-    state
+    Query(query): Query<DepthQuery>,
+    Query(page): Query<PageQuery>,
+) -> Result<Json<SequencePage>, ApiError> {
+    let contract = route_contract(&state, &name)?;
+    let tree = state
         .sequence_trees
-        .get(&name)
-        .cloned()
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+        .get(contract.key())
+        .ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))?;
+    let depth = query.depth.unwrap_or(tree.max_depth);
+    if !valid_sequence_depth(depth) {
+        let message = format!("depth must be between 1 and {MAX_SEQUENCE_DEPTH}");
+        return Err((StatusCode::BAD_REQUEST, message).into());
+    }
+    let (offset, limit) = page.window();
+    Ok(Json(tree.page(depth, offset, limit)))
 }
 
 
@@ -380,8 +450,14 @@ use ilold_core::sequence::analysis::{analyze_sequences, SequenceAnalysis};
 pub async fn get_sequence_analysis(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<SequenceAnalysis>, StatusCode> {
-    let analysis = analyze_sequences(&state.path_trees, &name);
+) -> Result<Json<SequenceAnalysis>, ApiError> {
+    let contract = route_contract(&state, &name)?;
+    // the project analysis carries transitive effects and inherited functions
+    let analysis = state
+        .sequence_analyses
+        .get(contract.key())
+        .cloned()
+        .unwrap_or_else(|| analyze_sequences(&state.path_trees, contract.key()));
     Ok(Json(analysis))
 }
 
@@ -404,13 +480,8 @@ pub struct SuggestionCategory {
 pub async fn get_search_suggestions(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
-) -> Result<Json<SearchSuggestions>, StatusCode> {
-    let contract = state
-        .project
-        .contracts
-        .iter()
-        .find(|c| c.name == name)
-        .ok_or(StatusCode::NOT_FOUND)?;
+) -> Result<Json<SearchSuggestions>, ApiError> {
+    let contract = route_contract(&state, &name)?;
 
     let accessible = state.project.accessible_functions(contract);
     let functions: Vec<String> = accessible
@@ -432,18 +503,18 @@ pub async fn get_search_suggestions(
         .collect();
 
     let mut origins: std::collections::HashSet<String> = std::collections::HashSet::new();
-    origins.insert(name.clone());
+    origins.insert(contract.key().to_string());
     for af in &accessible {
         if af.is_inherited {
-            origins.insert(af.origin.clone());
+            origins.insert(af.owner.key().to_string());
         }
     }
 
-    let mut ext_calls = std::collections::HashSet::new();
+    let mut ext_calls = std::collections::BTreeSet::new();
     for ((c, _), pt) in &state.path_trees {
         if !origins.contains(c) { continue; }
-        for path in &pt.paths {
-            for call in &path.annotations.external_calls {
+        for annotations in pt.block_annotations() {
+            for call in &annotations.external_calls {
                 ext_calls.insert(format!("{}.{}", call.target, call.function));
             }
         }
@@ -503,6 +574,7 @@ fn summarize_stmt(stmt: &CfgStatement) -> String {
             }
         }
         CfgStatement::AssemblyBlock { .. } => "assembly { ... }".into(),
+        CfgStatement::UnresolvedModifier { name, .. } => format!("{name} (unresolved modifier)"),
     }
 }
 
@@ -536,9 +608,19 @@ fn make_block_label(block: &BasicBlock, stmts: &[String]) -> String {
 }
 
 fn truncate_label(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max])
+    match s.char_indices().nth(max) {
+        Some((cut, _)) => format!("{}…", &s[..cut]),
+        None => s.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn labels_are_cut_on_character_boundaries() {
+        assert_eq!(super::truncate_label("short", 24), "short");
+        assert_eq!(super::truncate_label("ñandú", 3), "ñan…");
+        assert_eq!(super::truncate_label("aéb", 2), "aé…");
+        assert_eq!(super::truncate_label(&"é".repeat(30), 24), format!("{}…", "é".repeat(24)));
     }
 }

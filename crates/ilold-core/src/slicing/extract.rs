@@ -24,7 +24,7 @@ pub fn walk_expr_identifiers(expr: &Expression, out: &mut HashSet<String>) {
         ExpressionKind::UnaryOp { operand, .. } => {
             walk_expr_identifiers(operand, out);
         }
-        ExpressionKind::FunctionCall { callee, arguments } => {
+        ExpressionKind::FunctionCall { callee, arguments, .. } => {
             match &callee.kind {
                 ExpressionKind::Identifier { .. } => {
                 }
@@ -225,7 +225,7 @@ fn expr_to_text(expr: &Expression) -> String {
                 format!("{}{}", sym, expr_to_text(operand))
             }
         }
-        ExpressionKind::FunctionCall { callee, arguments } => {
+        ExpressionKind::FunctionCall { callee, arguments, .. } => {
             let args = arguments.iter().map(expr_to_text).collect::<Vec<_>>().join(", ");
             format!("{}({})", expr_to_text(callee), args)
         }
@@ -239,7 +239,7 @@ fn expr_to_text(expr: &Expression) -> String {
             format!("{}({})", type_name, expr_to_text(expression))
         }
         ExpressionKind::TypeMeta { type_name } => format!("type({})", type_name),
-        ExpressionKind::New { type_name, arguments } => {
+        ExpressionKind::New { type_name, arguments, .. } => {
             let args = arguments.iter().map(expr_to_text).collect::<Vec<_>>().join(", ");
             format!("new {}({})", type_name, args)
         }

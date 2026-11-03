@@ -11,11 +11,14 @@ import type {
   ScenarioDeleted,
   ScenarioForked,
   ScenarioStoreReloaded,
+  SessionResync,
   ConnectionEvent,
   ForkOrigin,
 } from '$lib/api/types';
 
 
+// events for other contracts are ignored
+let sessionContract = $state<string | null>(null);
 let scenarios = $state<Map<string, SessionStep[]>>(new Map([['main', []]]));
 let activeScenario = $state<string>('main');
 let highlightedFunction = $state<string | null>(null);
@@ -28,9 +31,20 @@ function resetState() {
   forkOrigins = new Map();
 }
 
+function isOwn(msg: { contract: string }): boolean {
+  return sessionContract !== null && msg.contract === sessionContract;
+}
+
+export function setSessionContract(contract: string): void {
+  if (contract === sessionContract) return;
+  sessionContract = contract;
+  resetState();
+  resync();
+}
 
 
 subscribe('session_add_node', (msg: SessionAddNode) => {
+  if (!isOwn(msg)) return;
   const next = new Map(scenarios);
   const existing = next.get(msg.scenario) ?? [];
   next.set(msg.scenario, [
@@ -41,6 +55,7 @@ subscribe('session_add_node', (msg: SessionAddNode) => {
 });
 
 subscribe('session_remove_node', (msg: SessionRemoveNode) => {
+  if (!isOwn(msg)) return;
   const existing = scenarios.get(msg.scenario);
   if (!existing || existing.length === 0) return;
   const next = new Map(scenarios);
@@ -49,27 +64,32 @@ subscribe('session_remove_node', (msg: SessionRemoveNode) => {
 });
 
 subscribe('session_clear', (msg: SessionClear) => {
+  if (!isOwn(msg)) return;
   const next = new Map(scenarios);
   next.set(msg.scenario, []);
   scenarios = next;
 });
 
 subscribe('session_highlight', (msg: SessionHighlight) => {
+  if (!isOwn(msg)) return;
   highlightedFunction = msg.function;
 });
 
 
 subscribe('scenario_created', (msg: ScenarioCreated) => {
+  if (!isOwn(msg)) return;
   const next = new Map(scenarios);
   next.set(msg.name, []);
   scenarios = next;
 });
 
 subscribe('scenario_switched', (msg: ScenarioSwitched) => {
+  if (!isOwn(msg)) return;
   activeScenario = msg.to;
 });
 
 subscribe('scenario_deleted', (msg: ScenarioDeleted) => {
+  if (!isOwn(msg)) return;
   const next = new Map(scenarios);
   next.delete(msg.name);
   scenarios = next;
@@ -80,11 +100,15 @@ subscribe('scenario_deleted', (msg: ScenarioDeleted) => {
   }
 });
 
-subscribe('scenario_forked', (_msg: ScenarioForked) => {
-  resync();
+subscribe('scenario_forked', (msg: ScenarioForked) => {
+  if (isOwn(msg)) resync();
 });
 
-subscribe('scenario_store_reloaded', (_msg: ScenarioStoreReloaded) => {
+subscribe('scenario_store_reloaded', (msg: ScenarioStoreReloaded) => {
+  if (isOwn(msg)) resync();
+});
+
+subscribe('session_resync', (_msg: SessionResync) => {
   resync();
 });
 
@@ -98,10 +122,12 @@ subscribe('connection', (event: ConnectionEvent) => {
 let resyncGen = 0;
 
 async function resync(): Promise<void> {
+  const contract = sessionContract;
+  if (contract === null) return;
   const gen = ++resyncGen;
   try {
-    const response = await getAllScenarios();
-    if (gen !== resyncGen) return; // stale — a newer resync superseded this
+    const response = await getAllScenarios(contract);
+    if (gen !== resyncGen || contract !== sessionContract) return; // stale — superseded
 
     const newMap = new Map<string, SessionStep[]>();
     const newOrigins = new Map<string, ForkOrigin>();

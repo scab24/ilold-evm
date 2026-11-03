@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import {
     isPaletteOpen,
     closePalette,
@@ -143,7 +145,8 @@
         matches: r.matches.slice(0, 4),
       },
       run: () => {
-        setSearchNavigate({ contract: r.contract, func: r.function, pathId: r.path_id });
+        setSearchNavigate({ contract: r.contract, func: r.key, pathId: r.path_id });
+        if (page.params.name !== r.contract) goto(`/contract/${encodeURIComponent(r.contract)}`);
       },
     })),
   );

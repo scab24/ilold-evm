@@ -15,7 +15,7 @@ The REPL starts and auto-selects the main contract:
 ```
 ilold explore -- Staking
 8 functions | Type ? for help
-Web UI: http://localhost:3001
+Web UI: http://127.0.0.1:3001
 
 Staking >
 ```

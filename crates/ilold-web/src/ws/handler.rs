@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 use ilold_core::classify::entry_points::AccessLevel;
 use ilold_core::exploration::commands::{CanvasPatch, ScenarioEvent};
 
-use crate::state::AppState;
+use crate::state::{AppState, SessionBroadcast};
 use super::search::{self, SearchQuery};
 
 #[derive(Deserialize)]
@@ -25,27 +25,29 @@ enum ServerMessage {
     #[serde(rename = "search_result")]
     SearchResult(search::SearchResult),
     #[serde(rename = "search_complete")]
-    SearchComplete { total: usize },
+    SearchComplete { total: usize, truncated: bool },
     #[serde(rename = "error")]
     Error { message: String },
     #[serde(rename = "session_add_node")]
-    SessionAddNode { scenario: String, function: String, access: AccessLevel, step_index: usize },
+    SessionAddNode { contract: String, scenario: String, function: String, access: AccessLevel, step_index: usize },
     #[serde(rename = "session_remove_node")]
-    SessionRemoveNode { scenario: String },
+    SessionRemoveNode { contract: String, scenario: String },
     #[serde(rename = "session_clear")]
-    SessionClear { scenario: String },
+    SessionClear { contract: String, scenario: String },
     #[serde(rename = "session_highlight")]
-    SessionHighlight { scenario: String, function: String },
+    SessionHighlight { contract: String, scenario: String, function: String },
     #[serde(rename = "scenario_created")]
-    ScenarioCreated { name: String },
+    ScenarioCreated { contract: String, name: String },
     #[serde(rename = "scenario_switched")]
-    ScenarioSwitched { from: String, to: String },
+    ScenarioSwitched { contract: String, from: String, to: String },
     #[serde(rename = "scenario_deleted")]
-    ScenarioDeleted { name: String },
+    ScenarioDeleted { contract: String, name: String },
     #[serde(rename = "scenario_forked")]
-    ScenarioForked { from: String, to: String, at_step: usize },
+    ScenarioForked { contract: String, from: String, to: String, at_step: usize },
     #[serde(rename = "scenario_store_reloaded")]
-    ScenarioStoreReloaded { active: String },
+    ScenarioStoreReloaded { contract: String, active: String },
+    #[serde(rename = "session_resync")]
+    SessionResync,
 }
 
 pub async fn ws_handler(
@@ -55,28 +57,38 @@ pub async fn ws_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-fn server_message_from_patch(patch: CanvasPatch) -> ServerMessage {
+fn server_message_from_patch(SessionBroadcast { contract, patch }: SessionBroadcast) -> ServerMessage {
     match patch {
         CanvasPatch::AddNode { scenario, function, access, step_index } => {
-            ServerMessage::SessionAddNode { scenario, function, access, step_index }
+            ServerMessage::SessionAddNode { contract, scenario, function, access, step_index }
         }
-        CanvasPatch::RemoveLastNode { scenario } => ServerMessage::SessionRemoveNode { scenario },
-        CanvasPatch::ClearAll { scenario } => ServerMessage::SessionClear { scenario },
+        CanvasPatch::RemoveLastNode { scenario } => ServerMessage::SessionRemoveNode { contract, scenario },
+        CanvasPatch::ClearAll { scenario } => ServerMessage::SessionClear { contract, scenario },
         CanvasPatch::Highlight { scenario, function } => {
-            ServerMessage::SessionHighlight { scenario, function }
+            ServerMessage::SessionHighlight { contract, scenario, function }
         }
         CanvasPatch::ScenarioEvent(evt) => match evt {
-            ScenarioEvent::Created { name } => ServerMessage::ScenarioCreated { name },
-            ScenarioEvent::Switched { from, to } => ServerMessage::ScenarioSwitched { from, to },
-            ScenarioEvent::Deleted { name } => ServerMessage::ScenarioDeleted { name },
+            ScenarioEvent::Created { name } => ServerMessage::ScenarioCreated { contract, name },
+            ScenarioEvent::Switched { from, to } => ServerMessage::ScenarioSwitched { contract, from, to },
+            ScenarioEvent::Deleted { name } => ServerMessage::ScenarioDeleted { contract, name },
             ScenarioEvent::Forked { from, to, at_step } => {
-                ServerMessage::ScenarioForked { from, to, at_step }
+                ServerMessage::ScenarioForked { contract, from, to, at_step }
             }
             ScenarioEvent::Reloaded { active } => {
-                ServerMessage::ScenarioStoreReloaded { active }
+                ServerMessage::ScenarioStoreReloaded { contract, active }
             }
         },
     }
+}
+
+/// A lagged receiver gets `session_resync` instead of silently losing patches.
+pub async fn next_session_message(rx: &mut broadcast::Receiver<SessionBroadcast>) -> Option<String> {
+    let msg = match rx.recv().await {
+        Ok(update) => server_message_from_patch(update),
+        Err(broadcast::error::RecvError::Lagged(_)) => ServerMessage::SessionResync,
+        Err(broadcast::error::RecvError::Closed) => return None,
+    };
+    Some(serde_json::to_string(&msg).unwrap())
 }
 
 async fn send_json(socket: &mut WebSocket, msg: &ServerMessage) -> bool {
@@ -107,29 +119,29 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
 
                 match parsed {
                     ClientMessage::Search(query) => {
-                        let results = search::search_paths(&state, &query);
-                        let total = results.len();
+                        let (results, total) = match search::search_paths(&state, &query, search::MAX_SEARCH_RESULTS) {
+                            Ok(found) => found,
+                            Err(message) => {
+                                if !send_json(&mut socket, &ServerMessage::Error { message }).await { break; }
+                                continue;
+                            }
+                        };
+                        let truncated = results.len() < total;
 
                         for result in results {
                             let msg = ServerMessage::SearchResult(result);
                             if !send_json(&mut socket, &msg).await { break; }
                         }
 
-                        let complete = ServerMessage::SearchComplete { total };
+                        let complete = ServerMessage::SearchComplete { total, truncated };
                         if !send_json(&mut socket, &complete).await { break; }
                     }
                 }
             }
 
-            patch = rx.recv() => {
-                match patch {
-                    Ok(p) => {
-                        let msg = server_message_from_patch(p);
-                        if !send_json(&mut socket, &msg).await { break; }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
+            outbound = next_session_message(&mut rx) => {
+                let Some(json) = outbound else { break };
+                if socket.send(Message::Text(json.into())).await.is_err() { break; }
             }
         }
     }

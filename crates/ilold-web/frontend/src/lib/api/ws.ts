@@ -29,6 +29,12 @@ const knownTopics: ReadonlySet<string> = new Set([
   'session_remove_node',
   'session_clear',
   'session_highlight',
+  'scenario_created',
+  'scenario_switched',
+  'scenario_deleted',
+  'scenario_forked',
+  'scenario_store_reloaded',
+  'session_resync',
 ]);
 
 
@@ -152,6 +158,14 @@ export function teardown(): void {
     socket.close();
     socket = null;
   }
+}
+
+// a page restored from bfcache reconnects if anything is still subscribed
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => teardown());
+  window.addEventListener('pageshow', (e: PageTransitionEvent) => {
+    if (e.persisted && subscribers.size > 0) ensureSocket();
+  });
 }
 
 export function send(msg: object): void {

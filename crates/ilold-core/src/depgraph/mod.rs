@@ -17,9 +17,16 @@ pub type DepGraph = DiGraph<DepNode, DepEdge>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepNode {
+    /// The bare name unless it is ambiguous.
     pub name: String,
     pub kind: ContractKind,
     pub folder: String,
+    #[serde(default)]
+    pub qualified_id: String,
+    #[serde(default)]
+    pub is_dependency: bool,
+    #[serde(default)]
+    pub is_free_functions: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -68,6 +75,7 @@ pub struct DepRef<'a> {
     pub edge: &'a DepEdge,
 }
 
+#[derive(Clone)]
 pub struct ContractDeps {
     pub graph: DepGraph,
     index: HashMap<String, NodeIndex>,
@@ -83,6 +91,25 @@ impl ContractDeps {
         call_graphs: &std::collections::HashMap<String, crate::callgraph::types::CallGraph>,
     ) -> Self {
         build::from_call_graphs(project, call_graphs)
+    }
+
+    /// Built graphs hold one node per contract key; anything else is rejected.
+    pub fn from_graph(graph: DepGraph) -> Option<Self> {
+        let mut index = HashMap::new();
+        for idx in graph.node_indices() {
+            if index.insert(graph[idx].name.clone(), idx).is_some() {
+                return None;
+            }
+        }
+        Some(ContractDeps { graph, index })
+    }
+
+    pub fn without_dependencies(&self) -> Self {
+        let graph = self.graph.filter_map(
+            |_, node| (!node.is_dependency && !node.is_free_functions).then(|| node.clone()),
+            |_, edge| Some(edge.clone()),
+        );
+        Self::from_graph(graph).expect("node names stay unique")
     }
 
     pub fn node(&self, name: &str) -> Option<NodeIndex> {
@@ -151,19 +178,18 @@ mod tests {
             events: vec![],
             errors: vec![],
             inherits: inherits.iter().map(|s| s.to_string()).collect(),
+            id: None,
+            linearized_bases: vec![],
             span: span(),
+            qualified_id: String::new(),
+            key: String::new(),
+            is_dependency: false,
+            base_ids: vec![],
         }
     }
 
     fn project(contracts: Vec<ContractDef>) -> Project {
-        let mut p = Project {
-            source_files: vec![],
-            contracts,
-            contract_index: Default::default(),
-            decl_table: DeclTable::default(),
-        };
-        p.rebuild_index();
-        p
+        Project::new(vec![], contracts, DeclTable::default())
     }
 
     #[test]
@@ -188,24 +214,27 @@ mod tests {
         assert_eq!(used, vec!["BasePool"]);
     }
 
+    // same-named contracts get one node each and inheritance follows the declaration id
     #[test]
-    fn duplicate_names_collapse_to_one_node() {
-        let p = project(vec![
-            contract("Lib", &[]),
-            contract("Lib", &[]),
-            contract("User", &["Lib"]),
-        ]);
+    fn duplicate_names_keep_one_node_per_key() {
+        let lib = |path: &str, id: isize| ContractDef {
+            key: format!("{path}:Lib"),
+            qualified_id: format!("{path}:Lib"),
+            id: Some(crate::model::decl_id::DeclId(id)),
+            ..contract("Lib", &[])
+        };
+        let user = ContractDef { base_ids: vec![crate::model::decl_id::DeclId(2)], ..contract("User", &["Lib"]) };
+        let p = project(vec![lib("a/Lib.sol", 1), lib("b/Lib.sol", 2), user]);
         let deps = ContractDeps::build(&p);
 
         let lib_nodes = deps
             .graph
             .node_indices()
-            .filter(|&i| deps.graph[i].name == "Lib")
+            .filter(|&i| deps.graph[i].name.ends_with(":Lib"))
             .count();
-        assert_eq!(lib_nodes, 1, "same-named contracts must collapse to one node");
-        assert!(deps
-            .dependencies("User")
-            .iter()
-            .any(|d| d.node.name == "Lib" && d.edge.inherits));
+        assert_eq!(lib_nodes, 2, "same-named contracts keep separate nodes");
+        let parents: Vec<String> = deps.dependencies("User").iter()
+            .filter(|d| d.edge.inherits).map(|d| d.node.name.clone()).collect();
+        assert_eq!(parents, vec!["b/Lib.sol:Lib"]);
     }
 }

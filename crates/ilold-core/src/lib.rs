@@ -12,3 +12,5 @@ pub mod slicing;
 pub mod journal;
 pub mod exploration;
 pub mod util;
+pub mod analysis;
+pub mod analysis_cache;

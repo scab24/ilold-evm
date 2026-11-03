@@ -15,10 +15,12 @@ Because it reads the solc AST, ilold knows the real target of a cross-contract c
 ```
 git clone https://github.com/scab24/ilold.git
 cd ilold
+npm --prefix crates/ilold-web/frontend ci
+npm --prefix crates/ilold-web/frontend run build
 cargo build --release
 ```
 
-The binary is at `target/release/ilold` with four subcommands: `analyze`, `context`, `serve`, and `explore`.
+The binary is at `target/release/ilold` with five subcommands: `analyze`, `context`, `serve`, `explore`, and `evm-mcp` (the [MCP server](docs/guide/src/reference/mcp.md) for LLM agents). `--max-seq-depth` (on `analyze`, `serve` and `explore`) takes 1 to 8, the depths the server serves. The frontend build is required **before** Rust builds and is embedded in the binary; `build.rs` does not download or generate frontend dependencies. A missing `frontend/build/index.html` fails the Rust build with the commands to fix it. Rebuild the frontend before rebuilding Rust after UI changes. The built binary serves the UI without the source checkout. A previously installed `ilold` on PATH is not replaced by `cargo build`: run `./target/release/ilold` to test this checkout.
 
 ## The dependency graph
 
@@ -38,6 +40,8 @@ In the REPL, `deps <contract>` lists what a contract depends on and `usedby <con
 ./target/release/ilold analyze tests/fixtures/solc/cross --deps
 ```
 
+`analyze --contract <name>` limits the output to one contract. An unknown name exits with status 1 and names the closest contracts (`Did you mean: Vault?`) or lists the available ones. Exit codes for every subcommand: `0` success, `1` error (unknown contract, not a Foundry project, compile or server failure), `2` invalid command-line usage.
+
 ## Exploring a contract
 
 ```
@@ -52,7 +56,7 @@ ilold[Staking → deposit]> sl deposit totalStaked
 ilold[Staking → deposit]> tr deposit
 ```
 
-The canvas opens with the REPL and shows the same model: the call graph, the control flow of a function, and the session being built.
+Explore prints a local URL; enter `browser` to open it, or visit it manually. CLI, API, and canvas share one origin and the configured `--port` (default: dynamic). `serve` and `explore` listen on 127.0.0.1; `--host <addr>` changes it, and `--host 0.0.0.0` exposes the API and the embedded terminal to the network. Requests from other web pages (a foreign `Origin` or a cross-site `Sec-Fetch-Site`) and host names other than `localhost`, loopback, the `--host` address or, for `0.0.0.0`, the machine's interface addresses are refused with 403; for the Vite dev server, set `ILOLD_DEV_ORIGIN=http://localhost:5173` (see the [API reference](docs/guide/src/reference/api-endpoints.md#security)). Closing the REPL stops its embedded backend; `explore --attach <url>` connects to an existing backend and does not start a second one. `--contract <name>` starts the REPL on a given contract; without it, explore, the attached REPL, and the server all start on the same default (the most derived deployable contract, ties broken by name; tests, scripts, mocks and harnesses only when nothing else exists). Each contract keeps its own scenarios and steps, so `use` and the canvas can switch contracts without losing work. The canvas shows the same model: the call graph, the control flow of a function, and the session being built.
 
 ![ilold canvas](images/diagram_solidity.png)
 
@@ -66,7 +70,7 @@ The canvas opens with the REPL and shows the same model: the call graph, the con
 | Findings | `finding`, `note`, `scenario`, `status`, `findings`, `export` |
 | Workspace | `save`, `load`, `browser`, `quit` |
 
-Appending `?` to any command prints its usage. Sessions can be named, forked into scenarios, and saved or loaded across runs.
+Appending `?` to any command prints its usage. Tab completes commands, functions, state variables, contracts and scenario names; `Ctrl+C` clears the line and `Ctrl+D` or `q` exits. Sessions can be named, forked into scenarios (`scenario new|list|switch|fork|delete <name>`), and saved or loaded across runs under `~/.ilold/sessions/` (plain names only). A finding or note recorded before any step is kept as session-level and labelled so in the report.
 
 ## Trace and slice
 

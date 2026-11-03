@@ -2,6 +2,27 @@ use serde_json::Value;
 
 use crate::error::McpClientError;
 
+pub fn encode_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b':' | b'(' | b')' | b',' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+// URL parsing resolves `.` and `..` segments away, even percent-encoded
+pub fn check_segments(url: &str) -> Result<(), String> {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    match path.split('/').find(|s| matches!(*s, "." | "..")) {
+        Some(s) => Err(format!("'{s}' is not a valid path segment")),
+        None => Ok(()),
+    }
+}
+
 pub struct IloldClient {
     base_url: String,
     http: reqwest::Client,
@@ -24,6 +45,7 @@ impl IloldClient {
     }
 
     pub async fn get(&self, path: &str) -> Result<Value, McpClientError> {
+        check_segments(path).map_err(McpClientError::InvalidRequest)?;
         let url = format!("{}{}", self.base_url, path);
         let resp = self
             .http
@@ -45,6 +67,7 @@ impl IloldClient {
     }
 
     pub async fn post(&self, path: &str, body: Value) -> Result<Value, McpClientError> {
+        check_segments(path).map_err(McpClientError::InvalidRequest)?;
         let url = format!("{}{}", self.base_url, path);
         let resp = self
             .http

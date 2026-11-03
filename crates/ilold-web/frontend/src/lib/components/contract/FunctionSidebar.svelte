@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { ContractDetail } from '$lib/api/rest';
+  import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
   import { visibilityLabel } from '$lib/utils/visibility';
+  import { describeGuard, formatAccess, isAccessGuard } from '$lib/utils/access';
 
   let {
     contract,
@@ -26,33 +27,37 @@
 
   type Row = {
     name: string;
+    key: string;
     visibility: string;
     path_count: number;
-    modifiers: string[];
+    guarded: string | null;
+    stateGuarded: string | null;
     source: 'own' | 'inherited';
   };
+  function toRow(f: FunctionSummary, source: Row['source']): Row {
+    const accessGuards = f.guards.filter(isAccessGuard);
+    const stateGuards = f.guards.filter((g) => !isAccessGuard(g));
+    const restricted = (typeof f.access === 'object' && 'Restricted' in f.access) || accessGuards.length > 0;
+    return {
+      name: f.name,
+      key: f.key,
+      visibility: f.visibility,
+      path_count: f.path_count,
+      guarded: restricted ? [formatAccess(f.access), ...accessGuards.map(describeGuard)].join('\n') : null,
+      stateGuarded: stateGuards.length > 0 ? stateGuards.map(describeGuard).join('\n') : null,
+      source,
+    };
+  }
   const allRows = $derived<Row[]>([
-    ...(contract.functions ?? []).map((f): Row => ({
-      name: f.name,
-      visibility: f.visibility,
-      path_count: f.path_count,
-      modifiers: f.modifiers ?? [],
-      source: 'own',
-    })),
-    ...(contract.inherited_functions ?? []).map((f): Row => ({
-      name: f.name,
-      visibility: f.visibility,
-      path_count: f.path_count,
-      modifiers: f.modifiers ?? [],
-      source: 'inherited',
-    })),
+    ...(contract.functions ?? []).map((f) => toRow(f, 'own')),
+    ...(contract.inherited_functions ?? []).map((f) => toRow(f, 'inherited')),
   ]);
 
   const filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
     return allRows.filter((r) => {
       if (!visFilter.has(r.visibility as Visibility)) return false;
-      if (onlyAccessControl && r.modifiers.length === 0) return false;
+      if (onlyAccessControl && !r.guarded) return false;
       if (q && !r.name.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -143,7 +148,7 @@
         class="chip"
         class:active={onlyAccessControl}
         onclick={() => onlyAccessControl = !onlyAccessControl}
-        title="Only functions with modifiers (access control)"
+        title="Only access-controlled functions (caller or role checks)"
         aria-pressed={onlyAccessControl}
       >🔒</button>
       {#if canClear}
@@ -169,8 +174,8 @@
         </div>
       {:else}
         {#if ownFiltered.length > 0}
-          {#each ownFiltered as row, i (row.source + ':' + row.name + ':' + i)}
-            {@render functionRow(row)}
+          {#each ownFiltered as r, i (r.source + ':' + r.key + ':' + i)}
+            {@render functionRow(r)}
           {/each}
         {/if}
 
@@ -178,8 +183,8 @@
           {#if ownFiltered.length > 0}
             <div class="section-divider">Inherited</div>
           {/if}
-          {#each inheritedFiltered as row, i (row.source + ':' + row.name + ':' + i)}
-            {@render functionRow(row)}
+          {#each inheritedFiltered as r, i (r.source + ':' + r.key + ':' + i)}
+            {@render functionRow(r)}
           {/each}
         {/if}
       {/if}
@@ -188,7 +193,7 @@
 </div>
 
 {#snippet functionRow(row: Row)}
-  {@const onCanvas = canvasFuncs.has(row.name)}
+  {@const onCanvas = canvasFuncs.has(row.key)}
   {@const inSession = mode === 'session'}
   {@const showActive = onCanvas && !inSession}
   <div
@@ -198,22 +203,25 @@
   >
     <button
       class="row-main"
-      onclick={() => onadd(row.name)}
+      onclick={() => onadd(row.key)}
       title={inSession
         ? 'Add step to active scenario'
         : (onCanvas ? 'On canvas — click ✕ to remove' : 'Add to canvas')}
     >
-      <span class="row-name">{row.name}</span>
+      <span class="row-name" title={row.key}>{row.name}{#if row.key !== row.name}<span class="row-sig">{row.key.slice(row.name.length)}</span>{/if}</span>
       <span class="row-vis {visShort(row.visibility)}">{visShort(row.visibility)}</span>
-      {#if row.modifiers.length > 0}
-        <span class="row-lock" title={row.modifiers.join(', ')}>🔒</span>
+      {#if row.guarded}
+        <span class="row-lock" title={row.guarded}>🔒</span>
+      {/if}
+      {#if row.stateGuarded}
+        <span class="row-lock" title={row.stateGuarded}>🚦</span>
       {/if}
       <span class="row-paths">{row.path_count}p</span>
     </button>
     {#if showActive}
       <button
         class="row-toggle"
-        onclick={(e) => { e.stopPropagation(); onremove(row.name); }}
+        onclick={(e) => { e.stopPropagation(); onremove(row.key); }}
         title="Remove from canvas"
         aria-label="Remove {row.name} from canvas"
       >
@@ -404,6 +412,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .row-sig { color: var(--color-text-dim); font-weight: normal; }
 
   .row-vis {
     font-size: 8px;

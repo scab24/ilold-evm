@@ -1,17 +1,22 @@
 pub mod api;
+mod guard;
 pub mod state;
+pub mod ui;
 pub mod ws;
 
-use std::path::PathBuf;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::routing::{delete, get, post, put};
 use axum::Router;
-use tower_http::cors::CorsLayer;
+use tower_http::validate_request::ValidateRequestHeaderLayer;
 
+use guard::{LocalAddr, RequestGuard};
 use state::AppState;
 
 fn build_router(state: Arc<AppState>) -> Router {
+    let guard = RequestGuard::new(state.addr, std::env::var("ILOLD_DEV_ORIGIN").ok());
     Router::new()
         .route("/api/project", get(api::project::get_project))
         .route("/api/project/map", get(api::project::get_project_map))
@@ -30,6 +35,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/annotations/{id}", put(api::annotations::update_annotation))
         .route("/api/annotations/{id}", delete(api::annotations::delete_annotation))
         .route("/api/cmd", post(api::session::handle_command))
+        .route("/api/session/highlight", post(api::session::post_highlight))
         .route("/api/session/step/{index}/narrative", get(api::session::get_step_detail))
         .route("/api/session/step/{index}/trace", get(api::session::get_session_step_trace))
         .route("/api/session/timeline/{variable}", get(api::session::get_variable_timeline_handler))
@@ -42,16 +48,43 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/scenarios/all", get(api::session::get_all_scenarios))
         .route("/ws", get(ws::handler::ws_handler))
         .route("/ws/pty", get(ws::pty::ws_pty_handler))
-        .layer(CorsLayer::permissive())
+        .route("/", get(ui::root))
+        .route("/favicon.ico", get(ui::favicon))
+        .fallback(get(ui::ui_path))
+        .layer(ValidateRequestHeaderLayer::custom(move |request: &mut axum::extract::Request| guard.check(request)))
         .with_state(state)
 }
 
-pub async fn serve(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize) -> anyhow::Result<()> {
+/// The directory itself, or a file's parent; never empty, even for `.`.
+pub fn contract_path_for(path: &Path) -> PathBuf {
+    let absolute = std::fs::canonicalize(path)
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf());
+    if absolute.is_dir() {
+        return absolute;
+    }
+    match absolute.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
+}
+
+/// The URL a client on this machine uses; unspecified binds are reached through loopback.
+pub fn local_url(addr: SocketAddr) -> String {
+    let ip = match addr.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    format!("http://{}", SocketAddr::new(ip, addr.port()))
+}
+
+pub async fn serve(paths: Vec<PathBuf>, addr: SocketAddr, max_seq_depth: usize) -> anyhow::Result<()> {
     println!("Analyzing {} file(s)...", paths.len());
-    let contract_path = paths.first().map(|p| p.parent().unwrap_or(p).to_path_buf()).unwrap_or_default();
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-    let actual_port = listener.local_addr()?.port();
-    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, actual_port, contract_path)?);
+    let contract_path = paths.first().map(|p| contract_path_for(p)).unwrap_or_else(|| contract_path_for(Path::new(".")));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let addr = listener.local_addr()?;
+    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, addr, contract_path)?);
     println!(
         "Ready: {} contracts, {} functions analyzed\n",
         state.project.contracts.len(),
@@ -59,25 +92,31 @@ pub async fn serve(paths: Vec<PathBuf>, port: u16, max_seq_depth: usize) -> anyh
     );
 
     let app = build_router(state);
-    println!("Server running at http://localhost:{actual_port}");
-    axum::serve(listener, app).await?;
+    println!("Server running at {} (listening on {addr})", local_url(addr));
+    axum::serve(listener, app.into_make_service_with_connect_info::<LocalAddr>()).await?;
     Ok(())
 }
 
 pub async fn start_server(
-    paths: Vec<PathBuf>,
-    port: u16,
-    max_seq_depth: usize,
+    paths: Vec<PathBuf>, port: u16, max_seq_depth: usize,
 ) -> anyhow::Result<(Arc<AppState>, u16)> {
-    let contract_path = paths.first().map(|p| p.parent().unwrap_or(p).to_path_buf()).unwrap_or_default();
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-    let actual_port = listener.local_addr()?.port();
-    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, actual_port, contract_path)?);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let (state, port, _server) = start_server_with_handle(paths, addr, max_seq_depth).await?;
+    Ok((state, port))
+}
+
+pub async fn start_server_with_handle(
+    paths: Vec<PathBuf>, addr: SocketAddr, max_seq_depth: usize,
+) -> anyhow::Result<(Arc<AppState>, u16, tokio::task::JoinHandle<anyhow::Result<()>>)> {
+    let contract_path = paths.first().map(|p| contract_path_for(p)).unwrap_or_else(|| contract_path_for(Path::new(".")));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let addr = listener.local_addr()?;
+    let state = Arc::new(AppState::from_paths(&paths, max_seq_depth, addr, contract_path)?);
     let app = build_router(state.clone());
-
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.ok();
+    let server = tokio::spawn(async move {
+        let result = axum::serve(listener, app.into_make_service_with_connect_info::<LocalAddr>()).await.map_err(anyhow::Error::from);
+        if let Err(ref error) = result { eprintln!("Explore server stopped: {error:#}"); }
+        result
     });
-
-    Ok((state, actual_port))
+    Ok((state, addr.port(), server))
 }

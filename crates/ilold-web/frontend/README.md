@@ -29,6 +29,12 @@ npm run dev
 npm run dev -- --open
 ```
 
+The dev server proxies `/api` and `/ws` to a backend on port 8080, which refuses foreign origins unless told about the dev page:
+
+```sh
+ILOLD_DEV_ORIGIN=http://localhost:5173 ilold serve <path> --port 8080
+```
+
 ## Building
 
 To create a production version of your app:

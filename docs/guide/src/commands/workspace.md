@@ -16,6 +16,12 @@ ilold[→ deposit → withdraw]> save staking-audit
 
 You can resume this session later with [load](#load), even across different ilold runs, as long as the same contract files are loaded.
 
+The name is a plain file name: letters, digits, `-`, `_` and `.`, not starting
+or ending with `.` (a trailing `.json` is accepted). Paths such as `../x`, `/tmp/x` or
+`a/b` are rejected, so sessions always stay in `~/.ilold/sessions/`. Windows device
+names (`con`, `nul`, `com1`, `lpt1`, ... with any extension) are rejected too. `save`
+and `load` refuse a sessions directory or session file that is a symbolic link.
+
 ## load
 
 `load <name>`
@@ -25,16 +31,25 @@ Loads a previously saved session from `~/.ilold/sessions/`.
 ```
 ilold[Staking]> load staking-audit
 
-  ✓ Session loaded (2 steps)
+  ✓ Session loaded: Staking (2 steps)
 ```
 
-The prompt updates to reflect the loaded steps. The session replaces whatever is currently in memory.
+The prompt updates to reflect the loaded scenario and steps, and Tab completion
+picks up its scenario names. The saved scenarios replace that contract's
+scenarios; if the file belongs to another contract the REPL switches to it.
+`load` accepts the same names as `save`.
 
 ## browser
 
 `browser`
 
 Opens the web UI. ilold starts an API server on startup; `browser` provides the URL.
+The server listens on 127.0.0.1 unless `ilold explore` gets `--host <addr>`;
+`--host 0.0.0.0` exposes the API and the embedded terminal to the network.
+Only pages served by ilold itself can drive the server from a browser, and
+requests must address it by `localhost`, a loopback address, the `--host` address
+or, when bound to `0.0.0.0`, the machine's interface address; see
+[Security](../reference/api-endpoints.md#security).
 
 ```
 ilold[Staking]> browser
@@ -42,10 +57,18 @@ ilold[Staking]> browser
   API running at http://127.0.0.1:52431/api/
 ```
 
+## help
+
+`?`, `h` or `help` lists the commands. Append `?` to any command for its usage,
+for example `sl?`, `sc?` or `q?`. Tab completes command names, functions
+(including inherited ones) for `c`, `i`, `tr` and `sl`, state variables for
+`who`, `tl` and the second argument of `sl`, contracts for `use`, `deps` and
+`usedby`, and scenario names for `sc switch|fork|delete`.
+
 ## quit
 
 `q`, `quit`, or `exit`
 
-Exits the REPL. You can also press `Ctrl+D` or `Ctrl+C`.
+Exits the REPL. `Ctrl+D` also exits. `Ctrl+C` only clears the line being edited.
 
 Unsaved session data is lost on exit. Use [save](#save) before quitting if you want to resume later.

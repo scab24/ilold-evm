@@ -13,6 +13,11 @@ pub struct SourceSpan {
 pub struct Param {
     pub name: String,
     pub type_name: String,
+    /// A pointer into the caller's storage.
+    #[serde(default)]
+    pub is_storage: bool,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +30,19 @@ pub struct StateVar {
     pub initial_value: Option<super::expression::Expression>,
     #[serde(default)]
     pub resolved_types: Vec<super::decl_id::DeclId>,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
+    /// It implements an interface function with this selector.
+    #[serde(default)]
+    pub selector: Option<String>,
     pub span: SourceSpan,
+}
+
+impl StateVar {
+    /// Constants and immutables live in the code.
+    pub fn is_storage(&self) -> bool {
+        !self.is_constant && !self.is_immutable
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +63,8 @@ pub struct EnumDef {
 pub struct EventDef {
     pub name: String,
     pub params: Vec<Param>,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
     pub span: SourceSpan,
 }
 
@@ -53,5 +72,7 @@ pub struct EventDef {
 pub struct ErrorDef {
     pub name: String,
     pub params: Vec<Param>,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
     pub span: SourceSpan,
 }

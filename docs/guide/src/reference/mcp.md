@@ -18,14 +18,14 @@ claude mcp add ilold-evm --transport stdio -- \
   ilold evm-mcp --server-url http://127.0.0.1:8080
 ```
 
-Because the MCP drives the same server, the web canvas reflects what the agent inspects in real time: the contract or function the agent is looking at is highlighted on the graph. A human and an agent can audit the same protocol together.
+Because the MCP drives the same server, the web canvas reflects what the agent does in real time: a function the agent inspects with `ilold_function_analysis` or `ilold_trace` is selected on the open page of that contract and marked in its session timeline, and session steps appear as the agent adds them. A human and an agent can audit the same protocol together.
 
 ## Tool conventions
 
 - Tool names are prefixed `ilold_`.
-- Analysis tools (orientation, structure, function, dataflow, sequence) are read-only and deterministic; the same call always returns the same result.
+- Analysis tools (orientation, structure, function, dataflow, sequence) do not change the analysis or any session's steps, and the same call on the same server returns the same result. Their side effects: `ilold_entry_points` and `ilold_who_touches` go through `POST /api/cmd`, so the contract they name becomes the server's current contract, and `ilold_function_analysis` and `ilold_trace` ask the server to highlight the function on the canvas (`POST /api/session/highlight` after the read succeeds).
 - Session and findings tools mutate the active session. They operate on the contract set by `ilold_use`.
-- Responses are shaped for context economy: overviews return names and counts, detail tools return one contract or one function, and large structures (paths, traces) are summarized rather than dumped.
+- Responses are shaped for context economy: overviews return names and counts and detail tools return one contract or one function. Nothing is summarized by a model: long lists are paged (`ilold_function_paths`, `ilold_sequences` take `offset` and `limit`), `ilold_function_analysis` narrates the first 100 paths and counts the rest in `paths_omitted`, and `ilold_trace` inlines calls down to `depth`. `ilold_project_map` and `ilold_callgraph` are returned whole and grow with the project.
 
 ## Tools
 
@@ -42,18 +42,18 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `ilold_contract_detail` | `contract` | Functions (visibility, mutability, modifiers, params, path stats), state variables, inheritance, inherited members. |
-| `ilold_entry_points` | `contract` | Externally callable functions with their access level (public, or restricted to a role). |
+| `ilold_contract_detail` | `contract` | Functions (visibility, mutability, modifiers, params, path counts and `paths_truncated`), state variables, inheritance, inherited members. |
+| `ilold_entry_points` | `contract` | Functions the contract runs, own and inherited (`origin`, `is_inherited`), with their access level (`Public`, `Restricted`, `Special`, or `Internal` for the ones not callable from outside) and guards read from code: `kind` (`CallerEquals`, `RoleCheck`, `TxOrigin`, or `AccessByName` when only a modifier name was available; `Pause`, `Reentrancy`, `Initializer` for state guards), `condition`, `via`, `span`, `heuristic`. |
 | `ilold_search` | `contract` | Searchable names in a contract: functions, state variables, events, external-call targets. |
 
 ### Function analysis
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. |
-| `ilold_function_paths` | `contract`, `function` | Enumerated execution paths with per-path annotations and terminal kind (return/revert). |
+| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert, `path_stats` with cutoffs and truncation; the first 100 narrated, `paths_omitted` counts the rest), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. |
+| `ilold_function_paths` | `contract`, `function`, `offset`, `limit` (optional) | One page of the execution paths with per-path annotations and terminal kind, plus the path stats (cutoffs, `cap_reached`, `truncated`); `page.truncated` means more paths follow. |
 | `ilold_trace` | `contract`, `function`, `depth` (optional), `reverts` (optional), `expand` (optional) | Execution tree with modifier bodies inlined and external calls resolved to their real target. |
-| `ilold_callgraph` | `contract` | Function call edges within and out of the contract (internal, external, inherited) with call counts. |
+| `ilold_callgraph` | `contract` | Function call edges of the contract as the most derived contract (own and inherited functions, `super` and virtual dispatch resolved), with call kinds (internal, library internal/delegatecall, external, `this`, low-level, transfer/send, creation) and call counts. |
 | `ilold_cfg` | `contract`, `function` | Control flow graph: basic blocks and branch edges. |
 | `ilold_source` | `contract`, `function` | Source code of the function with its file path and line span. |
 
@@ -70,7 +70,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 | Tool | Parameters | Returns |
 | --- | --- | --- |
 | `ilold_sequence_analysis` | `contract` | Per-function behavior and the transition matrix: state shared between functions and conditions affected. |
-| `ilold_sequences` | `contract`, `depth` (optional) | Transaction sequence tree up to a depth. |
+| `ilold_sequences` | `contract`, `depth`, `offset`, `limit` (optional) | Callable functions and one page of the transaction sequences up to a depth (none for interfaces); `limit` 0 returns only the functions. |
 
 ### Session and findings (stateful)
 
@@ -98,7 +98,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent i
 ## Notes
 
 - The server must be running and reachable at `--server-url`.
-- Most tools are read-only and take an explicit `contract`. `ilold_slice` and `ilold_timeline` only read but operate on the active contract set with `ilold_use`; the session and findings tools also need it and mutate the session.
+- Most tools only read and take an explicit `contract`; a qualified id such as `src/core/IToken.sol:IToken` selects one of several contracts sharing a name. `ilold_slice` and `ilold_timeline` only read but operate on the active contract set with `ilold_use`; the session and findings tools also need it and mutate the session.
 - Resolution has the same boundaries as the rest of the tool: calls through `address.call(...)` or assembly have no typed target and are not resolved. See [Known Limitations](./limitations.md).
 
 ## Related pages

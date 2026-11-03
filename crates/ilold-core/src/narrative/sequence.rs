@@ -1,31 +1,45 @@
-use crate::classify::entry_points::AccessLevel;
-use crate::sequence::analysis::{FunctionBehavior, TransitionInfo};
+use crate::classify::entry_points::{classify_in, AccessLevel};
+use crate::model::contract::ContractDef;
+use crate::model::project::Project;
+use crate::sequence::analysis::{find_behavior, transition, FunctionBehavior};
 
 use super::trace::{FlowKind, FlowNode, FlowTree};
 use super::types::*;
 
+struct SequenceInput<'a> {
+    function: &'a str,
+    access: AccessLevel,
+    behavior: Option<&'a FunctionBehavior>,
+}
+
+/// `behaviors` are those of `contract` itself.
 pub fn build_sequence_narrative(
-    contract_name: &str,
-    function_names: &[&str],
+    project: &Project,
+    contract: &ContractDef,
+    names: &[&str],
     behaviors: &[FunctionBehavior],
-    transitions: &[TransitionInfo],
-    classifications: &[(String, AccessLevel)],
 ) -> SequenceNarrative {
+    let inputs: Vec<SequenceInput> = names
+        .iter()
+        .map(|name| match project.resolve_function(contract, name) {
+            Some((owner, func)) => SequenceInput {
+                function: name,
+                access: classify_in(project, contract, owner, func).0,
+                behavior: find_behavior(behaviors, owner.key(), &func.key),
+            },
+            None => SequenceInput { function: name, access: AccessLevel::Public, behavior: None },
+        })
+        .collect();
     let mut steps = Vec::new();
     let mut observations = Vec::new();
 
-    for (i, func_name) in function_names.iter().enumerate() {
-        let behavior = behaviors.iter().find(|b| b.name == *func_name);
-        let access = classifications
-            .iter()
-            .find(|(name, _)| name == func_name)
-            .map(|(_, a)| a.clone())
-            .unwrap_or(AccessLevel::Public);
-
-        let (requires, effects, ext_calls, events) = match behavior {
+    for (i, input) in inputs.iter().enumerate() {
+        let func_name = input.function;
+        let access = input.access.clone();
+        let (requires, effects, ext_calls, events) = match input.behavior {
             Some(b) => (
                 b.preconditions.clone(),
-                b.state_writes.clone(),
+                b.effective_state_writes(),
                 b.external_calls.clone(),
                 b.events.clone(),
             ),
@@ -34,13 +48,9 @@ pub fn build_sequence_narrative(
 
         let mut deps = Vec::new();
 
-        for prev_idx in 0..i {
-            let prev_name = function_names[prev_idx];
-            let transition = transitions
-                .iter()
-                .find(|t| t.from == prev_name && t.to == *func_name);
-
-            if let Some(t) = transition {
+        for (prev_idx, prev) in inputs[..i].iter().enumerate() {
+            let (Some(a), Some(b)) = (prev.behavior, input.behavior) else { continue };
+            if let Some(t) = transition(a, b) {
                 for cond in &t.conditions_affected {
                     deps.push(Dependency {
                         from_step: prev_idx,
@@ -80,7 +90,7 @@ pub fn build_sequence_narrative(
     }
 
     SequenceNarrative {
-        contract: contract_name.to_string(),
+        contract: contract.key().to_string(),
         steps,
         observations,
     }
@@ -115,7 +125,7 @@ fn walk_for_summary(node: &FlowNode, session_step_index: usize, summary: &mut Fl
             summary.mutation_count += 1;
             summary.mutation_refs.push(MutationRef {
                 variable: target.clone(),
-                flow_step_id: node.step_id,
+                flow_step_id: Some(node.step_id),
                 session_step_index,
             });
         }
@@ -123,7 +133,7 @@ fn walk_for_summary(node: &FlowNode, session_step_index: usize, summary: &mut Fl
             summary.mutation_count += 1;
             summary.mutation_refs.push(MutationRef {
                 variable: variable.clone(),
-                flow_step_id: node.step_id,
+                flow_step_id: Some(node.step_id),
                 session_step_index,
             });
         }

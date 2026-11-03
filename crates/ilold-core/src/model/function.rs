@@ -1,22 +1,43 @@
 use serde::{Deserialize, Serialize};
 
 use super::common::{Param, SourceSpan};
+use super::decl_id::DeclId;
 use super::modifier::ModifierRef;
 use super::statement::Statement;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionDef {
     pub name: String,
+    /// Unique within the defining contract: the name, or the signature when overloaded.
+    #[serde(default)]
+    pub key: String,
+    /// Without data locations.
+    #[serde(default)]
+    pub signature: String,
+    #[serde(default)]
+    pub selector: Option<String>,
+    #[serde(default)]
+    pub id: Option<DeclId>,
     pub kind: FunctionKind,
     pub visibility: Visibility,
     pub mutability: Mutability,
     pub modifiers: Vec<ModifierRef>,
+    // constructor `Base(args)` specifiers; not inlined like modifiers
+    #[serde(default)]
+    pub base_constructor_calls: Vec<ModifierRef>,
     pub params: Vec<Param>,
     pub returns: Vec<Param>,
     pub body: Option<Vec<Statement>>,
     pub is_virtual: bool,
     pub is_override: bool,
     pub span: SourceSpan,
+}
+
+impl FunctionDef {
+    /// Hand-built models fall back to the name.
+    pub fn match_signature(&self) -> &str {
+        if self.signature.is_empty() { &self.name } else { &self.signature }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,4 +62,10 @@ pub enum Mutability {
     View,
     Payable,
     NonPayable,
+}
+
+impl Mutability {
+    pub fn is_view_or_pure(self) -> bool {
+        matches!(self, Mutability::View | Mutability::Pure)
+    }
 }

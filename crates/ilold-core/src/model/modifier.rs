@@ -9,6 +9,8 @@ pub struct ModifierDef {
     pub name: String,
     pub params: Vec<Param>,
     pub body: Vec<Statement>,
+    #[serde(default)]
+    pub id: Option<super::decl_id::DeclId>,
     pub span: SourceSpan,
 }
 

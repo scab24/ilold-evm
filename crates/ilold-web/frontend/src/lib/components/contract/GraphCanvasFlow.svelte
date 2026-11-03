@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { SvelteFlow, SvelteFlowProvider, Background, Controls, Panel, useSvelteFlow, type NodeTypes } from '@xyflow/svelte';
+  import { SvelteFlow, SvelteFlowProvider, Background, Controls, Panel, SelectionMode, useSvelteFlow, type FitViewOptions, type NodeTypes } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
 
@@ -24,9 +24,12 @@
     onselectionchange?: (nodes: Node<GraphNodeData>[]) => void;
     onnodemouseenter?: (node: Node<GraphNodeData>) => void;
     onnodemouseleave?: (node: Node<GraphNodeData>) => void;
+    /** Fit once, after the pane has a size and every visible node is measured. */
+    initialFit?: FitViewOptions;
+    minZoom?: number;
   }
 
-  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave }: Props = $props();
+  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, initialFit, minZoom = 0.1 }: Props = $props();
 
   const deleteKeysProp = $derived<string[] | null>(canDeleteNodes ? ['Delete', 'Backspace'] : null);
 
@@ -56,6 +59,22 @@
   $effect(() => {
     const storeEdges = getEdges();
     flowEdges = storeEdges;
+  });
+
+  let flowFitView = $state<((opts?: FitViewOptions) => Promise<boolean>) | null>(null);
+  let paneWidth = $state(0);
+  let paneHeight = $state(0);
+  let initialFitDone = false;
+
+  // a fit before layout clamps to minZoom, so wait for real pane dimensions and measured nodes
+  $effect(() => {
+    if (initialFitDone || !initialFit || !flowFitView || paneWidth === 0 || paneHeight === 0) return;
+    const visible = flowNodes.filter((n) => !n.hidden);
+    if (visible.length === 0 || !visible.every((n) => n.measured?.width && n.measured?.height)) return;
+    initialFitDone = true;
+    const fit = flowFitView;
+    const options = initialFit;
+    requestAnimationFrame(() => { fit(options); });
   });
 
   export function getLiveNode(id: string): Node | undefined {
@@ -97,7 +116,7 @@
   a node would fire onnodecontextmenu AND the browser's native menu, which
   immediately dismisses our custom ContextMenu popover.
 -->
-<div class="graph-canvas-flow" oncontextmenu={(e) => e.preventDefault()}>
+<div class="graph-canvas-flow" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight} oncontextmenu={(e) => e.preventDefault()}>
   <SvelteFlowProvider>
     <!--
       Canvas modes (toggled via the top-left Panel toolbar or V/H shortcuts):
@@ -105,7 +124,7 @@
       - `select` → left-drag draws a rectangular lasso (Excalidraw-style);
                    middle/right-drag still pans.
       Shared in both modes:
-      - shift+click on a node    → add/remove from selection (multiSelectionKeyCode)
+      - shift+click on a node    → add/remove from selection (multiSelectionKey)
       - drag any selected node   → move the whole group together (native)
       - partial overlap counts   → lasso only needs to touch a node (selectionMode)
       - right-click on a node    → branch/context menu (onnodecontextmenu)
@@ -126,15 +145,16 @@
       onnodepointerleave={({ node }) => onnodemouseleave?.(node as Node<GraphNodeData>)}
       oninit={() => {
         const { fitView } = useSvelteFlow();
+        flowFitView = fitView;
         onready?.({ fitView });
       }}
-      minZoom={0.1}
+      {minZoom}
       maxZoom={4}
       colorMode="dark"
       panOnDrag={panOnDragProp}
       selectionOnDrag={selectionOnDragProp}
-      selectionMode="partial"
-      multiSelectionKeyCode="Shift"
+      selectionMode={SelectionMode.Partial}
+      multiSelectionKey="Shift"
       deleteKey={deleteKeysProp}
     >
       <Background />

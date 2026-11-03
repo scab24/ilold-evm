@@ -32,8 +32,11 @@ Displays a full function narrative: execution paths, state reads/writes, interna
 ```
 ilold[Staking]> i withdraw
 
-  withdraw [public] — whenNotPaused, nonReentrant
+  withdraw [Public] — whenNotPaused, nonReentrant
   ├── Paths: 3 total, 1 happy, 2 revert
+  ├── Guards:
+  │     pause: require(!paused, "Paused") (via modifier whenNotPaused)
+  │     reentrancy: require(!locked) (via modifier nonReentrant)
   ├── State reads: balances, totalStaked
   ├── State writes: balances, totalStaked
   ├── External calls: msg.sender.call{value: amount}
@@ -45,6 +48,10 @@ ilold[Staking]> i withdraw
         · External call after state writes (checks-effects-interactions followed)
   → c withdraw, tr withdraw
 ```
+
+Guards list each revert check that gates the function, with the chain that reaches it (`modifier m`, then each helper as `Contract::function`). The observation "Public function writes state without access control" appears only when no access guard (`caller`, `role`, `tx.origin`) was found; pause, reentrancy and initializer guards do not count.
+
+When the path enumeration was cut short, a line under `Paths` names the causes, for example `truncated: 7518 depth cutoffs, 8 loop cutoffs, path cap reached (10 branches dropped)`; the happy and revert counts then cover only the paths found, and cut-off paths make up the rest of the total. `trace` shows the same line in its header.
 
 The `info` command does not require the function to be in the session. It analyzes the function in isolation.
 
@@ -102,7 +109,11 @@ ilold[Staking]> tr withdraw
 - `--reverts` -- Include revert paths in the tree.
 - `+N` -- Force-expand a depth-limited internal call at step N. Multiple `+N` flags allowed.
 - `-i` -- Open the trace in an interactive TUI with keyboard navigation. Increases default depth to 4.
-- `step N` -- Re-render the persisted flow tree from session step N (depth/expand flags are ignored).
+- `step N` -- Re-render the persisted flow tree from session step N. `-i` opens it in the TUI;
+  `--depth`, `--reverts` or `+N` after `step N` rebuild that step's function with those flags.
+
+Unknown flags, a non-numeric `--depth`, `trace step` without an index, a step that does not
+exist and extra words are rejected with a message instead of being ignored.
 
 ```
 ilold[Staking]> tr withdraw +6
@@ -123,14 +134,18 @@ External calls (`→`) to a typed contract are resolved to the real target. When
 address with `IPool(addr).supply(...)`, the solc frontend resolves both to
 `IPool.supply` rather than an unnamed placeholder. The resolved target is what
 `info`, `trace`, the call graph, and `deps`/`usedby` report. Low-level calls
-with no typed target (`addr.call(...)`, assembly) cannot be resolved and stay
-anonymous.
+(`addr.call{value: v}(...)`, `delegatecall`, `staticcall`) and value transfers
+(`transfer`, `send`) have no typed target: they are reported by kind against the
+address expression, with their call options. Inline assembly is not resolved.
+Internal library calls (`x.f()` through `using for`, or `L.f()` for an internal
+`f`) are internal calls written `L.f`; public and external library functions are
+delegatecalls and count as external.
 
 ## timeline
 
 `tl <variable>` or `timeline <variable>`
 
-Shows the cross-step mutation history of a variable across the current session. Each mutation includes the operator, value expression, and path conditions (reached-when).
+Shows the cross-step mutation history of a variable across the current session. Each mutation includes the operator, value expression, and path conditions (reached-when). A write made through calls the trace does not show reads `written via <call chain>`.
 
 ```
 ilold[→ deposit → withdraw]> tl totalStaked

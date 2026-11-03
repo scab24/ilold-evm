@@ -65,6 +65,10 @@ async fn unknown_tool_errors() {
     assert_eq!(res.is_error, Some(true));
 }
 
+fn no_highlight_query(req: &httpmock::prelude::HttpMockRequest) -> bool {
+    req.query_params.iter().flatten().all(|(name, _)| name != "highlight")
+}
+
 #[tokio::test]
 async fn p2_get_tools_route_to_endpoints() {
     let server = MockServer::start();
@@ -73,14 +77,19 @@ async fn p2_get_tools_route_to_endpoints() {
         t.status(200).json_body(json!({}));
     });
     let narrative = server.mock(|w, t| {
-        w.method(GET).path("/api/session/function/Vault/deposit");
+        w.method(GET).path("/api/session/function/Vault/deposit").matches(no_highlight_query);
         t.status(200).json_body(json!({}));
     });
     let trace = server.mock(|w, t| {
         w.method(GET)
             .path("/api/session/trace/Vault/deposit")
+            .matches(no_highlight_query)
             .query_param("depth", "3")
             .query_param("reverts", "true");
+        t.status(200).json_body(json!({}));
+    });
+    let highlight = server.mock(|w, t| {
+        w.method(POST).path("/api/session/highlight").json_body(json!({"contract":"Vault","function":"deposit"}));
         t.status(200).json_body(json!({}));
     });
     let client = IloldClient::new(server.base_url());
@@ -92,6 +101,7 @@ async fn p2_get_tools_route_to_endpoints() {
     narrative.assert();
     dispatch(&client, &current, "ilold_trace", Some(&json!({"contract":"Vault","function":"deposit","depth":3,"reverts":true}))).await;
     trace.assert();
+    highlight.assert_hits(2);
 }
 
 #[tokio::test]
@@ -100,8 +110,8 @@ async fn p2_post_tools_send_exact_command() {
     let entry = server.mock(|w, t| {
         w.method(POST)
             .path("/api/cmd")
-            .json_body(json!({ "contract": "Vault", "command": "Functions" }));
-        t.status(200).json_body(json!({ "FunctionList": { "functions": [] } }));
+            .json_body(json!({ "contract": "Vault", "command": "FunctionsAll" }));
+        t.status(200).json_body(json!({ "FunctionListAll": { "functions": [] } }));
     });
     let who = server.mock(|w, t| {
         w.method(POST)
@@ -293,4 +303,70 @@ async fn trace_forwards_expand_step_ids() {
 
     dispatch(&client, &current, "ilold_trace", Some(&json!({"contract":"Vault","function":"deposit","expand":"17,24"}))).await;
     trace.assert();
+}
+
+#[tokio::test]
+async fn contract_ids_and_names_are_url_encoded() {
+    let server = MockServer::start();
+    // paths are matched as sent; the server decodes them
+    let id = "src/a b/T&U.sol:T";
+    let timeline = server.mock(|w, t| {
+        w.method(GET).path("/api/session/timeline/total").query_param("contract", id);
+        t.status(200).json_body(json!({}));
+    });
+    let slice = server.mock(|w, t| {
+        w.method(GET)
+            .path("/api/session/slice/put(uint256%5B%5D%20storage)/total")
+            .query_param("contract", id)
+            .query_param("direction", "both");
+        t.status(200).json_body(json!({}));
+    });
+    let cfg = server.mock(|w, t| {
+        w.method(GET).path("/api/contract/src%2Fa%20b%2FT%26U.sol:T/put(uint256%5B%5D%20storage)/cfg");
+        t.status(200).json_body(json!({}));
+    });
+    let use_detail = server.mock(|w, t| {
+        w.method(GET).path("/api/contract/src%2Fa%20b%2FT%26U.sol:T");
+        t.status(200).json_body(json!({}));
+    });
+    let use_cmd = server.mock(|w, t| {
+        w.method(POST).path("/api/cmd");
+        t.status(200).json_body(json!({ "SessionView": {} }));
+    });
+    let client = IloldClient::new(server.base_url());
+    let current = Mutex::new(None::<String>);
+
+    dispatch(&client, &current, "ilold_use", Some(&json!({ "contract": id }))).await;
+    use_detail.assert();
+    use_cmd.assert();
+    dispatch(&client, &current, "ilold_timeline", Some(&json!({ "variable": "total" }))).await;
+    timeline.assert();
+    dispatch(&client, &current, "ilold_slice", Some(&json!({ "function": "put(uint256[] storage)", "variable": "total" }))).await;
+    slice.assert();
+    dispatch(&client, &current, "ilold_cfg", Some(&json!({ "contract": id, "function": "put(uint256[] storage)" }))).await;
+    cfg.assert();
+}
+
+#[tokio::test]
+async fn dot_segments_are_rejected_before_any_request() {
+    let server = MockServer::start();
+    let any = server.mock(|w, t| {
+        w.path_matches(httpmock::Regex::new(".*").unwrap());
+        t.status(200).json_body(json!({}));
+    });
+    let client = IloldClient::new(server.base_url());
+    let current = Mutex::new(Some("..".to_string()));
+
+    for (tool, args) in [
+        ("ilold_cfg", json!({ "contract": "..", "function": "f" })),
+        ("ilold_source", json!({ "contract": "C", "function": "." })),
+        ("ilold_slice", json!({ "function": "..", "variable": "x" })),
+    ] {
+        let res = dispatch(&client, &current, tool, Some(&args)).await;
+        assert_eq!(res.is_error, Some(true), "{tool}");
+    }
+    assert_eq!(any.hits(), 0);
+
+    dispatch(&client, &current, "ilold_timeline", Some(&json!({ "variable": "x" }))).await;
+    assert_eq!(any.hits(), 1, "a `..` query value is not a path segment");
 }

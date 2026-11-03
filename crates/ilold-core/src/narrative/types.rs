@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::classify::entry_points::AccessLevel;
-use crate::pathtree::types::TerminalKind;
+use crate::pathtree::types::{PathTreeStats, TerminalKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionNarrative {
@@ -12,6 +12,10 @@ pub struct FunctionNarrative {
     pub total_paths: usize,
     pub happy_paths: usize,
     pub revert_paths: usize,
+    #[serde(default)]
+    pub path_stats: PathTreeStats,
+    #[serde(default)]
+    pub paths_omitted: usize,
     pub paths: Vec<PathNarrative>,
     pub observations: Vec<Observation>,
     pub state_writes: Vec<String>,
@@ -30,6 +34,14 @@ pub struct FunctionNarrative {
     pub transitive_external_calls: Vec<TransitiveEffect>,
     #[serde(default)]
     pub transitive_events: Vec<TransitiveEffect>,
+    /// Path counts only cover this function's own code.
+    #[serde(default)]
+    pub can_revert: bool,
+    /// Own checks with an empty `via` first.
+    #[serde(default)]
+    pub revert_sources: Vec<TransitiveEffect>,
+    #[serde(default)]
+    pub guards: Vec<crate::classify::guards::GuardFact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +168,7 @@ pub struct FlowSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutationRef {
     pub variable: String,
-    pub flow_step_id: usize,
+    /// `None` for writes made through calls the flow tree does not show.
+    pub flow_step_id: Option<usize>,
     pub session_step_index: usize,
 }

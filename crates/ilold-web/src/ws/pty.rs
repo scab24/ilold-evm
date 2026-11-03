@@ -1,25 +1,118 @@
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::IntoResponse;
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{Child, CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use crate::state::AppState;
 
+#[derive(Deserialize)]
+pub struct PtyQuery {
+    #[serde(default)]
+    pub contract: Option<String>,
+}
+
 pub async fn ws_pty_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<PtyQuery>,
 ) -> impl IntoResponse {
-    let port = state.port;
+    let url = crate::local_url(state.addr);
     let contract_path = state.contract_path.clone();
-    ws.on_upgrade(move |socket| handle_pty_session(socket, port, contract_path))
+    // only names of analyzed contracts reach the child's argv
+    let contract = match query.contract.as_deref().filter(|name| !name.is_empty()) {
+        Some(name) => match state.project.find_contract(Some(name)) {
+            Ok(c) => Ok(Some(c.key().to_string())),
+            Err(e) => Err(e),
+        },
+        None => Ok(None),
+    };
+    ws.on_upgrade(move |mut socket| async move {
+        match contract {
+            Ok(contract) => handle_pty_session(socket, url, contract_path, contract).await,
+            Err(e) => {
+                let _ = socket.send(Message::Text(format!("PTY error: {e}\r\n").into())).await;
+            }
+        }
+    })
 }
 
-async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: PathBuf) {
+/// clap rejects an empty PATH value.
+pub fn attach_path(contract_path: &Path) -> PathBuf {
+    if contract_path.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        contract_path.to_path_buf()
+    }
+}
+
+async fn handle_pty_session(
+    mut socket: WebSocket,
+    url: String,
+    contract_path: PathBuf,
+    contract: Option<String>,
+) {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = socket
+                .send(Message::Text(
+                    format!("Cannot find ilold binary: {e}").into(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    let mut cmd = CommandBuilder::new(&exe);
+    cmd.arg("explore");
+    cmd.arg("--attach");
+    cmd.arg(url);
+    if let Some(contract) = &contract {
+        cmd.arg("--contract");
+        cmd.arg(contract);
+    }
+    let attach_path = attach_path(&contract_path);
+    cmd.arg(attach_path.as_os_str());
+    let cwd = if attach_path.is_dir() { Some(attach_path.as_path()) } else { attach_path.parent() };
+    if let Some(cwd) = cwd.filter(|dir| !dir.as_os_str().is_empty()) {
+        cmd.cwd(cwd);
+    }
+
+    bridge_pty(socket, cmd).await;
+}
+
+/// Kills and reaps the child however the bridge ends, including when its task is dropped.
+struct ChildGuard(Option<Box<dyn Child + Send + Sync>>);
+
+impl ChildGuard {
+    async fn reap(mut self) {
+        if let Some(child) = self.0.take() {
+            let _ = tokio::task::spawn_blocking(move || kill_and_wait(child)).await;
+        }
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.take() {
+            kill_and_wait(child);
+        }
+    }
+}
+
+fn kill_and_wait(mut child: Box<dyn Child + Send + Sync>) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// The child never outlives the socket: a close frame, a dropped connection or a receive error ends it.
+pub async fn bridge_pty(mut socket: WebSocket, cmd: CommandBuilder) {
     let pty_system = NativePtySystem::default();
     let pair = match pty_system.openpty(PtySize {
         rows: 24,
@@ -36,29 +129,8 @@ async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: Pat
         }
     };
 
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(e) => {
-            let _ = socket
-                .send(Message::Text(
-                    format!("Cannot find ilold binary: {e}").into(),
-                ))
-                .await;
-            return;
-        }
-    };
-
-    let mut cmd = CommandBuilder::new(&exe);
-    cmd.arg("explore");
-    cmd.arg("--attach");
-    cmd.arg(format!("http://localhost:{port}"));
-    cmd.arg(contract_path.to_string_lossy().as_ref());
-    if let Some(parent) = contract_path.parent() {
-        cmd.cwd(parent);
-    }
-
-    let mut child = match pair.slave.spawn_command(cmd) {
-        Ok(child) => child,
+    let child = match pair.slave.spawn_command(cmd) {
+        Ok(child) => ChildGuard(Some(child)),
         Err(e) => {
             let _ = socket
                 .send(Message::Text(format!("Spawn error: {e}").into()))
@@ -74,7 +146,7 @@ async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: Pat
             let _ = socket
                 .send(Message::Text(format!("PTY reader error: {e}").into()))
                 .await;
-            let _ = child.kill();
+            child.reap().await;
             return;
         }
     };
@@ -84,7 +156,7 @@ async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: Pat
             let _ = socket
                 .send(Message::Text(format!("PTY writer error: {e}").into()))
                 .await;
-            let _ = child.kill();
+            child.reap().await;
             return;
         }
     };
@@ -166,13 +238,12 @@ async fn handle_pty_session(mut socket: WebSocket, port: u16, contract_path: Pat
                             }
                         }
                     }
-                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                     _ => continue,
                 }
             }
         }
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
+    child.reap().await;
 }

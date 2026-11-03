@@ -3,24 +3,29 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::types::CfgGraph;
-use crate::classify::entry_points::{classify_all, AccessLevel};
+use crate::classify::entry_points::{classify_in, AccessLevel};
+use crate::classify::guards::GuardFact;
 use crate::journal::types::{Finding, ReviewStatus, Severity};
 use crate::model::contract::ContractDef;
 use crate::model::project::Project;
-use crate::narrative::function::build_function_narrative;
+use crate::narrative::function::build_function_narrative_capped;
 use crate::narrative::sequence::{build_sequence_narrative, compute_flow_summary};
 use crate::narrative::trace::{build_flow_tree, FlowConfig, FlowTree};
-use crate::narrative::types::{FunctionNarrative, SequenceNarrative};
+use crate::narrative::types::{FunctionNarrative, MutationRef, SequenceNarrative};
 use crate::pathtree::types::PathTree;
 use crate::journal::export::export_markdown;
-use crate::sequence::analysis::{FunctionBehavior, SequenceAnalysis, TransitionInfo};
+use crate::model::expression::AssignOperator;
+use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior, SequenceAnalysis};
+use crate::util::target_base_name;
 
-use super::session::{ExplorationSession, TraceConfig, VariableSummary};
+use super::session::{ExplorationSession, MutationScope, StateMutation, TraceConfig, VariableSummary};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionEntry {
     pub name: String,
     pub access: AccessLevel,
+    #[serde(default)]
+    pub guards: Vec<GuardFact>,
     pub writes_state: bool,
     pub has_external_calls: bool,
     pub is_read_only: bool,
@@ -30,6 +35,8 @@ pub struct FunctionEntry {
 pub struct AccessibleFunctionEntry {
     pub name: String,
     pub access: AccessLevel,
+    #[serde(default)]
+    pub guards: Vec<GuardFact>,
     pub origin: String,
     pub is_inherited: bool,
     pub writes_state: bool,
@@ -53,10 +60,7 @@ pub struct AnalysisData<'a> {
     pub cfgs: &'a HashMap<(String, String), CfgGraph>,
     pub path_trees: &'a HashMap<(String, String), PathTree>,
     pub behaviors: &'a [FunctionBehavior],
-    pub transitions: &'a [TransitionInfo],
-    pub classifications: &'a [(String, AccessLevel)],
     pub all_sequence_analyses: &'a HashMap<String, SequenceAnalysis>,
-    pub all_classifications: &'a HashMap<String, Vec<(String, AccessLevel)>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,19 +266,20 @@ pub fn execute_command(
             summary: session.variable_summary(),
         },
         SessionCommand::Functions => {
-            let classifications = classify_all(data.contract);
-            let functions: Vec<FunctionEntry> = classifications.into_iter().map(|(name, access)| {
-                let behavior = data.behaviors.iter().find(|b| b.name == name);
+            let functions: Vec<FunctionEntry> = data.contract.functions.iter().map(|func| {
+                let (access, guards) = guarded(data, data.contract, func);
+                let behavior = find_behavior(data.behaviors, data.contract.key(), &func.key);
                 let writes_state = behavior
                     .map(|b| !b.effective_state_writes().is_empty())
                     .unwrap_or(false);
                 let has_external_calls = behavior
                     .map(|b| !b.effective_external_calls().is_empty())
                     .unwrap_or(false);
-                let is_read_only = !writes_state && !has_external_calls;
+                let is_read_only = behavior.map_or(!writes_state && !has_external_calls, |b| b.read_only);
                 FunctionEntry {
-                    name,
+                    name: func.name.clone(),
                     access,
+                    guards,
                     writes_state,
                     has_external_calls,
                     is_read_only,
@@ -296,7 +301,13 @@ pub fn execute_command(
         },
         SessionCommand::Who { variable } => execute_who(data, &variable),
         SessionCommand::Export => {
-            let md = export_markdown(&session.journal, data.contract.functions.len());
+            let mut journal = session.journal.clone();
+            if let Some(name) = data.project.source_files.get(data.contract.span.file_index)
+                .and_then(|f| project_root_name(&f.path))
+            {
+                journal.project = name;
+            }
+            let md = export_markdown(&journal, data.contract.functions.len());
             CommandResult::Exported { markdown: md }
         }
         SessionCommand::SaveSession | SessionCommand::LoadSession { .. } => CommandResult::Error {
@@ -308,6 +319,16 @@ pub fn execute_command(
             message: "Scenario commands must be dispatched at the store level, not through execute_command".into(),
         },
     }
+}
+
+/// Nearest ancestor with foundry.toml.
+pub fn project_root_name(source_path: &str) -> Option<String> {
+    std::path::Path::new(source_path)
+        .ancestors()
+        .skip(1)
+        .find(|dir| dir.join("foundry.toml").is_file())
+        .and_then(|dir| dir.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
 }
 
 fn execute_state_vars_all(data: &AnalysisData) -> CommandResult {
@@ -327,29 +348,25 @@ fn execute_state_vars_all(data: &AnalysisData) -> CommandResult {
     CommandResult::StateVarListAll { state_vars }
 }
 
-fn execute_functions_all(data: &AnalysisData) -> CommandResult {
-    use crate::classify::entry_points::classify_function;
+/// An empty `guards` on a behavior may mean never computed, not unguarded.
+fn guarded(data: &AnalysisData, owner: &ContractDef, func: &crate::model::function::FunctionDef) -> (AccessLevel, Vec<GuardFact>) {
+    classify_in(data.project, data.contract, owner, func)
+}
 
+fn execute_functions_all(data: &AnalysisData) -> CommandResult {
     let functions: Vec<AccessibleFunctionEntry> = data.project
         .accessible_functions(data.contract)
         .into_iter()
         .map(|af| {
-            let access = if af.is_inherited {
-                if let Some(parent) = data.project.contracts.iter().find(|c| c.name == af.origin) {
-                    classify_function(af.function, parent)
-                } else {
-                    classify_function(af.function, data.contract)
-                }
-            } else {
-                classify_function(af.function, data.contract)
-            };
+            let (access, guards) = guarded(data, af.owner, af.function);
 
-            let behavior = if af.is_inherited {
-                data.all_sequence_analyses.get(&af.origin)
-                    .and_then(|sa| sa.functions.iter().find(|b| b.name == af.function.name))
-            } else {
-                data.behaviors.iter().find(|b| b.name == af.function.name)
-            };
+            // inherited functions are analysed as this contract runs them
+            let owner = af.owner.key();
+            let key = &af.function.key;
+            let behavior = find_behavior(data.behaviors, owner, key).or_else(|| {
+                data.all_sequence_analyses.get(owner)
+                    .and_then(|sa| find_behavior(&sa.functions, owner, key))
+            });
 
             let writes_state = behavior
                 .map(|b| !b.effective_state_writes().is_empty())
@@ -357,12 +374,13 @@ fn execute_functions_all(data: &AnalysisData) -> CommandResult {
             let has_external_calls = behavior
                 .map(|b| !b.effective_external_calls().is_empty())
                 .unwrap_or(false);
-            let is_read_only = !writes_state && !has_external_calls;
+            let is_read_only = behavior.map_or(!writes_state && !has_external_calls, |b| b.read_only);
 
             AccessibleFunctionEntry {
                 name: af.function.name.clone(),
                 access,
-                origin: af.origin,
+                guards,
+                origin: owner.to_string(),
                 is_inherited: af.is_inherited,
                 writes_state,
                 has_external_calls,
@@ -381,26 +399,23 @@ fn execute_call(
     trace_config: Option<TraceConfig>,
     timestamp: &str,
 ) -> CommandResult {
+    use crate::model::function::Visibility;
+    let internal = |f: &crate::model::function::FunctionDef| matches!(f.visibility, Visibility::Internal | Visibility::Private);
     let accessible = data.project.accessible_functions(data.contract);
-    let resolved = match accessible.iter().find(|a| a.function.name == func) {
+    // a bare name, a key or a signature; ambiguous names take the first callable overload
+    let matches = || accessible.iter().filter(|a| {
+        a.function.name == func || a.function.key == func || a.function.match_signature() == func
+    });
+    let resolved = match matches().find(|a| !internal(a.function)).or_else(|| matches().next()) {
         Some(af) => af,
         None => return CommandResult::Error {
             message: format!("Function '{}' not found. Use 'functions' or 'funcs-all' to see available.", func),
         },
     };
 
-    let owning_contract = if resolved.is_inherited {
-        match data.project.contracts.iter().find(|c| c.name == resolved.origin) {
-            Some(c) => c,
-            None => return CommandResult::Error {
-                message: format!("Parent contract '{}' not found", resolved.origin),
-            },
-        }
-    } else {
-        data.contract
-    };
+    let owning_contract = resolved.owner;
 
-    let key = (owning_contract.name.clone(), func.to_string());
+    let key = (owning_contract.key().to_string(), resolved.function.key.clone());
     let cfg = match data.cfgs.get(&key) {
         Some(c) => c,
         None => return CommandResult::Error {
@@ -410,8 +425,7 @@ fn execute_call(
 
     let function_def = resolved.function;
 
-    use crate::model::function::Visibility;
-    if matches!(function_def.visibility, Visibility::Internal | Visibility::Private) {
+    if internal(function_def) {
         return CommandResult::Error {
             message: format!(
                 "'{}' is {} and cannot be called from outside the contract — \
@@ -428,7 +442,7 @@ fn execute_call(
         };
     }
 
-    let access = crate::classify::entry_points::classify_function(function_def, owning_contract);
+    let (access, _) = guarded(data, owning_contract, function_def);
 
     let combined_state_vars = data.project.inherited_state_vars(data.contract);
     session.add_step_with_internals(
@@ -442,6 +456,16 @@ fn execute_call(
         trace_config.unwrap_or_default(),
     );
 
+    let behavior = find_behavior(behaviors_for(data, owning_contract, function_def), owning_contract.key(), &function_def.key);
+    let step_index = session.steps.len() - 1;
+    if let Some(step) = session.steps.last_mut() {
+        step.function = data.project.route_key(data.contract, function_def);
+        if let Some(behavior) = behavior {
+            let through_calls = transitive_writes(&step.mutations, behavior, step_index);
+            step.mutations.extend(through_calls);
+        }
+    }
+
     let state_changed: Vec<String> = session.steps.last()
         .map(|s| {
             let mut vars: Vec<String> = s.mutations.iter().map(|m| m.variable.clone()).collect();
@@ -452,11 +476,40 @@ fn execute_call(
         .unwrap_or_default();
 
     CommandResult::StepAdded {
-        step_index: session.steps.len() - 1,
+        step_index,
         function: func.to_string(),
         access,
         state_changed,
     }
+}
+
+/// Writes made through calls the flow tree does not show, such as library delegatecalls.
+fn transitive_writes(shown: &[StateMutation], behavior: &FunctionBehavior, step_index: usize) -> Vec<StateMutation> {
+    let last_callee = |chain: &str| {
+        let callee = chain.rsplit(" -> ").next().unwrap_or(chain);
+        callee.rsplit("::").next().unwrap_or(callee).to_string()
+    };
+    behavior
+        .transitive_effects
+        .iter()
+        .filter(|e| e.kind == EffectKind::StateWrite)
+        .map(|e| (e, e.via.join(" -> ")))
+        .filter(|(e, via)| {
+            !shown.iter().any(|m| {
+                target_base_name(&m.variable) == target_base_name(&e.item)
+                    && m.via.as_deref().map(last_callee) == Some(last_callee(via))
+            })
+        })
+        .map(|(e, via)| StateMutation {
+            variable: e.item.clone(),
+            operator: AssignOperator::Unknown,
+            value_expr: String::new(),
+            step_index,
+            via: Some(via),
+            flow_step_id: None,
+            scope: MutationScope::State,
+        })
+        .collect()
 }
 
 fn execute_back(session: &mut ExplorationSession) -> CommandResult {
@@ -529,21 +582,22 @@ fn execute_status(
 fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     let var_lower = variable.to_lowercase();
 
-    let mut contract_set: std::collections::HashSet<String> = std::collections::HashSet::new();
-    contract_set.insert(data.contract.name.clone());
+    // the contract's own analysis first: it lists inherited functions as this contract runs them
+    let mut contract_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for af in data.project.accessible_functions(data.contract) {
         if af.is_inherited {
-            contract_set.insert(af.origin);
+            contract_set.insert(af.owner.key().to_string());
         }
     }
-    let mut contract_names: Vec<String> = contract_set.into_iter().collect();
-    contract_names.sort();
+    contract_set.remove(data.contract.key());
+    let contract_names: Vec<String> =
+        std::iter::once(data.contract.key().to_string()).chain(contract_set).collect();
 
-    let access_for = |func_name: &str, contract_name: &str| -> AccessLevel {
-        data.all_classifications.get(contract_name)
-            .and_then(|classifs| classifs.iter().find(|(n, _)| n == func_name).map(|(_, a)| a.clone()))
-            .unwrap_or(AccessLevel::Internal)
+    let accessible = data.project.accessible_functions(data.contract);
+    let function_of = |owner: &str, key: &str| {
+        accessible.iter().find(|af| af.owner.key() == owner && af.function.key == key)
     };
+    let shared_key = |key: &str| accessible.iter().filter(|af| af.function.key == key).count() > 1;
 
     let path_matches = |path: &str| -> bool {
         let p = path.to_lowercase();
@@ -565,10 +619,8 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
 
     let mut writers: Vec<(String, AccessLevel)> = Vec::new();
     let mut readers: Vec<(String, AccessLevel)> = Vec::new();
-    let mut seen_writers: std::collections::HashSet<(String, String)> =
-        std::collections::HashSet::new();
-    let mut seen_readers: std::collections::HashSet<(String, String)> =
-        std::collections::HashSet::new();
+    let mut seen_writers: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let mut seen_readers: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
 
     for contract_name in &contract_names {
         let behaviors = match data.all_sequence_analyses.get(contract_name) {
@@ -577,6 +629,10 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
         };
 
         for b in behaviors {
+            let owner = if b.owner.is_empty() { contract_name.as_str() } else { b.owner.as_str() };
+            // only functions this contract runs (a base function it overrides is not one)
+            let Some(af) = function_of(owner, &b.name) else { continue };
+
             let eff_write_paths = b.effective_state_write_paths();
             let eff_read_paths = b.effective_state_read_paths();
             let eff_writes = b.effective_state_writes();
@@ -601,12 +657,14 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
                     base == var_lower
                 });
 
-            let key = (contract_name.clone(), b.name.clone());
-            if writes && seen_writers.insert(key.clone()) {
-                writers.push((b.name.clone(), access_for(&b.name, contract_name)));
+            let id = (owner.to_string(), b.name.clone());
+            let label = || if shared_key(&b.name) { format!("{owner}::{}", b.name) } else { b.name.clone() };
+            let access = || classify_in(data.project, data.contract, af.owner, af.function).0;
+            if writes && seen_writers.insert(id.clone()) {
+                writers.push((label(), access()));
             }
-            if reads && !writes && seen_readers.insert(key) {
-                readers.push((b.name.clone(), access_for(&b.name, contract_name)));
+            if reads && !writes && seen_readers.insert(id) {
+                readers.push((label(), access()));
             }
         }
     }
@@ -620,54 +678,41 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     CommandResult::VariableInfo { variable: variable.to_string(), writers, readers }
 }
 
+/// The contract's own analysis lists inherited functions too; the defining contract's is a fallback.
+fn behaviors_for<'a>(data: &AnalysisData<'a>, owning: &ContractDef, func: &crate::model::function::FunctionDef) -> &'a [FunctionBehavior] {
+    if find_behavior(data.behaviors, owning.key(), &func.key).is_some() {
+        return data.behaviors;
+    }
+    data.all_sequence_analyses.get(owning.key()).map(|sa| sa.functions.as_slice()).unwrap_or(&[])
+}
+
 pub fn get_step_narrative(
     session: &ExplorationSession,
     step_index: usize,
     data: &AnalysisData,
+    max_paths: usize,
 ) -> Result<FunctionNarrative, String> {
     let step = session.steps.get(step_index)
         .ok_or_else(|| format!("Step {} not found", step_index))?;
-
-    let (owning, func) = data.project
-        .resolve_function(data.contract, &step.function)
-        .ok_or_else(|| format!("Function '{}' not found", step.function))?;
-
-    let key = (owning.name.clone(), step.function.clone());
-    let cfg = data.cfgs.get(&key).ok_or("No CFG")?;
-    let pt = data.path_trees.get(&key).ok_or("No paths")?;
-
-    let behaviors: &[FunctionBehavior] = if owning.name == data.contract.name {
-        data.behaviors
-    } else {
-        data.all_sequence_analyses.get(&owning.name)
-            .map(|sa| sa.functions.as_slice())
-            .unwrap_or(&[])
-    };
-
-    Ok(build_function_narrative(owning, func, pt, cfg, behaviors, data.project, data.all_sequence_analyses))
+    get_function_info(&step.function, data, max_paths)
 }
 
 pub fn get_function_info(
     func_name: &str,
     data: &AnalysisData,
+    max_paths: usize,
 ) -> Result<FunctionNarrative, String> {
     let (owning, func) = data.project
         .resolve_function(data.contract, func_name)
         .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
-    let key = (owning.name.clone(), func_name.to_string());
+    let key = (owning.key().to_string(), func.key.clone());
     let cfg = data.cfgs.get(&key).ok_or_else(|| format!("No CFG for {}::{}", owning.name, func_name))?;
     let pt = data.path_trees.get(&key).ok_or("No paths")?;
 
-    let behaviors: &[FunctionBehavior] = if owning.name == data.contract.name {
-        data.behaviors
-    } else {
-        data.all_sequence_analyses.get(&owning.name)
-            .map(|sa| sa.functions.as_slice())
-            .unwrap_or(&[])
-    };
+    let behaviors = behaviors_for(data, owning, func);
 
-    Ok(build_function_narrative(owning, func, pt, cfg, behaviors, data.project, data.all_sequence_analyses))
+    Ok(build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths))
 }
 
 pub fn get_flow_tree(
@@ -681,7 +726,7 @@ pub fn get_flow_tree(
         .resolve_function(data.contract, func_name)
         .ok_or_else(|| format!("Function '{}' not found", func_name))?;
 
-    let key = (owning.name.clone(), func_name.to_string());
+    let key = (owning.key().to_string(), func.key.clone());
     let cfg = data.cfgs.get(&key)
         .ok_or_else(|| format!("No CFG for {}::{}", owning.name, func_name))?;
 
@@ -690,7 +735,9 @@ pub fn get_flow_tree(
         include_reverts,
         expand_set,
     };
-    Ok(build_flow_tree(owning, func, cfg, data.project, data.cfgs, &config))
+    let mut tree = build_flow_tree(owning, func, cfg, data.project, data.cfgs, &config);
+    tree.path_stats = data.path_trees.get(&key).map(|pt| pt.stats.clone());
+    Ok(tree)
 }
 
 pub fn get_sequence_narrative(
@@ -701,16 +748,19 @@ pub fn get_sequence_narrative(
         return Err("Need at least 2 steps for a sequence narrative".into());
     }
 
-    let names: Vec<&str> = session.current_sequence();
-    let mut narrative = build_sequence_narrative(
-        &session.contract, &names,
-        data.behaviors, data.transitions, data.classifications,
-    );
+    let names = session.current_sequence();
+    let mut narrative = build_sequence_narrative(data.project, data.contract, &names, data.behaviors);
 
     for (i, step) in narrative.steps.iter_mut().enumerate() {
         if let Some(session_step) = session.steps.get(i) {
-            step.flow_summary = session_step.flow_tree.as_ref()
-                .map(|tree| compute_flow_summary(tree, i));
+            step.flow_summary = session_step.flow_tree.as_ref().map(|tree| {
+                let mut summary = compute_flow_summary(tree, i);
+                for m in session_step.mutations.iter().filter(|m| m.flow_step_id.is_none()) {
+                    summary.mutation_count += 1;
+                    summary.mutation_refs.push(MutationRef { variable: m.variable.clone(), flow_step_id: None, session_step_index: i });
+                }
+                summary
+            });
         }
     }
 
@@ -719,4 +769,22 @@ pub fn get_sequence_narrative(
 
 pub fn get_session_state(session: &ExplorationSession) -> Vec<VariableSummary> {
     session.variable_summary()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_root_name_is_the_foundry_root_directory() {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/solc/cross/src/Vault.sol");
+        assert_eq!(project_root_name(file).as_deref(), Some("cross"));
+        assert_eq!(project_root_name("/no/such/dir/src/A.sol"), None);
+    }
+
+    #[test]
+    fn new_session_records_its_start_time() {
+        let s = ExplorationSession::new("Vault", "p");
+        assert!(s.journal.started_at.parse::<u64>().is_ok_and(|t| t > 1_700_000_000), "{}", s.journal.started_at);
+    }
 }

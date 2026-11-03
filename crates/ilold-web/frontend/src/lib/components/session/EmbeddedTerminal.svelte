@@ -1,14 +1,22 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
   import { isTerminalVisible, hideTerminal } from '$lib/stores/terminal.svelte';
+  import { contractQuery } from '$lib/api/session';
+
+  interface Props {
+    contract: string;
+  }
+
+  let { contract }: Props = $props();
 
   let terminalEl: HTMLDivElement;
   let terminal: Terminal;
   let fitAddon: FitAddon;
   let ws: WebSocket | null = null;
+  let wsContract: string | null = null;
   let resizeObserver: ResizeObserver | null = null;
 
   let maximized = $state(false);
@@ -16,12 +24,50 @@
   let fadeIn = $state(false);
   let termCols = $state(0);
   let termRows = $state(0);
+  let ready = $state(false);
 
   $effect(() => {
     if (isTerminalVisible() && fitAddon) {
       requestAnimationFrame(() => fitAddon?.fit());
     }
   });
+
+  // the PTY starts when first shown and stays alive while hidden, until the page ends
+  $effect(() => {
+    if (ready && isTerminalVisible() && !ws) connect();
+  });
+
+  // the page can switch contracts without remounting
+  $effect(() => {
+    const current = contract;
+    untrack(() => {
+      if (!ws || wsContract === current) return;
+      disconnect();
+      terminal?.reset();
+      if (isTerminalVisible()) connect();
+    });
+  });
+
+  /** The server then ends the attached REPL. */
+  function disconnect() {
+    const socket = ws;
+    ws = null;
+    wsContract = null;
+    connected = false;
+    if (socket) {
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.close();
+    }
+  }
+
+  function onPageHide() {
+    disconnect();
+  }
+
+  function onPageShow(e: PageTransitionEvent) {
+    if (e.persisted && ready && isTerminalVisible() && !ws) connect();
+  }
 
   let prevPosX = 0;
   let prevPosY = 0;
@@ -140,6 +186,8 @@
     requestAnimationFrame(() => { fadeIn = true; });
 
     window.addEventListener('resize', clampToViewport);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onPageShow);
 
     terminal = new Terminal({
       cursorBlink: true,
@@ -179,31 +227,6 @@
     terminal.open(terminalEl);
     requestAnimationFrame(() => fitAddon.fit());
 
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${location.host}/ws/pty`);
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      connected = true;
-      const { cols, rows } = terminal;
-      termCols = cols;
-      termRows = rows;
-      ws!.send(JSON.stringify({ type: 'resize', cols, rows }));
-    };
-
-    ws.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        terminal.write(new Uint8Array(event.data));
-      } else {
-        terminal.write(event.data);
-      }
-    };
-
-    ws.onclose = () => {
-      connected = false;
-      terminal.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
-    };
-
     terminal.onData((data) => {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
@@ -235,12 +258,44 @@
 
     resizeObserver = new ResizeObserver(() => fitAddon.fit());
     resizeObserver.observe(terminalEl);
+    ready = true;
   });
+
+  function connect() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsContract = contract;
+    const socket = new WebSocket(`${protocol}//${location.host}/ws/pty${contractQuery(contract)}`);
+    socket.binaryType = 'arraybuffer';
+    ws = socket;
+
+    socket.onopen = () => {
+      connected = true;
+      const { cols, rows } = terminal;
+      termCols = cols;
+      termRows = rows;
+      socket.send(JSON.stringify({ type: 'resize', cols, rows }));
+    };
+
+    socket.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        terminal.write(new Uint8Array(event.data));
+      } else {
+        terminal.write(event.data);
+      }
+    };
+
+    socket.onclose = () => {
+      connected = false;
+      terminal.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
+    };
+  }
 
   onDestroy(() => {
     window.removeEventListener('resize', clampToViewport);
+    window.removeEventListener('pagehide', onPageHide);
+    window.removeEventListener('pageshow', onPageShow);
     resizeObserver?.disconnect();
-    ws?.close();
+    disconnect();
     terminal?.dispose();
   });
 </script>

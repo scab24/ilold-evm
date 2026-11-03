@@ -59,8 +59,7 @@ Resets the session, removing all steps. Prompts for confirmation if steps exist.
 
 ```
 ilold[→ deposit → withdraw]> cl
-  Clear 2 steps? (y/n)
-  y
+  Clear 2 steps? (y/n) y
   Session cleared.
 ```
 
@@ -68,7 +67,7 @@ ilold[→ deposit → withdraw]> cl
 
 `s` or `state`
 
-Shows the accumulated state mutations across all steps in the session. Each variable lists every mutation with the operator symbol (`+=`, `-=`, `=`) and the originating function.
+Shows the accumulated state mutations across all steps in the session. Each variable lists every mutation with the operator symbol (`+=`, `-=`, `=`) and the originating function. Writes made through calls the trace does not show, such as library functions writing through storage parameters, are listed as `written ... via <call chain>`.
 
 ```
 ilold[→ deposit → withdraw]> s
@@ -108,7 +107,7 @@ ilold[→ deposit → withdraw]> seq
 
 `st <index>` or `step <index>`
 
-Re-inspects a specific session step, showing its full function narrative (same output as [info](./analysis.md#info)). You can also write `st0`, `st1` without a space.
+Re-inspects a specific session step, showing its full function narrative (same output as [info](./analysis.md#info)). You can also write `st0`, `st1` without a space. The index is 0-based; a non-numeric or out-of-range index says how many steps the scenario has.
 
 ```
 ilold[→ deposit → withdraw]> st 0

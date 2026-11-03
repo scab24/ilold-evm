@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use ilold_core::pathtree::types::PathTree;
+
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -13,6 +15,8 @@ pub struct SearchQuery {
 pub struct SearchResult {
     pub contract: String,
     pub function: String,
+    /// Addresses the function on `contract` in the function routes, overloads included.
+    pub key: String,
     pub path_id: usize,
     pub terminal: String,
     pub matches: Vec<SearchMatch>,
@@ -25,24 +29,38 @@ pub struct SearchMatch {
     pub value: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SearchComplete {
-    pub total: usize,
-}
+pub const MAX_SEARCH_RESULTS: usize = 100;
 
-pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> {
+pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> Result<(Vec<SearchResult>, usize), String> {
     let q = query.query.to_lowercase();
     let mut results = Vec::new();
+    let mut total = 0;
 
-    for ((contract, function), path_tree) in &state.path_trees {
-        if let Some(ref filter_contract) = query.contract {
-            if contract != filter_contract { continue; }
+    // a contract filter covers its inherited functions, whose trees the declaring contract keys
+    let trees: Vec<(&str, &str, String, &PathTree)> = match &query.contract {
+        Some(name) => {
+            let contract = state.project.find_contract(Some(name))?;
+            state.project.accessible_functions(contract).into_iter()
+                .filter_map(|af| {
+                    let tree = state.path_trees.get(&(af.owner.key().to_string(), af.function.key.clone()))?;
+                    Some((contract.key(), af.function.key.as_str(), state.project.route_key(contract, af.function), tree))
+                })
+                .collect()
         }
-        if let Some(ref filter_function) = query.function {
-            if function != filter_function { continue; }
+        None => state.path_trees.iter().map(|((c, f), tree)| {
+            let key = state.project.lookup_contract(c).ok()
+                .and_then(|contract| contract.functions.iter().find(|func| &func.key == f).map(|func| state.project.route_key(contract, func)))
+                .unwrap_or_else(|| f.clone());
+            (c.as_str(), f.as_str(), key, tree)
+        }).collect(),
+    };
+
+    for (contract, function, key, path_tree) in trees {
+        if query.function.as_deref().is_some_and(|f| f != function) {
+            continue;
         }
 
-        for path in &path_tree.paths {
+        for path in path_tree.paths() {
             let mut matches = Vec::new();
 
             for check in &path.annotations.require_checks {
@@ -115,14 +133,17 @@ pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> 
             if function.to_lowercase().contains(&q) {
                 matches.push(SearchMatch {
                     field: "function".into(),
-                    value: function.clone(),
+                    value: function.to_string(),
                 });
             }
 
-            if !matches.is_empty() {
+            if matches.is_empty() { continue; }
+            total += 1;
+            if results.len() < limit {
                 results.push(SearchResult {
-                    contract: contract.clone(),
-                    function: function.clone(),
+                    contract: contract.to_string(),
+                    function: function.to_string(),
+                    key: key.clone(),
                     path_id: path.id,
                     terminal: format!("{:?}", path.terminal),
                     matches,
@@ -132,5 +153,5 @@ pub fn search_paths(state: &AppState, query: &SearchQuery) -> Vec<SearchResult> 
         }
     }
 
-    results
+    Ok((results, total))
 }

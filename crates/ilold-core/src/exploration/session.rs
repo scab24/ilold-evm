@@ -79,12 +79,19 @@ impl Default for TraceConfig {
 
 fn default_trace_depth() -> usize { 2 }
 
+fn unix_now() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default()
+}
+
 impl ExplorationSession {
     pub fn new(contract: &str, project: &str) -> Self {
         ExplorationSession {
             contract: contract.into(),
             steps: Vec::new(),
-            journal: AuditJournal::new(project, contract, ""),
+            journal: AuditJournal::new(project, contract, &unix_now()),
             forked_from: None,
         }
     }
@@ -122,7 +129,7 @@ impl ExplorationSession {
             .into_iter()
             .filter_map(|fm| {
                 let base = crate::util::target_base_name(&fm.target);
-                if !state_vars.iter().any(|sv| sv.name == base) {
+                if !state_vars.iter().any(|sv| sv.name == base && sv.is_storage()) {
                     return None;
                 }
                 Some(StateMutation {
@@ -180,7 +187,6 @@ impl ExplorationSession {
         let history = self.variable_history();
         let mut summaries: Vec<VariableSummary> = history.into_iter().map(|(var, muts)| {
             let changes: Vec<String> = muts.iter().map(|m| {
-                let op_str = m.operator.as_str();
                 let func = self.steps.get(m.step_index)
                     .map(|s| s.function.as_str())
                     .unwrap_or("?");
@@ -192,7 +198,8 @@ impl ExplorationSession {
                     Some(chain) => format!(" via {}", chain),
                     None => String::new(),
                 };
-                format!("{} {} ({}, {}{})", op_str, m.value_expr, step_ref, func, suffix)
+                let change = m.operator.describe_change(&m.value_expr);
+                format!("{change} ({step_ref}, {func}{suffix})")
             }).collect();
 
             VariableSummary { variable: var, changes }

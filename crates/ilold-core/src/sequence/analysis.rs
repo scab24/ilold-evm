@@ -2,14 +2,17 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::contract::ContractDef;
-use crate::model::project::Project;
-use crate::pathtree::types::{PathTree, TerminalKind};
-use crate::util::is_type_cast;
+use crate::model::function::FunctionDef;
+use crate::pathtree::types::{InternalCallTarget, PathTree};
+
+use super::effects::{CfgSummary, Effects};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionBehavior {
     pub name: String,
+    /// Function keys are unique only within the declaring contract.
+    #[serde(default)]
+    pub owner: String,
     pub preconditions: Vec<String>,
     pub state_writes: Vec<String>,
     pub state_reads: Vec<String>,
@@ -20,6 +23,8 @@ pub struct FunctionBehavior {
     pub external_calls: Vec<String>,
     #[serde(default)]
     pub internal_calls: Vec<String>,
+    #[serde(default)]
+    pub internal_call_targets: Vec<InternalCallTarget>,
     pub events: Vec<String>,
     pub can_revert: bool,
     pub always_reverts: bool,
@@ -39,6 +44,42 @@ pub struct FunctionBehavior {
     pub transitive_events: Vec<String>,
     #[serde(default)]
     pub transitive_internal_calls: Vec<String>,
+
+    #[serde(default)]
+    pub revert_sources: Vec<String>,
+    /// Normalised paths rooted at the parameter name.
+    #[serde(default)]
+    pub storage_param_writes: Vec<String>,
+    #[serde(default)]
+    pub storage_param_reads: Vec<String>,
+    #[serde(default)]
+    pub transitive_effects: Vec<EffectTrace>,
+    #[serde(default)]
+    pub unresolved_modifiers: Vec<String>,
+    /// The effects of a recursion whose written places keep growing were cut.
+    #[serde(default)]
+    pub effects_incomplete: bool,
+    #[serde(default)]
+    pub guards: Vec<crate::classify::guards::GuardFact>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum EffectKind {
+    StateWrite,
+    StateRead,
+    StorageParamWrite,
+    StorageParamRead,
+    ExternalCall,
+    Event,
+    Revert,
+}
+
+/// `via` lists the callees from the analysed function to the one with the effect.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct EffectTrace {
+    pub kind: EffectKind,
+    pub item: String,
+    pub via: Vec<String>,
 }
 
 impl FunctionBehavior {
@@ -92,6 +133,10 @@ impl FunctionBehavior {
 pub struct TransitionInfo {
     pub from: String,
     pub to: String,
+    #[serde(default)]
+    pub from_owner: String,
+    #[serde(default)]
+    pub to_owner: String,
     pub shared_state: Vec<String>,
     pub conditions_affected: Vec<String>,
     pub has_external_in_from: bool,
@@ -108,6 +153,15 @@ pub fn analyze_sequences(
     path_trees: &HashMap<(String, String), PathTree>,
     contract_name: &str,
 ) -> SequenceAnalysis {
+    let functions = direct_behaviors(path_trees, contract_name);
+    let transitions = transitions(&functions);
+    SequenceAnalysis { functions, transitions }
+}
+
+pub fn direct_behaviors(
+    path_trees: &HashMap<(String, String), PathTree>,
+    contract_name: &str,
+) -> Vec<FunctionBehavior> {
     let mut behaviors: Vec<FunctionBehavior> = Vec::new();
 
     for ((c, f), pt) in path_trees {
@@ -120,15 +174,16 @@ pub fn analyze_sequences(
         let mut state_read_paths = HashSet::new();
         let mut external_calls = HashSet::new();
         let mut internal_calls = HashSet::new();
+        let mut internal_call_targets = HashSet::new();
         let mut events = HashSet::new();
-        let mut has_return = false;
-        let mut has_revert = false;
+        let has_return = pt.stats.happy_paths > 0;
+        let has_revert = pt.stats.revert_paths > 0;
 
-        for path in &pt.paths {
-            for check in &path.annotations.require_checks {
+        for annotations in pt.block_annotations() {
+            for check in &annotations.require_checks {
                 preconditions.insert(check.clone());
             }
-            for write in &path.annotations.state_writes {
+            for write in &annotations.state_writes {
                 let base = write
                     .split(|c| c == '[' || c == '.')
                     .next()
@@ -136,10 +191,10 @@ pub fn analyze_sequences(
                     .to_string();
                 state_writes.insert(base);
             }
-            for write in &path.annotations.state_write_paths {
+            for write in &annotations.state_write_paths {
                 state_write_paths.insert(write.clone());
             }
-            for read in &path.annotations.state_reads {
+            for read in &annotations.state_reads {
                 let base = read
                     .split(|c| c == '[' || c == '.')
                     .next()
@@ -147,22 +202,20 @@ pub fn analyze_sequences(
                     .to_string();
                 state_reads.insert(base);
             }
-            for read in &path.annotations.state_read_paths {
+            for read in &annotations.state_read_paths {
                 state_read_paths.insert(read.clone());
             }
-            for call in &path.annotations.external_calls {
+            for call in &annotations.external_calls {
                 external_calls.insert(format!("{}.{}", call.target, call.function));
             }
-            for ic in &path.annotations.internal_calls {
+            for ic in &annotations.internal_calls {
                 internal_calls.insert(ic.clone());
             }
-            for event in &path.annotations.events_emitted {
-                events.insert(event.clone());
+            for target in &annotations.internal_call_targets {
+                internal_call_targets.insert(target.clone());
             }
-            match path.terminal {
-                TerminalKind::Return => has_return = true,
-                TerminalKind::Revert => has_revert = true,
-                _ => {}
+            for event in &annotations.events_emitted {
+                events.insert(event.clone());
             }
         }
 
@@ -180,6 +233,8 @@ pub fn analyze_sequences(
         external_calls.sort();
         let mut internal_calls: Vec<String> = internal_calls.into_iter().collect();
         internal_calls.sort();
+        let mut internal_call_targets: Vec<InternalCallTarget> = internal_call_targets.into_iter().collect();
+        internal_call_targets.sort();
         let mut preconditions: Vec<String> = preconditions.into_iter().collect();
         preconditions.sort();
         let mut events: Vec<String> = events.into_iter().collect();
@@ -187,6 +242,7 @@ pub fn analyze_sequences(
 
         behaviors.push(FunctionBehavior {
             name: f.clone(),
+            owner: c.clone(),
             preconditions,
             state_writes,
             state_reads,
@@ -194,6 +250,7 @@ pub fn analyze_sequences(
             state_read_paths,
             external_calls,
             internal_calls,
+            internal_call_targets,
             events,
             can_revert: has_revert,
             always_reverts: !has_return && has_revert,
@@ -205,240 +262,106 @@ pub fn analyze_sequences(
             transitive_external_calls: Vec::new(),
             transitive_events: Vec::new(),
             transitive_internal_calls: Vec::new(),
+            revert_sources: Vec::new(),
+            storage_param_writes: Vec::new(),
+            storage_param_reads: Vec::new(),
+            transitive_effects: Vec::new(),
+            unresolved_modifiers: Vec::new(),
+            effects_incomplete: false,
+            guards: Vec::new(),
         });
     }
 
     behaviors.sort_by(|a, b| a.name.cmp(&b.name));
-
-    let mut transitions = Vec::new();
-
-    for a in &behaviors {
-        for b in &behaviors {
-            let shared: Vec<String> = a.state_writes.iter()
-                .filter(|w| b.state_reads.contains(*w) || b.state_writes.contains(*w))
-                .cloned()
-                .collect();
-
-            let mut conditions_affected: Vec<String> = Vec::new();
-            for w in &a.state_writes {
-                for p in &b.preconditions {
-                    if p.contains(w.as_str()) {
-                        conditions_affected.push(format!("{} writes '{}' → {} needs require({})", a.name, w, b.name, p));
-                    }
-                }
-            }
-
-            if !shared.is_empty() || !conditions_affected.is_empty() || !a.external_calls.is_empty() || !b.external_calls.is_empty() {
-                transitions.push(TransitionInfo {
-                    from: a.name.clone(),
-                    to: b.name.clone(),
-                    shared_state: shared,
-                    conditions_affected,
-                    has_external_in_from: !a.external_calls.is_empty(),
-                    has_external_in_to: !b.external_calls.is_empty(),
-                });
-            }
-        }
-    }
-
-    SequenceAnalysis {
-        functions: behaviors,
-        transitions,
-    }
+    behaviors
 }
 
+/// Pairs where the first function changes something the second one uses.
+pub fn transitions(behaviors: &[FunctionBehavior]) -> Vec<TransitionInfo> {
+    behaviors.iter().flat_map(|a| behaviors.iter().filter_map(move |b| transition(a, b))).collect()
+}
 
-pub fn analyze_project(
-    project: &Project,
-    analyses: &mut HashMap<String, SequenceAnalysis>,
-) {
-    let all_funcs: Vec<(String, String)> = analyses
-        .iter()
-        .flat_map(|(c, sa)| sa.functions.iter().map(move |b| (c.clone(), b.name.clone())))
+pub fn transition(a: &FunctionBehavior, b: &FunctionBehavior) -> Option<TransitionInfo> {
+    let shared: Vec<String> = a.state_writes.iter()
+        .filter(|w| b.state_reads.contains(*w) || b.state_writes.contains(*w))
+        .cloned()
         .collect();
 
-    let snapshot: HashMap<String, SequenceAnalysis> = analyses.clone();
-
-    for (contract_name, func_name) in all_funcs {
-        let root_contract = match project.contracts.iter().find(|c| c.name == contract_name) {
-            Some(c) => c,
-            None => continue,
-        };
-
-        let root_behavior = match snapshot
-            .get(&contract_name)
-            .and_then(|sa| sa.functions.iter().find(|b| b.name == func_name))
-        {
-            Some(b) => b,
-            None => continue,
-        };
-
-        let effects = collect_transitive_for_function(
-            root_behavior,
-            root_contract,
-            project,
-            &snapshot,
-        );
-
-        if let Some(sa) = analyses.get_mut(&contract_name) {
-            if let Some(b) = sa.functions.iter_mut().find(|b| b.name == func_name) {
-                b.transitive_state_writes = effects.state_writes;
-                b.transitive_state_reads = effects.state_reads;
-                b.transitive_state_write_paths = effects.state_write_paths;
-                b.transitive_state_read_paths = effects.state_read_paths;
-                b.transitive_external_calls = effects.external_calls;
-                b.transitive_events = effects.events;
-                b.transitive_internal_calls = effects.internal_calls;
+    let mut conditions_affected: Vec<String> = Vec::new();
+    for w in &a.state_writes {
+        for p in &b.preconditions {
+            if p.contains(w.as_str()) {
+                conditions_affected.push(format!("{} writes '{}' → {} needs require({})", a.name, w, b.name, p));
             }
         }
+    }
+
+    if shared.is_empty() && conditions_affected.is_empty() && a.external_calls.is_empty() && b.external_calls.is_empty() {
+        return None;
+    }
+    Some(TransitionInfo {
+        from: a.name.clone(),
+        to: b.name.clone(),
+        from_owner: a.owner.clone(),
+        to_owner: b.owner.clone(),
+        shared_state: shared,
+        conditions_affected,
+        has_external_in_from: !a.external_calls.is_empty(),
+        has_external_in_to: !b.external_calls.is_empty(),
+    })
+}
+
+pub fn find_behavior<'a>(behaviors: &'a [FunctionBehavior], owner: &str, key: &str) -> Option<&'a FunctionBehavior> {
+    behaviors.iter().find(|b| b.is(owner, key))
+}
+
+impl FunctionBehavior {
+    // behaviors without an owner come from older snapshots
+    pub fn is(&self, owner: &str, key: &str) -> bool {
+        self.name == key && (self.owner == owner || self.owner.is_empty())
     }
 }
 
-struct TransitiveSets {
-    state_writes: Vec<String>,
-    state_reads: Vec<String>,
-    state_write_paths: Vec<String>,
-    state_read_paths: Vec<String>,
-    external_calls: Vec<String>,
-    events: Vec<String>,
-    internal_calls: Vec<String>,
+fn base_name(path: &str) -> String {
+    crate::util::target_base_name(path).to_string()
 }
 
-fn collect_transitive_for_function(
-    root: &FunctionBehavior,
-    root_contract: &ContractDef,
-    project: &Project,
-    all: &HashMap<String, SequenceAnalysis>,
-) -> TransitiveSets {
-    let mut writes: HashSet<String> = HashSet::new();
-    let mut reads: HashSet<String> = HashSet::new();
-    let mut write_paths: HashSet<String> = HashSet::new();
-    let mut read_paths: HashSet<String> = HashSet::new();
-    let mut external: HashSet<String> = HashSet::new();
-    let mut events: HashSet<String> = HashSet::new();
-    let mut internal: HashSet<String> = HashSet::new();
-
-    let mut visited: HashSet<(String, String)> = HashSet::new();
-    let mut stack: Vec<(String, String)> = root
-        .internal_calls
-        .iter()
-        .filter(|c| !is_type_cast(c))
-        .map(|c| (root_contract.name.clone(), c.clone()))
-        .collect();
-
-    while let Some((ctx_name, callee_name)) = stack.pop() {
-        let ctx = match project.contract_index.get(&ctx_name) {
-            Some(&i) => &project.contracts[i],
-            None => continue,
-        };
-
-        let (callee_behavior, owning) = match resolve_internal_callee(&callee_name, ctx, project, all) {
-            Some(x) => x,
-            None => continue,
-        };
-
-        let key = (owning.clone(), callee_name.clone());
-        if !visited.insert(key) {
-            continue;
-        }
-
-        for w in &callee_behavior.state_writes {
-            if !root.state_writes.contains(w) {
-                writes.insert(w.clone());
-            }
-        }
-        for r in &callee_behavior.state_reads {
-            if !root.state_reads.contains(r) {
-                reads.insert(r.clone());
-            }
-        }
-        for p in &callee_behavior.state_write_paths {
-            if !root.state_write_paths.contains(p) {
-                write_paths.insert(p.clone());
-            }
-        }
-        for p in &callee_behavior.state_read_paths {
-            if !root.state_read_paths.contains(p) {
-                read_paths.insert(p.clone());
-            }
-        }
-        for c in &callee_behavior.external_calls {
-            if !root.external_calls.contains(c) {
-                external.insert(c.clone());
-            }
-        }
-        for e in &callee_behavior.events {
-            if !root.events.contains(e) {
-                events.insert(e.clone());
-            }
-        }
-        internal.insert(callee_name.clone());
-
-        for ic in &callee_behavior.internal_calls {
-            if is_type_cast(ic) {
-                continue;
-            }
-            stack.push((owning.clone(), ic.clone()));
-        }
-    }
-
-    fn to_sorted(s: HashSet<String>) -> Vec<String> {
-        let mut v: Vec<String> = s.into_iter().collect();
-        v.sort();
-        v
-    }
-
-    TransitiveSets {
-        state_writes: to_sorted(writes),
-        state_reads: to_sorted(reads),
-        state_write_paths: to_sorted(write_paths),
-        state_read_paths: to_sorted(read_paths),
-        external_calls: to_sorted(external),
-        events: to_sorted(events),
-        internal_calls: to_sorted(internal),
-    }
+fn sorted(items: impl IntoIterator<Item = String>) -> Vec<String> {
+    let set: std::collections::BTreeSet<String> = items.into_iter().collect();
+    set.into_iter().collect()
 }
 
-pub fn resolve_internal_callee<'a>(
-    callee: &str,
-    starting_contract: &'a ContractDef,
-    project: &'a Project,
-    all: &'a HashMap<String, SequenceAnalysis>,
-) -> Option<(&'a FunctionBehavior, String)> {
-    if let Some(sa) = all.get(&starting_contract.name) {
-        if let Some(b) = sa.functions.iter().find(|b| b.name == callee) {
-            return Some((b, starting_contract.name.clone()));
-        }
-    }
+/// `effects` must be computed in the contract the behavior is listed under.
+pub fn apply_effects(behavior: &mut FunctionBehavior, summary: &CfgSummary, effects: &Effects, func: &FunctionDef) {
+    let b = behavior;
+    let reached = |map: &std::collections::BTreeMap<String, Vec<String>>| -> Vec<String> {
+        map.iter().filter(|(_, via)| !via.is_empty()).map(|(item, _)| item.clone()).collect()
+    };
+    let write_paths = reached(&effects.state_writes);
+    let read_paths = reached(&effects.state_reads);
+    b.transitive_state_writes =
+        sorted(write_paths.iter().map(|p| base_name(p)).filter(|w| !b.state_writes.contains(w)));
+    b.transitive_state_reads =
+        sorted(read_paths.iter().map(|p| base_name(p)).filter(|r| !b.state_reads.contains(r)));
+    b.transitive_state_write_paths =
+        sorted(write_paths.into_iter().filter(|p| !b.state_write_paths.contains(p)));
+    b.transitive_state_read_paths = sorted(read_paths.into_iter().filter(|p| !b.state_read_paths.contains(p)));
+    b.transitive_external_calls =
+        sorted(reached(&effects.external_calls).into_iter().filter(|c| !b.external_calls.contains(c)));
+    b.transitive_events = sorted(reached(&effects.events).into_iter().filter(|e| !b.events.contains(e)));
+    b.transitive_internal_calls = effects.internal_calls.iter().cloned().collect();
+    b.transitive_effects = effects.traces();
 
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut queue: Vec<&str> = starting_contract
-        .inherits
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-
-    while let Some(parent_name) = queue.pop() {
-        if !visited.insert(parent_name.to_string()) {
-            continue;
-        }
-
-        let parent_idx = match project.contract_index.get(parent_name) {
-            Some(&i) => i,
-            None => continue,
-        };
-        let parent = &project.contracts[parent_idx];
-
-        if let Some(sa) = all.get(&parent.name) {
-            if let Some(b) = sa.functions.iter().find(|b| b.name == callee) {
-                return Some((b, parent.name.clone()));
-            }
-        }
-
-        for grand in &parent.inherits {
-            queue.push(grand.as_str());
-        }
-    }
-
-    None
+    b.revert_sources = sorted(summary.reverts.iter().cloned());
+    b.storage_param_writes = sorted(summary.param_writes.iter().map(|(_, p)| p.clone()));
+    b.storage_param_reads = sorted(summary.param_reads.iter().map(|(_, p)| p.clone()));
+    b.unresolved_modifiers = summary.unresolved_modifiers.clone();
+    b.effects_incomplete = effects.incomplete;
+    b.can_revert = b.can_revert || !effects.reverts.is_empty();
+    // solc already rejects state changes in view and pure functions
+    b.read_only = func.mutability.is_view_or_pure()
+        || (effects.state_writes.is_empty()
+            && effects.param_writes.is_empty()
+            && effects.events.is_empty()
+            && effects.state_changing_calls.is_empty());
 }

@@ -14,12 +14,19 @@ pub enum ExpressionKind {
     FunctionCall {
         callee: Box<Expression>,
         arguments: Vec<Expression>,
+        #[serde(default)]
+        options: Vec<CallOption>,
+        #[serde(default)]
+        call: CallType,
     },
     MemberAccess {
         object: Box<Expression>,
         member: String,
         #[serde(default)]
         resolved: Option<DeclId>,
+        // solc type string of the object
+        #[serde(default)]
+        object_type: Option<String>,
     },
     BinaryOp {
         left: Box<Expression>,
@@ -63,6 +70,11 @@ pub enum ExpressionKind {
     New {
         type_name: String,
         arguments: Vec<Expression>,
+        #[serde(default)]
+        options: Vec<CallOption>,
+        // `new C(...)` deploys a contract; `new uint256[](n)` only allocates
+        #[serde(default)]
+        creates_contract: bool,
     },
     Tuple {
         elements: Vec<Option<Expression>>,
@@ -72,6 +84,75 @@ pub enum ExpressionKind {
         start: Option<Box<Expression>>,
         end: Option<Box<Expression>>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallOption {
+    pub name: String,
+    pub value: Expression,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallType {
+    /// No compiler type information; consumers fall back to syntax and names.
+    #[default]
+    Unknown,
+    /// Compiler builtin, event, error or array push/pop: no contract code runs.
+    Builtin,
+    Call(CallKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum CallKind {
+    Internal,
+    InternalLibrary,
+    LibraryDelegatecall,
+    External,
+    ExternalSelf,
+    LowLevelCall,
+    LowLevelDelegatecall,
+    LowLevelStaticcall,
+    Transfer,
+    Send,
+    Creation,
+}
+
+impl CallKind {
+    pub fn is_internal(self) -> bool {
+        matches!(self, CallKind::Internal | CallKind::InternalLibrary)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CallKind::Internal => "internal",
+            CallKind::InternalLibrary => "library internal",
+            CallKind::LibraryDelegatecall => "library delegatecall",
+            CallKind::External => "external",
+            CallKind::ExternalSelf => "external self",
+            CallKind::LowLevelCall => "low-level call",
+            CallKind::LowLevelDelegatecall => "low-level delegatecall",
+            CallKind::LowLevelStaticcall => "low-level staticcall",
+            CallKind::Transfer => "transfer",
+            CallKind::Send => "send",
+            CallKind::Creation => "creation",
+        }
+    }
+
+    /// `None` means a builtin that runs no contract code.
+    pub fn from_solc_function_kind(kind: &str) -> Option<CallKind> {
+        Some(match kind {
+            "internal" => CallKind::Internal,
+            "external" => CallKind::External,
+            "delegatecall" => CallKind::LibraryDelegatecall,
+            "barecall" => CallKind::LowLevelCall,
+            "baredelegatecall" | "barecallcode" => CallKind::LowLevelDelegatecall,
+            "barestaticcall" => CallKind::LowLevelStaticcall,
+            "transfer" => CallKind::Transfer,
+            "send" => CallKind::Send,
+            "creation" => CallKind::Creation,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +176,8 @@ pub enum BinaryOperator {
     BitXor,
     Shl,
     Shr,
+    /// Never silently mapped to another operator.
+    Unknown,
 }
 
 impl BinaryOperator {
@@ -119,6 +202,7 @@ impl BinaryOperator {
             BinaryOperator::BitXor => "^",
             BinaryOperator::Shl => "<<",
             BinaryOperator::Shr => ">>",
+            BinaryOperator::Unknown => "<?>",
         }
     }
 }
@@ -133,6 +217,7 @@ pub enum UnaryOperator {
     PostIncrement,
     PostDecrement,
     Delete,
+    Unknown,
 }
 
 impl UnaryOperator {
@@ -146,6 +231,7 @@ impl UnaryOperator {
             UnaryOperator::PostIncrement => ("++", true),
             UnaryOperator::PostDecrement => ("--", true),
             UnaryOperator::Delete => ("delete ", false),
+            UnaryOperator::Unknown => ("<?>", false),
         }
     }
 
@@ -174,6 +260,7 @@ pub enum AssignOperator {
     BitXorAssign,
     ShlAssign,
     ShrAssign,
+    Unknown,
 }
 
 impl AssignOperator {
@@ -190,7 +277,13 @@ impl AssignOperator {
             AssignOperator::BitXorAssign => "^=",
             AssignOperator::ShlAssign => "<<=",
             AssignOperator::ShrAssign => ">>=",
+            AssignOperator::Unknown => "<?>=",
         }
+    }
+
+    /// Writes made through a call have no value expression to show.
+    pub fn describe_change(self, value_expr: &str) -> String {
+        if value_expr.is_empty() { "written".to_string() } else { format!("{} {}", self.as_str(), value_expr) }
     }
 }
 
@@ -200,5 +293,7 @@ pub enum LiteralType {
     String,
     Bool,
     HexString,
+    UnicodeString,
     Address,
+    Unknown,
 }

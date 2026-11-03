@@ -7,7 +7,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
     vec![
         tool(
             "ilold_project_overview",
-            "List every contract in the project with its kind, source folder, function and state-variable counts, and inheritance. Call this first to orient.",
+            "List every project contract with its key (route name), qualified id, kind, source folder, function and state-variable counts, and inheritance. Dependency contracts (lib/) are loaded for resolution but not listed. Call this first to orient.",
             empty_schema(),
         ),
         tool(
@@ -27,12 +27,12 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_contract_detail",
-            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path stats), state variables, inheritance, and inherited members.",
+            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, and inherited members.",
             contract_schema(),
         ),
         tool(
             "ilold_entry_points",
-            "Functions of a contract with their access level (public, or restricted to a role), state-write and external-call flags. The externally reachable attack surface.",
+            "Functions the contract runs, own and inherited (origin, is_inherited), with their access level (public, restricted, internal or special), guards read from code (kind CallerEquals/RoleCheck/TxOrigin for access, Pause/Reentrancy/Initializer for state; condition, via chain, span; heuristic when only a modifier name was available), state-write and external-call flags. Entries not internal are the externally reachable attack surface.",
             contract_schema(),
         ),
         tool(
@@ -42,7 +42,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_function_analysis",
-            "Narrative of one function: paths (happy/revert), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, and observations.",
+            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations.",
             contract_function_schema(),
         ),
         tool(
@@ -52,7 +52,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_callgraph",
-            "Call graph of a contract: function call edges (internal, external, inherited) with call counts.",
+            "Call graph of a contract as the most derived contract: own and inherited functions with super and virtual dispatch resolved. Edge kinds: Internal, InternalLibrary, LibraryDelegatecall, External, ExternalSelf (this.f), LowLevelCall, LowLevelDelegatecall, LowLevelStaticcall, Transfer, Send, Creation; node ids are Contract::name, or Contract::name(types) for overloads.",
             contract_schema(),
         ),
         tool(
@@ -62,8 +62,8 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_function_paths",
-            "Enumerated execution paths of one function, each with annotations (state writes, external calls, require checks) and terminal kind (return/revert).",
-            contract_function_schema(),
+            "Enumerated execution paths of one function, one page at a time: each with annotations (state writes, external calls, require checks) and terminal kind (Return/Revert/LoopCutoff/DepthCutoff). stats counts each terminal kind; truncated means a cutoff or the path cap (cap_reached, paths_dropped) left executions out. page.truncated means more paths follow: request the next offset.",
+            paths_schema(),
         ),
         tool(
             "ilold_source",
@@ -82,7 +82,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_sequences",
-            "Transaction sequence tree of a contract up to a depth.",
+            "Transaction sequences of a contract up to a depth (public/external functions with a body; none for interfaces), one page at a time; page.total counts them all and page.truncated means more follow.",
             sequences_schema(),
         ),
         tool(
@@ -161,7 +161,7 @@ fn empty_schema() -> Value {
 fn contract_schema() -> Value {
     json!({
         "type": "object",
-        "properties": { "contract": { "type": "string", "description": "Contract name" } },
+        "properties": { "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" } },
         "required": ["contract"],
         "additionalProperties": false
     })
@@ -171,8 +171,11 @@ fn contract_function_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
-            "function": { "type": "string", "description": "Function name" }
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
+            "function": {
+                "type": "string",
+                "description": "Function name, or its signature such as setPoolPause(bool,uint40) when the name is overloaded (an ambiguous name returns 409 with the candidate signatures)"
+            }
         },
         "required": ["contract", "function"],
         "additionalProperties": false
@@ -183,7 +186,7 @@ fn contract_variable_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
             "variable": { "type": "string", "description": "State variable name" }
         },
         "required": ["contract", "variable"],
@@ -195,7 +198,7 @@ fn trace_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
             "function": { "type": "string", "description": "Function name" },
             "depth": { "type": "integer", "description": "Max internal-call inlining depth (default 2)" },
             "reverts": { "type": "boolean", "description": "Include revert paths (default false)" },
@@ -206,12 +209,28 @@ fn trace_schema() -> Value {
     })
 }
 
+fn paths_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
+            "function": { "type": "string", "description": "Function name, or its signature such as setPoolPause(bool,uint40) when the name is overloaded" },
+            "offset": { "type": "integer", "description": "First path id of the page (default 0)" },
+            "limit": { "type": "integer", "description": "Paths per page (default 100, at most 1000)" }
+        },
+        "required": ["contract", "function"],
+        "additionalProperties": false
+    })
+}
+
 fn sequences_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "contract": { "type": "string", "description": "Contract name" },
-            "depth": { "type": "integer", "description": "Max sequence depth" }
+            "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" },
+            "depth": { "type": "integer", "description": "Max sequence depth, 1 to 8 (default: the server's)" },
+            "offset": { "type": "integer", "description": "First sequence of the page (default 0)" },
+            "limit": { "type": "integer", "description": "Sequences per page (default 100, at most 1000; 0 returns only the functions)" }
         },
         "required": ["contract"],
         "additionalProperties": false

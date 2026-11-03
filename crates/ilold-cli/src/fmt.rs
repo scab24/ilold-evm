@@ -79,7 +79,9 @@ pub fn render_flow_tree(tree: &FlowTree) -> String {
         format!("modifiers: {}", tree.modifiers.join(", "))
     };
     let depth = format!("max inlining depth: {}", tree.max_depth);
-    let lines: Vec<&str> = vec![&title, &mods, &depth];
+    let mut lines: Vec<&str> = vec![&title, &mods, &depth];
+    let note = tree.path_stats.as_ref().and_then(|s| s.truncation_note()).map(|n| format!("paths {n}"));
+    lines.extend(note.as_deref());
     out.push_str(&header_box(&lines));
     out.push('\n');
     out.push('\n');
@@ -357,7 +359,7 @@ fn render_entries(entries: &[TimelineEntry], out: &mut String) {
             prev_step = Some(entry.session_step_index);
         }
 
-        let op = entry.operator.as_str();
+        let change = entry.operator.describe_change(&entry.value_expr);
         let flow_ref = entry.flow_step_id
             .map(|id| format!(" [trace step {}]", id))
             .unwrap_or_default();
@@ -370,11 +372,10 @@ fn render_entries(entries: &[TimelineEntry], out: &mut String) {
         };
 
         out.push_str(&format!(
-            "      {} {} {} {}{}{}{}\n",
+            "      {} {} {}{}{}{}\n",
             c_danger("✏"),
             c_muted(&entry.target),
-            c_muted(op),
-            c_muted(&entry.value_expr),
+            c_muted(&change),
             c_muted(&flow_ref),
             c_muted(&via),
             c_muted(scope_tag),
@@ -562,6 +563,7 @@ mod tests {
             signature: "f()".into(),
             modifiers: vec![],
             max_depth: 2,
+            path_stats: None,
             root: FlowNode {
                 step_id: 0,
                 depth: 0,

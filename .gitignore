@@ -23,3 +23,9 @@ Thumbs.db
 # Foundry fixture build outputs
 /tests/fixtures/foundry_config/cache/
 /tests/fixtures/foundry_config/out/
+# Local Pi runtime state
+.atl/
+# Generated Svelte bundle (embedded into Rust binary during build)
+/crates/ilold-web/frontend/build/
+/tests/fixtures/**/out/
+/tests/fixtures/**/cache/

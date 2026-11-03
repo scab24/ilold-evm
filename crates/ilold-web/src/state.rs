@@ -4,22 +4,17 @@ use std::sync::RwLock;
 
 use tokio::sync::broadcast;
 
-use ilold_core::callgraph::builder::build_call_graph;
+use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::depgraph::ContractDeps;
-use ilold_core::exploration::commands::CanvasPatch;
+use ilold_core::exploration::commands::{CanvasPatch, ScenarioInfo};
 use ilold_core::callgraph::types::CallGraph;
-use ilold_core::cfg::builder::CfgBuilder;
 use ilold_core::cfg::types::CfgGraph;
-use ilold_core::classify::entry_points::{classify_all, AccessLevel};
+use ilold_core::classify::entry_points::AccessLevel;
 use ilold_core::exploration::session::ExplorationSession;
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::parse::ProjectParser;
-use ilold_core::pathtree::config::PruningConfig;
 use ilold_core::pathtree::types::PathTree;
-use ilold_core::pathtree::walker::build_path_tree;
-use ilold_core::sequence::analysis::{analyze_project, analyze_sequences, SequenceAnalysis};
-use ilold_core::sequence::builder::build_sequence_tree;
+use ilold_core::sequence::analysis::SequenceAnalysis;
 use ilold_core::sequence::types::SequenceTree;
 
 use serde::{Deserialize, Serialize};
@@ -77,6 +72,17 @@ impl ScenarioStore {
 
     pub fn contains(&self, name: &str) -> bool {
         self.sessions.contains_key(name)
+    }
+
+    pub fn infos(&self) -> Vec<ScenarioInfo> {
+        self.order
+            .iter()
+            .map(|name| ScenarioInfo {
+                name: name.clone(),
+                active: name == self.active(),
+                step_count: self.get(name).map(|s| s.steps.len()).unwrap_or(0),
+            })
+            .collect()
     }
 
     pub fn names(&self) -> &[String] {
@@ -171,6 +177,63 @@ impl ScenarioStore {
     }
 }
 
+/// One store per contract; `current` is the contract named by the most recent `/api/cmd`.
+pub struct ScenarioRegistry {
+    current: String,
+    stores: HashMap<String, ScenarioStore>,
+}
+
+impl ScenarioRegistry {
+    pub fn new(default_contract: impl Into<String>) -> Self {
+        let current = default_contract.into();
+        let mut stores = HashMap::new();
+        stores.insert(current.clone(), ScenarioStore::new_for_contract(&current));
+        Self { current, stores }
+    }
+
+    pub fn current_contract(&self) -> &str {
+        &self.current
+    }
+
+    pub fn store(&self, contract: &str) -> Option<&ScenarioStore> {
+        self.stores.get(contract)
+    }
+
+    /// Created on first use; it becomes the current contract.
+    pub fn select(&mut self, contract: &str) -> &mut ScenarioStore {
+        self.current = contract.to_string();
+        self.stores
+            .entry(contract.to_string())
+            .or_insert_with(|| ScenarioStore::new_for_contract(contract))
+    }
+
+    /// Makes it current.
+    pub fn replace(&mut self, store: ScenarioStore) {
+        self.current = store.contract.clone();
+        self.stores.insert(store.contract.clone(), store);
+    }
+}
+
+impl std::ops::Deref for ScenarioRegistry {
+    type Target = ScenarioStore;
+
+    fn deref(&self) -> &ScenarioStore {
+        self.stores.get(&self.current).expect("current contract always has a store")
+    }
+}
+
+impl std::ops::DerefMut for ScenarioRegistry {
+    fn deref_mut(&mut self) -> &mut ScenarioStore {
+        self.stores.get_mut(&self.current).expect("current contract always has a store")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionBroadcast {
+    pub contract: String,
+    pub patch: CanvasPatch,
+}
+
 #[derive(Serialize, Deserialize)]
 struct ScenarioStoreFile {
     version: u32,
@@ -190,9 +253,9 @@ pub struct AppState {
     pub sequence_analyses: HashMap<String, SequenceAnalysis>,
     pub classifications: HashMap<String, Vec<(String, AccessLevel)>>,
     pub annotations: RwLock<Vec<Annotation>>,
-    pub scenarios: RwLock<ScenarioStore>,
-    pub session_tx: broadcast::Sender<CanvasPatch>,
-    pub port: u16,
+    pub scenarios: RwLock<ScenarioRegistry>,
+    pub session_tx: broadcast::Sender<SessionBroadcast>,
+    pub addr: std::net::SocketAddr,
     pub contract_path: PathBuf,
 }
 
@@ -227,66 +290,27 @@ pub enum AnnotationStatus {
 }
 
 impl AppState {
-    pub fn from_paths(paths: &[PathBuf], max_seq_depth: usize, port: u16, contract_path: PathBuf) -> anyhow::Result<Self> {
+    pub fn from_paths(paths: &[PathBuf], max_seq_depth: usize, addr: std::net::SocketAddr, contract_path: PathBuf) -> anyhow::Result<Self> {
         let parser = SolcFrontend;
-        let mut project = parser.parse(paths)?;
+        let (mut project, key) = parser.parse_keyed(paths)?;
         project.rebuild_index();
 
-        let config = PruningConfig::default();
-        let mut cfgs = HashMap::new();
-        let mut path_trees = HashMap::new();
-        let mut call_graphs = HashMap::new();
-        let mut sequence_trees = HashMap::new();
-        let mut sequence_analyses = HashMap::new();
-        let mut classifications = HashMap::new();
-
-        for contract in &project.contracts {
-            let cg = build_call_graph(&project, contract);
-            call_graphs.insert(contract.name.clone(), cg);
-
-            let mut contract_path_trees = Vec::new();
-            let combined_state_vars = project.inherited_state_vars(contract);
-
-            for func in &contract.functions {
-                let key = (contract.name.clone(), func.name.clone());
-
-                if let Ok(cfg) = CfgBuilder::build_with_project(func, contract, Some(&project)) {
-                    let pt = build_path_tree(
-                        &cfg,
-                        &contract.name,
-                        &func.name,
-                        &combined_state_vars,
-                        &config,
-                    );
-                    contract_path_trees.push(pt.clone());
-                    path_trees.insert(key.clone(), pt);
-                    cfgs.insert(key, cfg);
-                }
-            }
-
-            let st = build_sequence_tree(contract, &contract_path_trees, max_seq_depth);
-            sequence_trees.insert(contract.name.clone(), st);
-
-            let pt_map: HashMap<(String, String), PathTree> = contract_path_trees
-                .iter()
-                .map(|pt| ((pt.contract.clone(), pt.function.clone()), pt.clone()))
-                .collect();
-            let analysis = analyze_sequences(&pt_map, &contract.name);
-            sequence_analyses.insert(contract.name.clone(), analysis);
-
-            classifications.insert(contract.name.clone(), classify_all(contract));
-        }
-
-        analyze_project(&project, &mut sequence_analyses);
-
-        let dep_graph = ContractDeps::from_call_graphs(&project, &call_graphs);
+        let params = AnalysisParams::new(max_seq_depth);
+        let ProjectAnalysis {
+            cfgs,
+            path_trees,
+            call_graphs,
+            dep_graph,
+            sequence_trees,
+            sequence_analyses,
+            classifications,
+        } = ProjectAnalysis::load_or_build(&project, key.as_ref(), &params);
 
         let (session_tx, _) = broadcast::channel(64);
 
-        let default_contract = project.contracts.iter()
-            .find(|c| !c.name.is_empty())
-            .map(|c| c.name.clone())
-            .unwrap_or_else(|| "unknown".to_string());
+        let default_contract = project.default_contract()
+            .map(|c| c.key().to_string())
+            .ok_or_else(|| anyhow::anyhow!("No contracts found"))?;
 
         Ok(Self {
             project,
@@ -298,9 +322,9 @@ impl AppState {
             sequence_analyses,
             classifications,
             annotations: RwLock::new(Vec::new()),
-            scenarios: RwLock::new(ScenarioStore::new_for_contract(default_contract)),
+            scenarios: RwLock::new(ScenarioRegistry::new(default_contract)),
             session_tx,
-            port,
+            addr,
             contract_path,
         })
     }

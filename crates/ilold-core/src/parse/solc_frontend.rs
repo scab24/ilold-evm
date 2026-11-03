@@ -2,22 +2,25 @@ use std::path::{Path, PathBuf};
 
 use foundry_compilers::solc::{Solc, SolcCompiler, SolcLanguage, SolcSettings};
 use foundry_compilers::{ProjectBuilder, ProjectPathsConfig};
-use foundry_compilers_artifacts_solc::ast::{Node, NodeType};
+use foundry_compilers_artifacts_solc::ast::{Ast, Node, NodeType};
+use foundry_compilers_artifacts_solc::error::Error as SolcError;
+use foundry_compilers_artifacts_solc::output_selection::OutputSelection;
 use foundry_compilers_artifacts_solc::{EvmVersion, Remapping, Settings};
 use toml_edit::{DocumentMut, Item};
 
 use crate::model::common::*;
 use crate::model::contract::*;
-use crate::model::decl_id::{DeclId, DeclTable};
+use crate::model::decl_id::{DeclId, DeclKind, DeclTable, DeclTarget};
 use crate::model::expression::*;
 use crate::model::function::*;
 use crate::model::modifier::*;
 use crate::model::project::*;
 use crate::model::statement::*;
 
+use super::cache;
 use super::error::ParseError;
 use super::span::LineIndex;
-use super::ProjectParser;
+use super::{ProjectKey, ProjectParser};
 
 pub struct SolcFrontend;
 
@@ -30,86 +33,309 @@ impl ProjectParser for SolcFrontend {
 
 impl SolcFrontend {
     pub fn parse_project(&self, root: &Path) -> Result<Project, ParseError> {
-        let foundry_config = read_foundry_config(root)?;
-        let paths = project_paths(root, &foundry_config)?;
-        let src_dir = paths.sources.clone();
+        self.parse_project_keyed(root).map(|(project, _)| project)
+    }
 
-        let settings = SolcSettings {
-            settings: solc_settings(&foundry_config)?,
-            ..Default::default()
+    pub fn parse_keyed(&self, paths: &[PathBuf]) -> Result<(Project, Option<ProjectKey>), ParseError> {
+        let root = project_root(paths)?;
+        self.parse_project_keyed(&root)
+    }
+
+    pub fn parse_project_keyed(&self, root: &Path) -> Result<(Project, Option<ProjectKey>), ParseError> {
+        // solc normalizes `..` in import paths; source names must already be normalized
+        let root = &root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let prepared = prepare(root)?;
+        let store = cache::Store::from_env();
+        let key = prepared.key();
+        let canonical = prepared.canonical.clone();
+        let target = match (&store, &canonical, &key) {
+            (Ok(store), Some(canonical), Ok(key)) => Ok((store, canonical.as_path(), key.as_str())),
+            (Err(reason), _, _) | (_, _, Err(reason)) => Err(reason.clone()),
+            (_, None, _) => Err("noncanonical project root".to_string()),
         };
+        let (project, validated) = cache::reuse_or_compile(target,
+            || prepare(root).ok().map(|p| p.key()) == Some(key.clone()),
+            || self.compile_prepared(root, prepared))?;
+        let key = match (validated, canonical, key) {
+            (true, Some(root), Ok(key)) => Some(ProjectKey { root, key }),
+            _ => None,
+        };
+        Ok((project, key))
+    }
+
+    fn compile_prepared(&self, root: &Path, prepared: Prepared) -> Result<Project, ParseError> {
+        let src_dir = prepared.paths.sources.clone();
+        let roots: Vec<PathBuf> = [Some(root.to_path_buf()), prepared.canonical.clone()].into_iter().flatten().collect();
+        let test_dirs = [&prepared.paths.tests, &prepared.paths.scripts].map(|dir| relative_path(dir, &roots)).to_vec();
+        // nothing is written into the analysed project: no artifacts, no compiler cache
         let project = ProjectBuilder::<SolcCompiler>::default()
-            .paths(paths)
-            .settings(settings)
+            .paths(prepared.paths)
+            .settings(prepared.settings)
             .set_cached(false)
-            .build(solc_compiler(&foundry_config)?)
+            .no_artifacts()
+            .build(solc_compiler(&prepared.config)?)
             .map_err(|e| ParseError::Internal {
                 message: format!("solc project build: {e}"),
             })?;
 
-        let output = project.compile().map_err(|e| ParseError::Internal {
+        let mut output = project.compile().map_err(|e| ParseError::Internal {
             message: format!("solc compile: {e}"),
         })?;
 
+        // broken tests or scripts must not discard the model: compile the sources alone
+        let mut warnings = Vec::new();
         if output.has_compiler_errors() {
-            let message = output
-                .output()
-                .errors
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("; ");
-            return Err(ParseError::SyntaxError {
-                path: root.display().to_string(),
-                message,
-                span: None,
-            });
+            let errors: Vec<&SolcError> = output.output().errors.iter().filter(|e| e.is_error()).collect();
+            let failing = failing_files(&errors, &roots);
+            let outside_sources = !failing.is_empty() && failing.iter().all(|f| f.as_ref().is_some_and(|f| !f.starts_with(&src_dir)));
+            if !outside_sources {
+                return Err(compile_error(root, &errors, &roots));
+            }
+            let failing: std::collections::BTreeSet<String> =
+                failing.iter().flatten().map(|f| relative_path(f, &roots)).collect();
+            output = project.compile_files(solidity_files(&src_dir)).map_err(|e| ParseError::Internal {
+                message: format!("solc compile: {e}"),
+            })?;
+            if output.has_compiler_errors() {
+                let errors: Vec<&SolcError> = output.output().errors.iter().filter(|e| e.is_error()).collect();
+                return Err(compile_error(root, &errors, &roots));
+            }
+            let warning = format!(
+                "compiler errors outside the sources; the model covers {} only. Failing files: {}",
+                relative_path(&src_dir, &roots),
+                failing.into_iter().collect::<Vec<_>>().join(", ")
+            );
+            eprintln!("ilold warning: {warning}");
+            warnings.push(warning);
         }
+
+        let aggregated = output.into_output();
+        let units: Vec<(&PathBuf, &Ast)> = aggregated
+            .sources
+            .sources()
+            .filter_map(|(path, source_file)| source_file.ast.as_ref().map(|ast| (path, ast)))
+            .collect();
+        let reached = import_closure(&units, &src_dir);
 
         let mut source_files = Vec::new();
         let mut contracts = Vec::new();
-        let mut decl_table = DeclTable::default();
-
-        let aggregated = output.into_output();
-        for (path, source_file) in aggregated.sources.sources() {
-            let Some(ast) = &source_file.ast else { continue };
-            let content = std::fs::read_to_string(path).unwrap_or_default();
+        for (unit, (path, ast)) in units.iter().enumerate() {
+            if !reached.contains(&unit) {
+                continue;
+            }
+            let content = read_source(path)?;
             let file_index = source_files.len();
             let index = LineIndex::new(file_index, &content);
             let path_str = path.display().to_string();
             let vendored = ["/dependencies/", "/deployments/", "/config-engine/"]
                 .iter()
                 .any(|seg| path_str.contains(seg));
-            let listed = path.starts_with(&src_dir) && !vendored;
+            let is_dependency = !path.starts_with(&src_dir) || vendored;
+            let relative = relative_path(path, &roots);
 
             for node in &ast.nodes {
                 if node.node_type == NodeType::ContractDefinition {
-                    if let Some(contract) = map_contract(node, &index, &mut decl_table) {
-                        if listed {
-                            contracts.push(contract);
-                        }
+                    if let Some(contract) = map_contract(node, &index, &relative, is_dependency) {
+                        contracts.push(contract);
                     }
                 }
+            }
+            if let Some(free) = map_free_functions(&ast.nodes, &index, &relative, is_dependency) {
+                contracts.push(free);
             }
 
             source_files.push(SourceFile { path: path_str, content });
         }
 
-        let mut project = Project {
-            source_files,
-            contracts,
-            contract_index: Default::default(),
-            decl_table,
-        };
-        project.rebuild_index();
+        assign_contract_keys(&mut contracts);
+        let decl_table = declarations(&contracts);
+        let mut project = Project::new(source_files, contracts, decl_table);
+        project.warnings = warnings;
+        project.test_dirs = test_dirs;
         Ok(project)
     }
+}
+
+/// Tests and scripts no source imports stay out of the model.
+fn import_closure(units: &[(&PathBuf, &Ast)], src_dir: &Path) -> std::collections::HashSet<usize> {
+    let by_id: std::collections::HashMap<usize, usize> =
+        units.iter().enumerate().map(|(i, (_, ast))| (ast.id, i)).collect();
+    let mut pending: Vec<usize> =
+        units.iter().enumerate().filter(|(_, (path, _))| path.starts_with(src_dir)).map(|(i, _)| i).collect();
+    let mut reached: std::collections::HashSet<usize> = pending.iter().copied().collect();
+    while let Some(i) = pending.pop() {
+        for node in units[i].1.nodes.iter().filter(|n| n.node_type == NodeType::ImportDirective) {
+            let Some(&next) = node.attribute::<usize>("sourceUnit").and_then(|id| by_id.get(&id)) else { continue };
+            if reached.insert(next) {
+                pending.push(next);
+            }
+        }
+    }
+    reached
+}
+
+fn read_source(path: &Path) -> Result<String, ParseError> {
+    std::fs::read_to_string(path).map_err(|e| ParseError::Internal {
+        message: format!("read source {}: {e}", path.display()),
+    })
+}
+
+fn relative_path(path: &Path, roots: &[PathBuf]) -> String {
+    roots
+        .iter()
+        .find_map(|root| path.strip_prefix(root).ok())
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn absolute_in(file: &str, roots: &[PathBuf]) -> PathBuf {
+    let path = Path::new(file);
+    match roots.first() {
+        Some(root) if path.is_relative() => root.join(path),
+        _ => path.to_path_buf(),
+    }
+}
+
+fn failing_files(errors: &[&SolcError], roots: &[PathBuf]) -> Vec<Option<PathBuf>> {
+    errors
+        .iter()
+        .map(|e| e.source_location.as_ref().map(|loc| absolute_in(&loc.file, roots)))
+        .collect()
+}
+
+fn compile_error(root: &Path, errors: &[&SolcError], roots: &[PathBuf]) -> ParseError {
+    let message = errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ");
+    let first = errors.iter().find_map(|e| e.source_location.as_ref());
+    let (path, span) = match first {
+        Some(loc) => {
+            let file = absolute_in(&loc.file, roots);
+            let span = std::fs::read_to_string(&file).ok().map(|content| {
+                LineIndex::new(0, &content).span(loc.start.max(0) as usize, loc.end.max(loc.start).max(0) as usize)
+            });
+            (file.display().to_string(), span)
+        }
+        None => (root.display().to_string(), None),
+    };
+    ParseError::SyntaxError { path, message, span }
+}
+
+fn solidity_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "sol") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// Bare names stay keys while unique (project contracts first), so keys are unique and bare names prefer project contracts.
+fn assign_contract_keys(contracts: &mut [ContractDef]) {
+    let mut project_names: std::collections::HashMap<String, usize> = Default::default();
+    let mut all_names: std::collections::HashMap<String, usize> = Default::default();
+    for c in contracts.iter() {
+        *all_names.entry(c.name.clone()).or_default() += 1;
+        if !c.is_dependency {
+            *project_names.entry(c.name.clone()).or_default() += 1;
+        }
+    }
+    for c in contracts.iter_mut() {
+        let unique = if c.is_dependency { all_names[&c.name] == 1 } else { project_names[&c.name] == 1 };
+        c.key = if unique { c.name.clone() } else { c.qualified_id.clone() };
+    }
+}
+
+fn declarations(contracts: &[ContractDef]) -> DeclTable {
+    let mut table = DeclTable::default();
+    for c in contracts {
+        let member = |kind: DeclKind, name: &str, function: &str| DeclTarget {
+            kind,
+            contract: c.key.clone(),
+            function: function.to_string(),
+            name: name.to_string(),
+            key: format!("{}::{name}", c.qualified_id),
+        };
+        if let Some(id) = c.id {
+            table.insert_target(id, DeclTarget {
+                kind: DeclKind::Contract,
+                contract: c.key.clone(),
+                function: String::new(),
+                name: String::new(),
+                key: c.qualified_id.clone(),
+            });
+        }
+        for f in &c.functions {
+            if let Some(id) = f.id {
+                table.insert_target(id, member(DeclKind::Function, &f.key, &f.key));
+            }
+        }
+        for m in &c.modifiers {
+            if let Some(id) = m.id {
+                table.insert_target(id, member(DeclKind::Modifier, &m.name, ""));
+            }
+        }
+        for v in &c.state_vars {
+            if let Some(id) = v.id {
+                table.insert_target(id, member(DeclKind::StateVariable, &v.name, ""));
+            }
+        }
+        for e in &c.events {
+            if let Some(id) = e.id {
+                table.insert_target(id, member(DeclKind::Event, &e.name, ""));
+            }
+        }
+        for e in &c.errors {
+            if let Some(id) = e.id {
+                table.insert_target(id, member(DeclKind::Error, &e.name, ""));
+            }
+        }
+    }
+    table
+}
+
+struct Prepared {
+    config: FoundryConfig,
+    paths: ProjectPathsConfig<SolcLanguage>,
+    settings: SolcSettings,
+    canonical: Option<PathBuf>,
+    profile: String,
+    installed: Option<Solc>,
+}
+impl Prepared {
+    fn key(&self) -> Result<String, String> {
+        let root = self.canonical.as_ref().ok_or("noncanonical project root")?;
+        let solc = self.installed.as_ref().ok_or("no pinned, installed solc")?;
+        cache::fingerprint(root, &self.paths, &self.settings, &self.profile, solc)
+    }
+}
+fn prepare(root: &Path) -> Result<Prepared, ParseError> {
+    let profile = selected_profile();
+    let config = read_foundry_config_with_profile(root, &profile)?;
+    let paths = project_paths(root, &config)?;
+    let settings = SolcSettings { settings: solc_settings(&config)?, ..Default::default() };
+    let canonical = root.canonicalize().ok();
+    let installed = installed_compiler(&config);
+    Ok(Prepared { config, paths, settings, canonical, profile, installed })
 }
 
 fn project_root(paths: &[PathBuf]) -> Result<PathBuf, ParseError> {
     let first = paths.first().ok_or_else(|| ParseError::Internal {
         message: "no input paths".into(),
     })?;
+    if !first.exists() {
+        return Err(ParseError::FileNotFound {
+            path: first.display().to_string(),
+        });
+    }
     let start = if first.is_dir() {
         first.clone()
     } else {
@@ -219,12 +445,21 @@ fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<
     let mut remappings = cfg.remappings.clone();
     remappings.extend(read_remappings_file(root));
     if cfg.auto_detect_remappings() {
-        let lib_paths = cfg
-            .libs
-            .as_ref()
-            .map(|libs| libs.iter().map(|lib| rooted_path(root, lib)).collect::<Vec<_>>())
-            .unwrap_or_else(|| ProjectPathsConfig::find_libs(root));
-        remappings.extend(lib_paths.iter().flat_map(|path| Remapping::find_many(path.as_path())));
+        let explicit = remappings.len();
+        for detected in library_remappings(root, &lib_paths(root, cfg), &selected_profile()) {
+            // explicit remappings win in their context; library remappings only displace each other within one context
+            let shadowed = remappings[..explicit].iter().any(|existing| {
+                names_conflict(&existing.name, &detected.name)
+                    && existing.context.as_deref().is_none_or(|context| {
+                        detected.context.as_deref().is_some_and(|c| c.starts_with(context))
+                    })
+            }) || remappings[explicit..].iter().any(|existing| {
+                names_conflict(&existing.name, &detected.name) && existing.context == detected.context
+            });
+            if !shadowed {
+                remappings.push(detected);
+            }
+        }
     }
     builder = builder.remappings(remappings);
 
@@ -233,8 +468,116 @@ fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<
     })
 }
 
+fn lib_paths(root: &Path, cfg: &FoundryConfig) -> Vec<PathBuf> {
+    cfg.libs
+        .as_ref()
+        .map(|libs| libs.iter().map(|lib| rooted_path(root, lib)).collect())
+        .unwrap_or_else(|| ProjectPathsConfig::find_libs(root))
+}
+
+fn names_conflict(existing: &str, new: &str) -> bool {
+    let mut existing_dir = existing.to_string();
+    if !existing_dir.ends_with('/') {
+        existing_dir.push('/');
+    }
+    new.starts_with(&existing_dir) || existing.starts_with(new)
+}
+
+/// As Foundry derives them; a name resolving differently per nested project is also emitted scoped to each, contexted first.
+fn library_remappings(root: &Path, libs: &[PathBuf], profile: &str) -> Vec<Remapping> {
+    let mut owned = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_library_remappings(root, libs, profile, &mut owned, &mut seen);
+
+    let mut global = std::collections::BTreeMap::<String, String>::new();
+    let mut paths_by_name = std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+    for (_, remapping, _) in &owned {
+        let closer = global.get(&remapping.name).is_none_or(|current| {
+            Path::new(current).components().count() > Path::new(&remapping.path).components().count()
+        });
+        if closer {
+            global.insert(remapping.name.clone(), remapping.path.clone());
+        }
+    }
+    for (_, remapping, direct) in &owned {
+        if *direct {
+            paths_by_name.entry(remapping.name.clone()).or_default()
+                .insert(remapping.path.trim_end_matches('/').to_string());
+        }
+    }
+
+    let mut scoped = std::collections::BTreeMap::<(String, String), String>::new();
+    for (owner, remapping, direct) in owned {
+        let ambiguous = paths_by_name.get(&remapping.name).is_some_and(|paths| paths.len() > 1);
+        let Ok(relative) = owner.strip_prefix(root) else { continue };
+        if !direct || !ambiguous || relative.as_os_str().is_empty() {
+            continue;
+        }
+        let context = format!("{}/", relative.to_string_lossy().trim_end_matches('/'));
+        scoped.entry((context, remapping.name)).or_insert(remapping.path);
+    }
+    let mut scoped = scoped.into_iter()
+        .map(|((context, name), path)| Remapping { context: Some(context), name, path })
+        .collect::<Vec<_>>();
+    scoped.sort_by_key(|r| std::cmp::Reverse(r.context.as_ref().map_or(0, String::len)));
+    scoped.extend(global.into_iter().map(|(name, path)| Remapping { context: None, name, path }));
+    scoped
+}
+
+fn collect_library_remappings(
+    project: &Path,
+    libs: &[PathBuf],
+    profile: &str,
+    owned: &mut Vec<(PathBuf, Remapping, bool)>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+) {
+    for lib in libs {
+        for detected in Remapping::find_many(lib) {
+            if ["lib/", "src/", "contracts/"].contains(&detected.name.as_str()) {
+                continue;
+            }
+            // a detected directory is owned by `project` only when it sits directly in its libs
+            let first = detected.name.split('/').next().unwrap_or_default();
+            let direct = Path::new(&detected.path).strip_prefix(lib).ok()
+                .and_then(|rest| rest.components().next())
+                .is_some_and(|component| component.as_os_str() == first);
+            owned.push((project.to_path_buf(), detected, direct));
+        }
+        for nested in foundry_toml_dirs(lib) {
+            if nested == project || !seen.insert(nested.canonicalize().unwrap_or_else(|_| nested.clone())) {
+                continue;
+            }
+            let Ok(cfg) = read_foundry_config_with_profile(&nested, profile) else { continue };
+            let mut explicit = read_remappings_file(&nested);
+            explicit.extend(cfg.remappings.iter().cloned());
+            if let Some(name) = nested.file_name().and_then(|name| name.to_str()) {
+                let src = cfg.src.as_deref().unwrap_or("src");
+                let path = format!("{}/", nested.join(src).to_string_lossy().trim_end_matches('/'));
+                owned.push((project.to_path_buf(), Remapping { context: None, name: format!("{name}/"), path }, false));
+            }
+            // like Foundry, contexts declared inside a library are not rebased
+            for remapping in explicit.into_iter().filter(|r| r.context.is_none()) {
+                owned.push((nested.clone(), remapping, true));
+            }
+            if cfg.auto_detect_remappings() {
+                collect_library_remappings(&nested, &lib_paths(&nested, &cfg), profile, owned, seen);
+            }
+        }
+    }
+}
+
+fn foundry_toml_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = std::fs::read_dir(dir)
+        .map(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    dirs.push(dir.to_path_buf());
+    dirs.retain(|path| path.is_dir() && path.join("foundry.toml").is_file());
+    dirs.sort();
+    dirs
+}
+
 fn solc_settings(cfg: &FoundryConfig) -> Result<Settings, ParseError> {
-    let mut settings = Settings::default().with_ast();
+    let mut settings = Settings::new(OutputSelection::ast_output_selection());
     if let Some(via_ir) = cfg.via_ir {
         settings = settings.set_via_ir(via_ir);
     }
@@ -266,12 +609,19 @@ fn solc_compiler(cfg: &FoundryConfig) -> Result<SolcCompiler, ParseError> {
     Ok(SolcCompiler::Specific(solc))
 }
 
+fn selected_profile() -> String {
+    std::env::var("FOUNDRY_PROFILE").ok().filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "default".to_string())
+}
+
+#[cfg(test)]
 fn read_foundry_config(root: &Path) -> Result<FoundryConfig, ParseError> {
-    let profile_name = std::env::var("FOUNDRY_PROFILE")
-        .ok()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "default".to_string());
-    read_foundry_config_with_profile(root, &profile_name)
+    read_foundry_config_with_profile(root, &selected_profile())
+}
+
+fn installed_compiler(cfg: &FoundryConfig) -> Option<Solc> {
+    let version = cfg.solc.as_ref()?.trim_start_matches('v').parse().ok()?;
+    Solc::find_svm_installed_version(&version).ok().flatten()
 }
 
 fn read_foundry_config_with_profile(root: &Path, profile_name: &str) -> Result<FoundryConfig, ParseError> {
@@ -346,12 +696,8 @@ fn rooted_path(root: &Path, value: &str) -> PathBuf {
     }
 }
 
-fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> Option<ContractDef> {
+fn map_contract(node: &Node, index: &LineIndex, path: &str, is_dependency: bool) -> Option<ContractDef> {
     let name: String = node.attribute("name")?;
-
-    if let Some(id) = node.id {
-        decl_table.insert(DeclId(id as isize), name.clone(), String::new());
-    }
 
     let mut functions = Vec::new();
     let mut modifiers = Vec::new();
@@ -363,13 +709,7 @@ fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> O
 
     for child in &node.nodes {
         match child.node_type {
-            NodeType::FunctionDefinition => {
-                let func = map_function(child, index);
-                if let Some(id) = child.id {
-                    decl_table.insert(DeclId(id as isize), name.clone(), func.name.clone());
-                }
-                functions.push(func);
-            }
+            NodeType::FunctionDefinition => functions.push(map_function(child, index)),
             NodeType::ModifierDefinition => modifiers.push(map_modifier(child, index)),
             NodeType::VariableDeclaration => {
                 if child.attribute::<bool>("stateVariable").unwrap_or(false) {
@@ -384,7 +724,19 @@ fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> O
         }
     }
 
+    assign_function_keys(&mut functions);
+
     Some(ContractDef {
+        id: node.id.map(|id| DeclId(id as isize)),
+        linearized_bases: node
+            .attribute::<Vec<isize>>("linearizedBaseContracts")
+            .unwrap_or_default()
+            .into_iter()
+            .map(DeclId)
+            .collect(),
+        qualified_id: format!("{path}:{name}"),
+        key: name.clone(),
+        is_dependency,
         name,
         kind: contract_kind(node),
         functions,
@@ -395,23 +747,105 @@ fn map_contract(node: &Node, index: &LineIndex, decl_table: &mut DeclTable) -> O
         events,
         errors,
         inherits: base_contracts(node),
+        base_ids: base_contract_ids(node),
         span: span_of(node, index),
     })
 }
 
+pub use crate::model::contract::FREE_FUNCTIONS;
+
+/// File-level functions as a library, so calls to them resolve like internal library calls.
+fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependency: bool) -> Option<ContractDef> {
+    let free: Vec<&Node> = nodes.iter().filter(|n| n.node_type == NodeType::FunctionDefinition).collect();
+    let first = free.first()?;
+    let mut functions: Vec<FunctionDef> = free.iter().map(|n| map_function(n, index)).collect();
+    assign_function_keys(&mut functions);
+    let name = FREE_FUNCTIONS.to_string();
+    Some(ContractDef {
+        id: None,
+        linearized_bases: Vec::new(),
+        qualified_id: format!("{path}:{name}"),
+        key: name.clone(),
+        is_dependency,
+        name,
+        kind: ContractKind::Library,
+        functions,
+        modifiers: Vec::new(),
+        state_vars: Vec::new(),
+        structs: Vec::new(),
+        enums: Vec::new(),
+        events: Vec::new(),
+        errors: Vec::new(),
+        inherits: Vec::new(),
+        base_ids: Vec::new(),
+        span: span_of(first, index),
+    })
+}
+
+// Overloads are keyed by signature; a regular function named like a special one always is.
+fn assign_function_keys(functions: &mut [FunctionDef]) {
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for f in functions.iter().filter(|f| f.kind == FunctionKind::Function) {
+        *counts.entry(f.name.clone()).or_default() += 1;
+    }
+    for f in functions.iter_mut() {
+        let special_name = matches!(f.name.as_str(), "constructor" | "receive" | "fallback");
+        f.key = if f.kind != FunctionKind::Function {
+            f.name.clone()
+        } else if counts[&f.name] > 1 || special_name {
+            f.signature.clone()
+        } else {
+            f.name.clone()
+        };
+    }
+}
+
+// Internal and private signatures keep data locations, because overloads may differ only by them.
+fn function_signature(node: &Node, kind: FunctionKind, name: &str, vis: Visibility) -> String {
+    if matches!(kind, FunctionKind::Receive | FunctionKind::Fallback) {
+        return name.to_string();
+    }
+    let with_location = matches!(vis, Visibility::Internal | Visibility::Private);
+    let types: Vec<String> = node
+        .attribute::<Node>("parameters")
+        .and_then(|list| list.attribute::<Vec<Node>>("parameters"))
+        .unwrap_or_default()
+        .iter()
+        .map(|p| {
+            let ty = canonical_type(&type_string(p));
+            match p.attribute::<String>("storageLocation").as_deref() {
+                Some(loc @ ("memory" | "calldata" | "storage")) if with_location => format!("{ty} {loc}"),
+                _ => ty,
+            }
+        })
+        .collect();
+    format!("{name}({})", types.join(","))
+}
+
 fn map_function(node: &Node, index: &LineIndex) -> FunctionDef {
     let kind = function_kind(node);
+    let name = function_name(node, kind);
+    let params = param_list(node, "parameters");
+    let vis = visibility(node);
     FunctionDef {
-        name: function_name(node, kind),
+        key: name.clone(),
+        signature: function_signature(node, kind, &name, vis),
+        selector: node.attribute::<String>("functionSelector"),
+        id: node.id.map(|id| DeclId(id as isize)),
+        name,
         kind,
-        visibility: visibility(node),
+        visibility: vis,
         mutability: mutability(node),
-        modifiers: modifier_refs(node),
-        params: param_list(node, "parameters"),
+        modifiers: modifier_refs(node, false),
+        base_constructor_calls: modifier_refs(node, true),
+        params,
         returns: param_list(node, "returnParameters"),
         body: node.body.as_deref().map(|b| map_body(b, index)),
         is_virtual: node.attribute::<bool>("virtual").unwrap_or(false),
-        is_override: node.attribute::<serde_json::Value>("overrides").is_some(),
+        // solc emits `"overrides": null` for functions without an override specifier
+        is_override: node
+            .attribute::<serde_json::Value>("overrides")
+            .is_some_and(|v| !v.is_null()),
         span: span_of(node, index),
     }
 }
@@ -421,6 +855,7 @@ fn map_modifier(node: &Node, index: &LineIndex) -> ModifierDef {
         name: node.attribute::<String>("name").unwrap_or_default(),
         params: param_list(node, "parameters"),
         body: node.body.as_deref().map(|b| map_body(b, index)).unwrap_or_default(),
+        id: node.id.map(|id| DeclId(id as isize)),
         span: span_of(node, index),
     }
 }
@@ -434,6 +869,8 @@ fn map_state_var(node: &Node, index: &LineIndex) -> StateVar {
         is_immutable: node.attribute::<String>("mutability").as_deref() == Some("immutable"),
         initial_value: node.attribute::<Node>("value").map(|v| map_expression(&v, index)),
         resolved_types: type_decl_ids(node),
+        id: node.id.map(|id| DeclId(id as isize)),
+        selector: node.attribute::<String>("functionSelector"),
         span: span_of(node, index),
     }
 }
@@ -478,6 +915,8 @@ fn map_struct(node: &Node, index: &LineIndex) -> StructDef {
         .map(|m| Param {
             name: m.attribute::<String>("name").unwrap_or_default(),
             type_name: type_string(m),
+            is_storage: false,
+            id: m.id.map(|id| DeclId(id as isize)),
         })
         .collect();
     StructDef {
@@ -505,6 +944,7 @@ fn map_event(node: &Node, index: &LineIndex) -> EventDef {
     EventDef {
         name: node.attribute::<String>("name").unwrap_or_default(),
         params: param_list(node, "parameters"),
+        id: node.id.map(|id| DeclId(id as isize)),
         span: span_of(node, index),
     }
 }
@@ -513,6 +953,7 @@ fn map_error(node: &Node, index: &LineIndex) -> ErrorDef {
     ErrorDef {
         name: node.attribute::<String>("name").unwrap_or_default(),
         params: param_list(node, "parameters"),
+        id: node.id.map(|id| DeclId(id as isize)),
         span: span_of(node, index),
     }
 }
@@ -530,6 +971,8 @@ fn params_from_list(list: &Node) -> Vec<Param> {
         .map(|p| Param {
             name: p.attribute::<String>("name").unwrap_or_default(),
             type_name: type_string(p),
+            is_storage: p.attribute::<String>("storageLocation").as_deref() == Some("storage"),
+            id: p.id.map(|id| DeclId(id as isize)),
         })
         .collect()
 }
@@ -637,6 +1080,7 @@ fn map_var_decl(node: &Node, index: &LineIndex) -> StatementKind {
             type_name,
             initial_value,
             is_storage_ref,
+            id: d.get("id").and_then(|id| id.as_i64()).map(|id| DeclId(id as isize)),
         };
     }
 
@@ -646,6 +1090,7 @@ fn map_var_decl(node: &Node, index: &LineIndex) -> StatementKind {
         type_name: "tuple".into(),
         initial_value,
         is_storage_ref: false,
+        id: None,
     }
 }
 
@@ -694,10 +1139,18 @@ fn map_expression(node: &Node, index: &LineIndex) -> Expression {
             object: Box::new(child_expr(node, "expression", index)),
             member: node.attribute::<String>("memberName").unwrap_or_default(),
             resolved: referenced_decl(node),
+            object_type: node
+                .attribute::<Node>("expression")
+                .map(|o| type_string(&o))
+                .filter(|t| !t.is_empty()),
         },
         NodeType::Identifier => ExpressionKind::Identifier {
             name: node.attribute::<String>("name").unwrap_or_default(),
             resolved: referenced_decl(node),
+        },
+        NodeType::ElementaryTypeNameExpression => ExpressionKind::Identifier {
+            name: type_expr_name(node),
+            resolved: None,
         },
         NodeType::Assignment => ExpressionKind::Assignment {
             target: Box::new(child_expr(node, "leftHandSide", index)),
@@ -720,7 +1173,7 @@ fn map_expression(node: &Node, index: &LineIndex) -> Expression {
                 .map(|n| Box::new(map_expression(&n, index))),
         },
         NodeType::Literal => ExpressionKind::Literal {
-            value: node.attribute::<String>("value").unwrap_or_default(),
+            value: literal_value(node),
             literal_type: literal_type(node),
         },
         NodeType::Conditional => ExpressionKind::Ternary {
@@ -775,9 +1228,24 @@ fn map_call(node: &Node, index: &LineIndex) -> ExpressionKind {
         };
     }
 
+    // `f{value: v}(...)` and `new C{salt: s}(...)` wrap the callee in FunctionCallOptions
+    let (callee, options) = match callee {
+        Some(c) if c.node_type == NodeType::FunctionCallOptions => {
+            let options = call_options(&c, index);
+            (c.attribute::<Node>("expression"), options)
+        }
+        other => (other, Vec::new()),
+    };
+    let call = callee.as_ref().map(call_type).unwrap_or_default();
+
     if let Some(callee) = &callee {
         if callee.node_type == NodeType::NewExpression {
-            return ExpressionKind::New { type_name: type_expr_name(callee), arguments };
+            return ExpressionKind::New {
+                type_name: new_type_name(callee),
+                arguments,
+                options,
+                creates_contract: call == CallType::Call(CallKind::Creation),
+            };
         }
     }
 
@@ -788,7 +1256,104 @@ fn map_call(node: &Node, index: &LineIndex) -> ExpressionKind {
                 .unwrap_or_else(|| empty_expr(node, index)),
         ),
         arguments,
+        options,
+        call,
     }
+}
+
+fn new_type_name(node: &Node) -> String {
+    node.attribute::<Node>("typeName")
+        .map(|t| canonical_type(&type_string(&t)))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| type_expr_name(node))
+}
+
+fn call_options(node: &Node, index: &LineIndex) -> Vec<CallOption> {
+    let names = node.attribute::<Vec<String>>("names").unwrap_or_default();
+    let values = node.attribute::<Vec<Node>>("options").unwrap_or_default();
+    names
+        .into_iter()
+        .zip(values.iter())
+        .map(|(name, value)| CallOption { name, value: map_expression(value, index) })
+        .collect()
+}
+
+fn call_type(callee: &Node) -> CallType {
+    let Some(identifier) = callee
+        .attribute::<serde_json::Value>("typeDescriptions")
+        .and_then(|t| t.get("typeIdentifier").and_then(|s| s.as_str().map(str::to_string)))
+    else {
+        return CallType::Unknown;
+    };
+    let Some(rest) = identifier.strip_prefix("t_function_") else {
+        return CallType::Unknown;
+    };
+    let solc_kind = rest.split(['_', '$']).next().unwrap_or_default();
+    let Some(kind) = CallKind::from_solc_function_kind(solc_kind) else {
+        return CallType::Builtin;
+    };
+    let object = (callee.node_type == NodeType::MemberAccess)
+        .then(|| callee.attribute::<Node>("expression"))
+        .flatten();
+    let kind = match (kind, &object) {
+        // `super.f()`, `Base.f()` and function-pointer fields stay internal
+        (CallKind::Internal, Some(object)) => {
+            let attached = identifier.contains("$attached_to$") || identifier.contains("$bound_to$");
+            if attached || type_string(object).starts_with("type(library ") {
+                CallKind::InternalLibrary
+            } else {
+                CallKind::Internal
+            }
+        }
+        (CallKind::External, Some(object))
+            if object.node_type == NodeType::Identifier
+                && object.attribute::<String>("name").as_deref() == Some("this") =>
+        {
+            CallKind::ExternalSelf
+        }
+        (kind, _) => kind,
+    };
+    CallType::Call(kind)
+}
+
+fn canonical_type(type_string: &str) -> String {
+    const DROP: [&str; 9] =
+        ["memory", "calldata", "storage", "ref", "pointer", "struct", "enum", "contract", "payable"];
+    let mut tokens: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, tokens: &mut Vec<String>| {
+        if !word.is_empty() && !DROP.contains(&word.as_str()) {
+            tokens.push(std::mem::take(word));
+        }
+        word.clear();
+    };
+    for ch in type_string.chars() {
+        if ch.is_alphanumeric() || ch == '_' || ch == '.' || ch == '$' {
+            word.push(ch);
+        } else {
+            flush(&mut word, &mut tokens);
+            if !ch.is_whitespace() {
+                tokens.push(ch.to_string());
+            }
+        }
+    }
+    flush(&mut word, &mut tokens);
+
+    let is_word = |t: &str| t.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let mut out = String::new();
+    let mut prev: Option<&str> = None;
+    for token in &tokens {
+        let spaced = match prev {
+            Some(p) => (is_word(token) && (is_word(p) || p == ")")) || (token == "(" && p == "returns"),
+            None => false,
+        };
+        if spaced {
+            out.push(' ');
+        }
+        out.push_str(token);
+        prev = Some(token);
+    }
+    out
 }
 
 fn child_expr(node: &Node, key: &str, index: &LineIndex) -> Expression {
@@ -815,6 +1380,16 @@ fn placeholder_expr(node: &Node, index: &LineIndex) -> Expression {
 }
 
 fn type_expr_name(node: &Node) -> String {
+    // the written type, not solc's `type(address)`
+    if node.node_type == NodeType::ElementaryTypeNameExpression {
+        if let Some(name) = node.attribute::<Node>("typeName").and_then(|t| {
+            let name = t.attribute::<String>("name")?;
+            let payable = t.attribute::<String>("stateMutability").as_deref() == Some("payable");
+            Some(if payable && name == "address" { "payable".to_string() } else { name })
+        }) {
+            return name;
+        }
+    }
     node.attribute::<String>("name")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| type_string(node))
@@ -848,7 +1423,7 @@ fn binary_op(node: &Node) -> BinaryOperator {
         "^" => BinaryOperator::BitXor,
         "<<" => BinaryOperator::Shl,
         ">>" => BinaryOperator::Shr,
-        _ => BinaryOperator::Add,
+        _ => BinaryOperator::Unknown,
     }
 }
 
@@ -865,7 +1440,7 @@ fn assign_op(node: &Node) -> AssignOperator {
         "^=" => AssignOperator::BitXorAssign,
         "<<=" => AssignOperator::ShlAssign,
         ">>=" => AssignOperator::ShrAssign,
-        _ => AssignOperator::Assign,
+        _ => AssignOperator::Unknown,
     }
 }
 
@@ -880,24 +1455,39 @@ fn unary_op(node: &Node) -> UnaryOperator {
         "--" if prefix => UnaryOperator::PreDecrement,
         "--" => UnaryOperator::PostDecrement,
         "delete" => UnaryOperator::Delete,
-        _ => UnaryOperator::Not,
+        _ => UnaryOperator::Unknown,
     }
 }
 
+// address literals are `number` literals typed `address` by solc
 fn literal_type(node: &Node) -> LiteralType {
     match node.attribute::<String>("kind").as_deref().unwrap_or("") {
+        "number" if type_string(node).starts_with("address") => LiteralType::Address,
         "number" => LiteralType::Number,
         "string" => LiteralType::String,
+        "unicodeString" => LiteralType::UnicodeString,
         "bool" => LiteralType::Bool,
         "hexString" => LiteralType::HexString,
-        _ => LiteralType::String,
+        _ => LiteralType::Unknown,
     }
 }
 
-fn modifier_refs(node: &Node) -> Vec<ModifierRef> {
+// solc leaves `value` null for literals that are not valid UTF-8 (`hex"ff"`); `hexValue` is always set.
+fn literal_value(node: &Node) -> String {
+    node.attribute::<String>("value")
+        .or_else(|| node.attribute::<String>("hexValue").map(|hex| format!("hex\"{hex}\"")))
+        .unwrap_or_default()
+}
+
+// solc lists constructor base calls among the modifiers
+fn modifier_refs(node: &Node, base_constructors: bool) -> Vec<ModifierRef> {
     node.attribute::<Vec<serde_json::Value>>("modifiers")
         .unwrap_or_default()
         .iter()
+        .filter(|m| {
+            let kind = m.get("kind").and_then(|k| k.as_str());
+            (kind == Some("baseConstructorSpecifier")) == base_constructors
+        })
         .filter_map(|m| {
             m.get("modifierName")
                 .and_then(|n| n.get("name"))
@@ -920,6 +1510,15 @@ fn base_contracts(node: &Node) -> Vec<String> {
                 .and_then(|s| s.as_str())
                 .map(str::to_string)
         })
+        .collect()
+}
+
+fn base_contract_ids(node: &Node) -> Vec<DeclId> {
+    node.attribute::<Vec<serde_json::Value>>("baseContracts")
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|b| b.get("baseName")?.get("referencedDeclaration")?.as_i64())
+        .map(|id| DeclId(id as isize))
         .collect()
 }
 
@@ -1089,7 +1688,7 @@ mod tests {
                 }
                 count_expr(object, calls, placeholders, resolved_members);
             }
-            ExpressionKind::FunctionCall { callee, arguments } => {
+            ExpressionKind::FunctionCall { callee, arguments, .. } => {
                 *calls += 1;
                 count_expr(callee, calls, placeholders, resolved_members);
                 for a in arguments {
@@ -1294,6 +1893,86 @@ mod tests {
     }
 
     #[test]
+    fn explicit_remappings_take_precedence_over_autodetected_remappings() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/foundry_config");
+        let mut cfg = read_foundry_config(&root).expect("foundry config");
+        cfg.auto_detect_remappings = Some(true);
+        cfg.remappings = vec![
+            parse_remapping(&root, "manual/=lib/auto/src/").expect("explicit remapping"),
+            parse_remapping(&root, "src/:auto/=lib/manual/src/").expect("context remapping"),
+        ];
+
+        let paths = project_paths(&root, &cfg).expect("project paths");
+        let manual = paths
+            .remappings
+            .iter()
+            .filter(|r| r.name == "manual/" && r.context.is_none())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            manual.len(),
+            1,
+            "autodetection must not duplicate an explicit remapping"
+        );
+        assert_eq!(
+            manual[0].path,
+            root.join("lib/auto/src/").to_string_lossy().as_ref()
+        );
+
+        assert!(paths
+            .remappings
+            .iter()
+            .any(|r| r.name == "auto/" && r.context.as_deref() == Some("src/")));
+        assert!(paths
+            .remappings
+            .iter()
+            .any(|r| r.name == "auto/" && r.context.is_none()));
+    }
+
+    fn relative_remappings(root: &Path) -> std::collections::BTreeSet<String> {
+        let cfg = read_foundry_config(root).expect("foundry config");
+        let prefix = format!("{}/", root.display());
+        project_paths(root, &cfg).expect("project paths").remappings.into_iter()
+            .map(|mut r| {
+                r.path = r.path.strip_prefix(&prefix).unwrap_or(&r.path).to_string();
+                r.to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn nested_library_remappings_are_rebased_and_scoped() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/nested_remappings")
+            .canonicalize().unwrap();
+        let remappings = relative_remappings(&root);
+        for expected in [
+            "@scoped/token/=lib/outer/lib/inner/contracts/",
+            "dep/=lib/outer/lib/dep/src/",
+            "lib/outer/:dep/=lib/outer/lib/dep/src/",
+            "lib/outer/lib/inner/:dep/=lib/outer/lib/inner/lib/dep/src/",
+        ] {
+            assert!(remappings.contains(expected), "missing {expected}: {remappings:?}");
+        }
+    }
+
+    /// Compares against `forge remappings` for each root in `ILOLD_FORGE_PARITY_ROOTS`.
+    #[test]
+    #[ignore = "requires forge and ILOLD_FORGE_PARITY_ROOTS"]
+    fn remappings_match_forge() {
+        let roots = std::env::var("ILOLD_FORGE_PARITY_ROOTS").expect("ILOLD_FORGE_PARITY_ROOTS");
+        for root in roots.split(':').filter(|r| !r.is_empty()) {
+            let root = Path::new(root).canonicalize().unwrap();
+            let output = std::process::Command::new("forge").arg("remappings").current_dir(&root)
+                .output().expect("run forge remappings");
+            assert!(output.status.success(), "forge remappings failed in {}", root.display());
+            let forge = String::from_utf8_lossy(&output.stdout).lines()
+                .map(|line| line.trim().to_string()).filter(|line| !line.is_empty())
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(relative_remappings(&root), forge, "remapping parity for {}", root.display());
+        }
+    }
+
+    #[test]
     fn parses_foundry_project_with_inline_remappings() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/foundry_config");
         let project = SolcFrontend.parse_project(&root).expect("parse foundry config fixture");
@@ -1301,6 +1980,30 @@ mod tests {
         assert!(project.contracts.iter().all(|c| c.name != "AutoLib"));
         assert!(project.source_files.iter().any(|f| f.path.ends_with("lib/manual/src/ManualLib.sol")));
         assert!(project.source_files.iter().all(|f| !f.path.ends_with("lib/auto/src/AutoLib.sol")));
+    }
+
+    #[test]
+    fn unreadable_source_is_an_error_not_an_empty_file() {
+        let missing = Path::new(env!("CARGO_MANIFEST_DIR")).join("missing/Nope.sol");
+        let err = read_source(&missing).unwrap_err();
+        assert!(err.to_string().contains("Nope.sol"), "{err}");
+    }
+
+    #[test]
+    fn canonical_type_drops_locations_and_type_keywords() {
+        assert_eq!(canonical_type("uint256[] memory"), "uint256[]");
+        assert_eq!(canonical_type("address payable"), "address");
+        assert_eq!(canonical_type("struct DataTypes.ReserveData storage pointer"), "DataTypes.ReserveData");
+        assert_eq!(
+            canonical_type("mapping(address => struct DataTypes.ReserveData storage ref)"),
+            "mapping(address=>DataTypes.ReserveData)"
+        );
+        assert_eq!(canonical_type("contract IPool"), "IPool");
+        assert_eq!(
+            canonical_type("function (uint256) external returns (bool)"),
+            "function(uint256) external returns (bool)"
+        );
+        assert_eq!(canonical_type("function (uint256) pure returns (uint256)"), "function(uint256) pure returns (uint256)");
     }
 
     #[test]
