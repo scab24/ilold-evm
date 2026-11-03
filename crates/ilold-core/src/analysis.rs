@@ -5,7 +5,8 @@ use crate::callgraph::types::CallGraph;
 use crate::cfg::builder::CfgBuilder;
 use crate::cfg::types::CfgGraph;
 use crate::classify::entry_points::{classify_contract, AccessLevel};
-use crate::classify::guards::function_guards;
+use crate::classify::code_facts::code_facts;
+use crate::classify::guards::function_guard_scan;
 use crate::depgraph::ContractDeps;
 use crate::model::contract::ContractDef;
 use crate::model::function::FunctionDef;
@@ -14,7 +15,7 @@ use crate::parse::ProjectKey;
 use crate::pathtree::config::PruningConfig;
 use crate::pathtree::types::PathTree;
 use crate::pathtree::walker::build_path_tree;
-use crate::sequence::analysis::{apply_effects, direct_behaviors, transitions, SequenceAnalysis};
+use crate::sequence::analysis::{apply_effects, direct_behavior, transitions, FunctionBehavior, SequenceAnalysis};
 use crate::sequence::effects::{summarize, CfgSummary, EffectEngine};
 use crate::sequence::builder::build_sequence_tree;
 use crate::sequence::types::SequenceTree;
@@ -83,7 +84,6 @@ impl ProjectAnalysis {
 
         // an inherited function runs the derived contract's modifier overrides
         let mut context_summaries: HashMap<(String, String, String), CfgSummary> = HashMap::new();
-        let mut context_trees: HashMap<(String, String, String), PathTree> = HashMap::new();
         for contract in project.project_contracts() {
             for owner in project.linearization(contract).into_iter().skip(1) {
                 for func in owner.functions.iter().filter(|f| overrides_modifiers(project, contract, owner, f)) {
@@ -91,7 +91,6 @@ impl ProjectAnalysis {
                     let key = (contract.key().to_string(), owner.key().to_string(), func.key.clone());
                     let summary = summarize(&cfg, project);
                     queue_dependency_callees(project, &summary, &mut pending, &mut queued);
-                    context_trees.insert(key.clone(), build_path_tree(&cfg, &key.1, &key.2, config));
                     context_summaries.insert(key, summary);
                 }
             }
@@ -101,15 +100,10 @@ impl ProjectAnalysis {
         let mut engine = EffectEngine::new(project, &summaries, &context_summaries);
         for contract in project.project_contracts() {
             let contract_key = contract.key().to_string();
-            let own: HashMap<(String, String), PathTree> = path_trees
-                .iter()
-                .filter(|((c, _), _)| c == &contract_key)
-                .map(|(k, pt)| (k.clone(), pt.clone()))
-                .collect();
             let contract_path_trees: Vec<PathTree> = contract
                 .functions
                 .iter()
-                .filter_map(|f| own.get(&(contract_key.clone(), f.key.clone())).cloned())
+                .filter_map(|f| path_trees.get(&(contract_key.clone(), f.key.clone())).cloned())
                 .collect();
 
             call_graphs.insert(contract_key.clone(), build_call_graph(project, contract));
@@ -118,23 +112,16 @@ impl ProjectAnalysis {
                 build_sequence_tree(contract, &contract_path_trees, params.max_seq_depth),
             );
 
-            let mut functions = direct_behaviors(&own, &contract_key);
-            for af in project.accessible_functions(contract).into_iter().filter(|af| af.is_inherited) {
-                let key = (af.owner.key().to_string(), af.function.key.clone());
-                let in_context = (contract_key.clone(), key.0.clone(), key.1.clone());
-                let Some(pt) = context_trees.get(&in_context).or_else(|| path_trees.get(&key)) else { continue };
-                let single = HashMap::from([(key.clone(), pt.clone())]);
-                functions.extend(direct_behaviors(&single, &key.0));
+            let mut functions = Vec::new();
+            for af in project.accessible_functions(contract) {
+                let (owner, func) = (af.owner, af.function);
+                // hand-built models may leave the key empty; accessible_functions only skips empty names
+                if func.key.is_empty() {
+                    continue;
+                }
+                functions.extend(function_behavior(project, &mut engine, contract, owner, func));
             }
             functions.sort_by(|a, b| (&a.name, &a.owner).cmp(&(&b.name, &b.owner)));
-            for behavior in &mut functions {
-                let Some((owner, func)) = owner_of(project, contract, &behavior.owner, &behavior.name) else { continue };
-                // read from code, so a behavior without a summary still gets them
-                behavior.guards = function_guards(Some(project), contract, owner, func);
-                let Some(summary) = engine.summary(contract, owner, func) else { continue };
-                let effects = engine.effects(contract, owner, func);
-                apply_effects(behavior, summary, &effects, func);
-            }
             let transitions = transitions(&functions);
             sequence_analyses.insert(contract_key.clone(), SequenceAnalysis { functions, transitions });
 
@@ -160,17 +147,26 @@ impl ProjectAnalysis {
     }
 }
 
-fn owner_of<'a>(
-    project: &'a Project,
-    contract: &'a ContractDef,
-    owner: &str,
-    key: &str,
-) -> Option<(&'a ContractDef, &'a FunctionDef)> {
-    project
-        .accessible_functions(contract)
-        .into_iter()
-        .find(|af| af.owner.key() == owner && af.function.key == key)
-        .map(|af| (af.owner, af.function))
+/// `func`, declared in `owner`, as `contract` runs it.
+pub(crate) fn function_behavior<'p>(
+    project: &'p Project,
+    engine: &mut EffectEngine<'p>,
+    contract: &'p ContractDef,
+    owner: &'p ContractDef,
+    func: &'p FunctionDef,
+) -> Option<FunctionBehavior> {
+    let summary = engine.summary(contract, owner, func)?;
+    let mut behavior =
+        direct_behavior(owner.key(), &func.key, &summary.annotations, summary.returns, !summary.reverts.is_empty());
+    let guards = function_guard_scan(Some(project), contract, owner, func);
+    behavior.guards = guards.facts;
+    behavior.guards_incomplete = guards.incomplete;
+    let facts = code_facts(Some(project), contract, func);
+    behavior.builtin_uses = facts.builtin_uses;
+    behavior.unchecked_blocks = facts.unchecked_blocks;
+    let effects = engine.effects(contract, owner, func);
+    apply_effects(&mut behavior, summary, &effects, func);
+    Some(behavior)
 }
 
 fn queue_dependency_callees<'p>(
@@ -189,7 +185,7 @@ fn queue_dependency_callees<'p>(
     }
 }
 
-fn overrides_modifiers(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> bool {
+pub(crate) fn overrides_modifiers(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> bool {
     func.modifiers.iter().any(|m| {
         let there = project.resolve_modifier(context, &m.name).map(|d| d as *const _);
         let here = project.resolve_modifier(owner, &m.name).map(|d| d as *const _);

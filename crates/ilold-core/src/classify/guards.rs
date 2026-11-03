@@ -1,4 +1,5 @@
 //! Access and state guards of a function, read from its code.
+use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
@@ -11,12 +12,12 @@ use crate::model::expression::{BinaryOperator, CallKind, CallType, Expression, E
 use crate::model::function::FunctionDef;
 use crate::model::modifier::{ModifierDef, ModifierRef};
 use crate::model::project::Project;
-use crate::model::statement::{Statement, StatementKind};
+use crate::model::source::{cast_operand, uncast, value_source, ValueSource};
+use crate::model::statement::{walk_all, Statement, StatementKind};
 use crate::sequence::effects::{resolve_call, CallSite};
-use crate::util::is_type_cast;
 
 /// Helpers deeper than this are not followed.
-const MAX_DEPTH: usize = 12;
+pub(crate) const MAX_DEPTH: usize = 12;
 
 /// Used only for modifiers without code.
 const ACCESS_MODIFIERS: &[&str] = &[
@@ -48,6 +49,8 @@ pub enum GuardKind {
     Pause,
     Reentrancy,
     Initializer,
+    /// Only a term of a compound check: a test on neither the caller nor a flag.
+    Condition,
 }
 
 impl GuardKind {
@@ -64,6 +67,7 @@ impl GuardKind {
             GuardKind::Pause => "pause",
             GuardKind::Reentrancy => "reentrancy",
             GuardKind::Initializer => "initializer",
+            GuardKind::Condition => "condition",
         }
     }
 }
@@ -78,14 +82,175 @@ pub struct GuardFact {
     /// Taken from a modifier name, not from code.
     #[serde(default)]
     pub heuristic: bool,
+    #[serde(default)]
+    pub scope: GuardScope,
+    /// The tested call or comparison must be false to pass: a deny-list, which never restricts.
+    #[serde(default)]
+    pub negated: bool,
+    /// Every way to pass needs a caller test that must hold.
+    #[serde(default)]
+    pub requires_caller: bool,
+    /// What the caller is compared with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compared_against: Option<ValueSource>,
+    /// The function or mapping a role check consults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ValueSource>,
+    /// The predicate that names the role when no argument does, as in `isPoolAdmin(msg.sender)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_implied_by: Option<String>,
+    /// Whose access is checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<ValueSource>,
+    /// Every way to pass a disjunction; a compound guard leaves who and what is checked to its parts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<GuardTerm>,
+    /// Every test of a conjunction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conjuncts: Vec<GuardTerm>,
+    /// Part of the condition tests the caller in a way the walk cannot read, so it is not split into terms.
+    #[serde(default)]
+    pub ambiguous: bool,
+}
+
+/// A test inside a guard's condition; a compound one lists its parts and takes only its kind and polarity from the part that decides it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuardTerm {
+    pub kind: GuardKind,
+    pub condition: String,
+    #[serde(default)]
+    pub negated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compared_against: Option<ValueSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ValueSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_implied_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<ValueSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<GuardTerm>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conjuncts: Vec<GuardTerm>,
+}
+
+impl GuardTerm {
+    /// `holds` is the value `condition` must have to pass.
+    fn leaf(kind: GuardKind, condition: &Expression, holds: bool) -> Self {
+        let (compared_against, checked_by, role, role_implied_by, account) = (None, None, None, None, None);
+        let (alternatives, conjuncts) = (Vec::new(), Vec::new());
+        let condition = expr_to_string(condition);
+        Self { kind, condition, negated: !holds, compared_against, checked_by, role, role_implied_by, account, alternatives, conjuncts }
+    }
+
+    /// `all` for a conjunction; nested parts of the same operator are merged.
+    fn compound(all: bool, condition: &Expression, parts: [GuardTerm; 2]) -> Self {
+        let mut flat = Vec::new();
+        for part in parts {
+            let same = if all { &part.conjuncts } else { &part.alternatives };
+            if same.is_empty() { flat.push(part) } else { flat.extend(same.iter().cloned()) }
+        }
+        // a conjunction is decided by a test that restricts, else by one that denies
+        let rank = |t: &&GuardTerm| if all && t.restricts() { 0 } else if all && t.denies() { 1 } else if t.has_access() { 2 } else { 3 };
+        let decides = flat.iter().min_by_key(rank).expect("a compound has parts");
+        let (kind, holds) = (decides.kind, !decides.negated);
+        let (alternatives, conjuncts) = if all { (Vec::new(), flat) } else { (flat, Vec::new()) };
+        GuardTerm { alternatives, conjuncts, ..GuardTerm::leaf(kind, condition, holds) }
+    }
+
+    fn has_access(&self) -> bool {
+        self.kind.is_access() || self.alternatives.iter().chain(&self.conjuncts).any(GuardTerm::has_access)
+    }
+
+    /// Every way to pass needs a caller test that must hold.
+    fn restricts(&self) -> bool {
+        self.decide(|t| t.kind.is_access() && !t.negated)
+    }
+
+    /// Every way to pass needs a caller test that must fail.
+    fn denies(&self) -> bool {
+        self.decide(|t| t.kind.is_access() && t.negated)
+    }
+
+    fn decide(&self, leaf: fn(&GuardTerm) -> bool) -> bool {
+        if !self.conjuncts.is_empty() {
+            self.conjuncts.iter().any(|t| t.decide(leaf))
+        } else if !self.alternatives.is_empty() {
+            self.alternatives.iter().all(|t| t.decide(leaf))
+        } else {
+            leaf(self)
+        }
+    }
+}
+
+/// A conditional guard holds on some paths only, so it never restricts the function.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum GuardScope {
+    #[default]
+    Unconditional,
+    Conditional,
+}
+
+impl GuardFact {
+    /// A guard read without its access details.
+    pub fn plain(kind: GuardKind, condition: String, via: Vec<String>, span: Option<SourceSpan>, heuristic: bool, scope: GuardScope) -> Self {
+        let (compared_against, checked_by, role, role_implied_by, account) = (None, None, None, None, None);
+        let (alternatives, conjuncts, negated, ambiguous) = (Vec::new(), Vec::new(), false, false);
+        Self {
+            kind, condition, via, span, heuristic, scope, negated, requires_caller: kind.is_access(), compared_against, checked_by, role,
+            role_implied_by, account, alternatives, conjuncts, ambiguous,
+        }
+    }
+
+    /// Only an access check on every path that must hold restricts who may call.
+    pub fn restricts(&self) -> bool {
+        self.requires_caller && self.scope == GuardScope::Unconditional
+    }
+
+    /// The guard's own test, its condition being the whole statement.
+    pub fn term(&self) -> GuardTerm {
+        GuardTerm {
+            kind: self.kind,
+            condition: self.condition.clone(),
+            negated: self.negated,
+            compared_against: self.compared_against.clone(),
+            checked_by: self.checked_by.clone(),
+            role: self.role.clone(),
+            role_implied_by: self.role_implied_by.clone(),
+            account: self.account.clone(),
+            alternatives: self.alternatives.clone(),
+            conjuncts: self.conjuncts.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GuardScan {
+    pub facts: Vec<GuardFact>,
+    /// A helper chain deeper than `MAX_DEPTH` was cut.
+    pub incomplete: bool,
 }
 
 /// `context` is the most derived contract: modifiers and virtual helpers resolve as it sees them.
 pub fn function_guards(project: Option<&Project>, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> Vec<GuardFact> {
-    let mut walker = Walker { project, facts: Vec::new(), pending: Vec::new(), active: Vec::new() };
-    let frame = Frame { context, owner, via: Vec::new(), callers: HashMap::new(), depth: 0 };
+    function_guard_scan(project, context, owner, func).facts
+}
+
+pub fn function_guard_scan(project: Option<&Project>, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> GuardScan {
+    let mut walker = Walker { project, facts: Vec::new(), pending: Vec::new(), active: Vec::new(), capped: Cell::new(false) };
+    let sources = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(index, p)| (var_key(&p.name, p.id), ValueSource::Param { index, name: p.name.clone() }))
+        .collect();
+    let frame = Frame { context, owner, via: Vec::new(), callers: HashMap::new(), sources, depth: 0, conditional: false };
     walker.function(&frame, func);
-    walker.facts
+    GuardScan { facts: walker.facts, incomplete: walker.capped.get() }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +266,23 @@ impl Caller {
             (Caller::Sender, true) => GuardKind::CallerEquals,
             (Caller::Sender, false) => GuardKind::RoleCheck,
         }
+    }
+
+    fn account(self) -> ValueSource {
+        match self {
+            Caller::Sender => ValueSource::MsgSender,
+            Caller::Origin => ValueSource::TxOrigin,
+        }
+    }
+
+    /// A predicate on the caller; without a role argument the predicate itself names the role.
+    fn checked(self, cond: &Expression, holds: bool, checked_by: Option<String>, role: Option<ValueSource>) -> GuardTerm {
+        let role_implied_by = if role.is_none() { checked_by.clone() } else { None };
+        GuardTerm { checked_by, role, role_implied_by, account: Some(self.account()), ..GuardTerm::leaf(self.kind(false), cond, holds) }
+    }
+
+    fn compared(self, cond: &Expression, equal: bool, against: ValueSource) -> GuardTerm {
+        GuardTerm { compared_against: Some(against), account: Some(self.account()), ..GuardTerm::leaf(self.kind(true), cond, equal) }
     }
 }
 
@@ -123,7 +305,17 @@ struct Frame<'a> {
     owner: &'a ContractDef,
     via: Vec<String>,
     callers: HashMap<VarKey, Caller>,
+    /// Parameters, bound to what the caller passed.
+    sources: HashMap<VarKey, ValueSource>,
     depth: usize,
+    /// Control may have left the function, or a branch was taken, before this point.
+    conditional: bool,
+}
+
+impl Frame<'_> {
+    fn scope(&self) -> GuardScope {
+        if self.conditional { GuardScope::Conditional } else { GuardScope::Unconditional }
+    }
 }
 
 /// Neither about the caller nor a flag; inside a modifier it may still be a reentrancy lock.
@@ -132,6 +324,7 @@ struct Pending {
     via: Vec<String>,
     span: SourceSpan,
     names: BTreeSet<String>,
+    scope: GuardScope,
 }
 
 struct Walker<'a> {
@@ -140,19 +333,31 @@ struct Walker<'a> {
     pending: Vec<Pending>,
     // (contract key, function key) being read, to stop recursion
     active: Vec<(String, String)>,
+    capped: Cell<bool>,
 }
 
 impl<'a> Walker<'a> {
     fn push(&mut self, fact: GuardFact) {
-        let same = |f: &GuardFact| f.kind == fact.kind && f.condition == fact.condition && f.via == fact.via;
-        if !self.facts.iter().any(same) {
-            self.facts.push(fact);
+        let same = |f: &&mut GuardFact| f.kind == fact.kind && f.condition == fact.condition && f.via == fact.via;
+        match self.facts.iter_mut().find(same) {
+            // reached on every path after all
+            Some(found) if found.scope > fact.scope => *found = fact,
+            Some(_) => {}
+            None => self.facts.push(fact),
         }
+    }
+
+    fn cap(&self, depth: usize) -> bool {
+        let capped = depth > MAX_DEPTH;
+        if capped {
+            self.capped.set(true);
+        }
+        capped
     }
 
     fn function(&mut self, frame: &Frame<'a>, func: &'a FunctionDef) {
         let key = (frame.owner.key().to_string(), func.key.clone());
-        if frame.depth > MAX_DEPTH || self.active.contains(&key) {
+        if self.cap(frame.depth) || self.active.contains(&key) {
             return;
         }
         self.active.push(key);
@@ -170,7 +375,7 @@ impl<'a> Walker<'a> {
         via.push(format!("modifier {}", mref.name));
         let found = self.resolve_modifier(frame, &mref.name);
         let Some((declared_in, def)) = found.filter(|(_, d)| !d.body.is_empty()) else {
-            self.by_name(&mref.name, via);
+            self.by_name(&mref.name, via, frame.scope());
             return;
         };
         let callers = def
@@ -179,7 +384,8 @@ impl<'a> Walker<'a> {
             .zip(&mref.arguments)
             .filter_map(|(p, arg)| Some((var_key(&p.name, p.id), self.caller_of(frame, arg)?)))
             .collect();
-        let inner = Frame { context: frame.context, owner: declared_in, via: via.clone(), callers, depth: frame.depth };
+        let sources = def.params.iter().zip(&mref.arguments).map(|(p, arg)| (var_key(&p.name, p.id), self.bound_source(frame, arg))).collect();
+        let inner = Frame { owner: declared_in, via: via.clone(), callers, sources, ..frame.clone() };
         let split = def.body.iter().position(|s| matches!(s.kind, StatementKind::Placeholder)).unwrap_or(def.body.len());
         let (before, after) = def.body.split_at(split);
 
@@ -195,15 +401,18 @@ impl<'a> Walker<'a> {
         let candidates: Vec<Pending> = self.pending.drain(pending..).collect();
         for p in candidates {
             if p.names.iter().any(|n| set_before.contains(n) && set_after.contains(n)) {
-                self.push(GuardFact { kind: GuardKind::Reentrancy, condition: p.condition, via: p.via, span: Some(p.span), heuristic: false });
+                let kind = GuardKind::Reentrancy;
+                let (via, span, scope) = (p.via, Some(p.span), p.scope);
+                self.push(GuardFact::plain(kind, p.condition, via, span, false, scope));
             }
         }
-        if self.facts.len() == facts && contains_assembly(before) {
-            self.by_name(&mref.name, via);
+        // any fact read from code, conditional ones too, rules the name out: a false restriction is worse than a gap
+        if self.facts.len() == facts && contains(before, |k| matches!(k, StatementKind::Assembly { .. })) {
+            self.by_name(&mref.name, via, frame.scope());
         }
     }
 
-    fn by_name(&mut self, name: &str, via: Vec<String>) {
+    fn by_name(&mut self, name: &str, via: Vec<String>, scope: GuardScope) {
         let lower = name.to_lowercase();
         let kind = if ACCESS_MODIFIERS.iter().any(|p| lower.contains(p)) {
             GuardKind::AccessByName
@@ -213,7 +422,7 @@ impl<'a> Walker<'a> {
             return;
         };
         let condition = format!("{name} (no code to read; assumed from the name)");
-        self.push(GuardFact { kind, condition, via, span: None, heuristic: true });
+        self.push(GuardFact::plain(kind, condition, via, None, true, scope));
     }
 
     fn resolve_modifier(&self, frame: &Frame<'a>, name: &str) -> Option<(&'a ContractDef, &'a ModifierDef)> {
@@ -230,9 +439,10 @@ impl<'a> Walker<'a> {
         order.into_iter().find_map(find)
     }
 
-    // false once control leaves the function
+    // false once control may have left the function: later checks hold on some paths only
     fn statements(&mut self, frame: &Frame<'a>, stmts: &'a [Statement]) -> bool {
         let mut frame = frame.clone();
+        let branch = |frame: &Frame<'a>| Frame { conditional: true, ..frame.clone() };
         for stmt in stmts {
             match &stmt.kind {
                 StatementKind::ExpressionStmt { expression } => {
@@ -271,27 +481,27 @@ impl<'a> Walker<'a> {
                         self.check(&frame, condition, false, text, stmt.span);
                         continue;
                     }
-                    // a branch that may leave the function: later checks are not on every path
-                    if may_exit(then_body) || else_body.as_deref().is_some_and(may_exit) {
-                        return false;
+                    self.statements(&branch(&frame), then_body);
+                    if let Some(else_body) = else_body {
+                        self.statements(&branch(&frame), else_body);
                     }
+                    frame.conditional |= may_exit(then_body) || else_body.as_deref().is_some_and(may_exit);
                 }
+                // the body may run zero times
                 StatementKind::For { body, .. } | StatementKind::While { body, .. } | StatementKind::DoWhile { body, .. } => {
-                    if may_exit(body) {
-                        return false;
-                    }
+                    self.statements(&branch(&frame), body);
+                    frame.conditional |= may_exit(body);
                 }
                 StatementKind::TryCatch { clauses, .. } => {
-                    if clauses.iter().any(|c| may_exit(&c.body)) {
-                        return false;
+                    for clause in clauses {
+                        self.statements(&branch(&frame), &clause.body);
                     }
+                    frame.conditional |= clauses.iter().any(|c| may_exit(&c.body));
                 }
                 // Yul can `return` or `stop`
-                StatementKind::Assembly { .. } => return false,
+                StatementKind::Assembly { .. } => frame.conditional = true,
                 StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => {
-                    if !self.statements(&frame, statements) {
-                        return false;
-                    }
+                    frame.conditional |= !self.statements(&frame, statements);
                 }
                 StatementKind::Return { value } => {
                     if let Some(value) = value {
@@ -303,101 +513,124 @@ impl<'a> Walker<'a> {
                 _ => {}
             }
         }
-        true
+        !frame.conditional
     }
 
     /// `holds` is the value `cond` must have for execution to go on.
     fn check(&mut self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, condition: String, span: SourceSpan) {
-        let via = frame.via.clone();
-        if let Some(kind) = self.access_kind(frame, cond, holds, 0) {
-            self.push(GuardFact { kind, condition, via, span: Some(span), heuristic: false });
+        let (via, scope) = (frame.via.clone(), frame.scope());
+        let mut opaque = false;
+        let term = self.term(frame, cond, holds, 0, &mut opaque);
+        if term.has_access() {
+            let requires_caller = term.restricts();
+            let (alternatives, conjuncts) = if opaque { Default::default() } else { (term.alternatives, term.conjuncts) };
+            self.push(GuardFact {
+                negated: term.negated,
+                requires_caller,
+                compared_against: term.compared_against,
+                checked_by: term.checked_by,
+                role: term.role,
+                role_implied_by: term.role_implied_by,
+                account: term.account,
+                alternatives,
+                conjuncts,
+                ambiguous: opaque,
+                ..GuardFact::plain(term.kind, condition, via, Some(span), false, scope)
+            });
             return;
         }
-        let mut names = BTreeSet::new();
-        names_in(cond, &mut names);
-        let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
-        let kind = if lower.iter().any(|n| n.contains("paused")) {
-            Some(GuardKind::Pause)
-        } else if lower.iter().any(|n| n.contains("initializ")) {
-            Some(GuardKind::Initializer)
-        } else {
-            None
-        };
-        match kind {
-            Some(kind) => self.push(GuardFact { kind, condition, via, span: Some(span), heuristic: false }),
-            None => self.pending.push(Pending { condition, via, span, names }),
+        let names = names_in(cond);
+        match state_kind(&names) {
+            Some(kind) => self.push(GuardFact::plain(kind, condition, via, Some(span), false, scope)),
+            None => self.pending.push(Pending { condition, via, span, names, scope }),
         }
     }
 
-    /// Only a caller-dependent test that must hold restricts access; a disjunction only when every disjunct does.
-    fn access_kind(&self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, depth: usize) -> Option<GuardKind> {
+    /// The test `cond` must pass with value `holds`; `opaque` is set when it tests the caller in a way not read here.
+    fn term(&self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, depth: usize, opaque: &mut bool) -> GuardTerm {
+        let compared = |c: Caller, other: &'a Expression, equal: bool| c.compared(cond, equal, self.source(frame, other, 0));
         match &cond.kind {
-            ExpressionKind::UnaryOp { operator: UnaryOperator::Not, operand } => self.access_kind(frame, operand, !holds, depth),
-            ExpressionKind::Tuple { elements } if elements.len() == 1 => {
-                self.access_kind(frame, elements[0].as_ref()?, holds, depth)
-            }
+            ExpressionKind::UnaryOp { operator: UnaryOperator::Not, operand } => self.term(frame, operand, !holds, depth, opaque),
+            ExpressionKind::Tuple { elements } => match elements.as_slice() {
+                [Some(inner)] => self.term(frame, inner, holds, depth, opaque),
+                _ => self.other(frame, cond, holds, opaque),
+            },
             ExpressionKind::BinaryOp { left, operator: op @ (BinaryOperator::And | BinaryOperator::Or), right } => {
-                let (l, r) = (self.access_kind(frame, left, holds, depth), self.access_kind(frame, right, holds, depth));
+                let parts = [self.term(frame, left, holds, depth, opaque), self.term(frame, right, holds, depth, opaque)];
                 // `a && b` holding, or `a || b` failing, needs both sides
-                let both_needed = matches!(op, BinaryOperator::And) == holds;
-                if both_needed { l.or(r) } else { r.and(l) }
+                GuardTerm::compound(matches!(op, BinaryOperator::And) == holds, cond, parts)
             }
             ExpressionKind::BinaryOp { left, operator: op @ (BinaryOperator::Eq | BinaryOperator::Neq), right } => {
                 let equal = matches!(op, BinaryOperator::Eq) == holds;
                 if let Some(b) = bool_literal(right) {
-                    return self.access_kind(frame, left, equal == b, depth);
+                    return self.term(frame, left, equal == b, depth, opaque);
                 }
                 if let Some(b) = bool_literal(left) {
-                    return self.access_kind(frame, right, equal == b, depth);
-                }
-                // only an equality that must hold restricts the caller
-                if !equal {
-                    return None;
+                    return self.term(frame, right, equal == b, depth, opaque);
                 }
                 match (self.caller_of(frame, left), self.caller_of(frame, right)) {
-                    (Some(c), None) if !is_zero(right) => Some(c.kind(true)),
-                    (None, Some(c)) if !is_zero(left) => Some(c.kind(true)),
+                    (Some(c), None) if !is_zero(right) => compared(c, right, equal),
+                    (None, Some(c)) if !is_zero(left) => compared(c, left, equal),
                     // `tx.origin == msg.sender`: only externally owned accounts
-                    (Some(a), Some(b)) if a != b => Some(GuardKind::TxOrigin),
-                    _ => None,
+                    (Some(a), Some(b)) if a != b => Caller::Origin.compared(cond, equal, ValueSource::MsgSender),
+                    // a zero address is a sanity check, not a caller check
+                    (Some(_), None) | (None, Some(_)) => GuardTerm::leaf(GuardKind::Condition, cond, holds),
+                    _ => self.other(frame, cond, holds, opaque),
                 }
             }
-            // a test that passes for some callers only when it must be true
-            _ if !holds => None,
             ExpressionKind::FunctionCall { callee, arguments, call, .. } => {
                 let kind = match call {
-                    CallType::Builtin => return None,
+                    CallType::Builtin => return self.other(frame, cond, holds, opaque),
                     CallType::Call(kind) => Some(*kind),
                     CallType::Unknown => None,
                 };
                 // a state-changing call that takes the caller is not a check
                 if !self.is_view_call(frame, callee, kind) {
-                    return None;
+                    return GuardTerm::leaf(GuardKind::Condition, cond, holds);
                 }
                 let args = match kind {
                     Some(kind) => call_arguments(callee, arguments, kind),
                     None => arguments.iter().collect(),
                 };
                 if let Some(c) = args.iter().find_map(|a| self.caller_of(frame, a)) {
-                    return Some(c.kind(false));
+                    let role = args.iter().copied().find(|a| self.caller_of(frame, a).is_none());
+                    return c.checked(cond, holds, Some(expr_to_string(callee)), role.map(|r| self.source(frame, r, 0)));
                 }
-                // a boolean helper every return of which is a guard
-                if depth >= MAX_DEPTH {
-                    return None;
+                // a boolean helper every return of which tests the caller
+                let helper = if self.cap(depth + 1) { None } else { self.callee(frame, callee, arguments, kind) };
+                let Some((inner, func)) = helper else { return self.other(frame, cond, holds, opaque) };
+                let mut inner_opaque = false;
+                let found: Vec<GuardTerm> =
+                    func.returned_values().iter().map(|r| self.term(&inner, r, holds, depth + 1, &mut inner_opaque)).collect();
+                match found.first() {
+                    Some(first) if found.iter().all(GuardTerm::has_access) => {
+                        *opaque |= inner_opaque;
+                        first.clone()
+                    }
+                    _ => self.other(frame, cond, holds, opaque),
                 }
-                let (inner, func) = self.callee(frame, callee, arguments, kind)?;
-                let values = returned(func);
-                let kinds: Vec<Option<GuardKind>> = values.iter().map(|r| self.access_kind(&inner, r, true, depth + 1)).collect();
-                kinds.iter().all(Option::is_some).then(|| kinds.first().copied().flatten()).flatten()
             }
             ExpressionKind::IndexAccess { .. } => {
                 let mut indexes = Vec::new();
                 index_chain(cond, &mut indexes);
-                indexes.into_iter().find_map(|i| self.caller_of(frame, i)).map(|c| c.kind(false))
+                let Some(c) = indexes.iter().find_map(|i| self.caller_of(frame, i)) else { return self.other(frame, cond, holds, opaque) };
+                let role = indexes.iter().copied().find(|i| self.caller_of(frame, i).is_none());
+                c.checked(cond, holds, root_name(cond), role.map(|r| self.source(frame, r, 0)))
             }
-            ExpressionKind::MemberAccess { object, .. } => self.access_kind(frame, object, holds, depth),
-            _ => None,
+            ExpressionKind::MemberAccess { object, .. } => {
+                let inner = self.term(frame, object, holds, depth, opaque);
+                if inner.has_access() { inner } else { self.other(frame, cond, holds, opaque) }
+            }
+            _ => self.other(frame, cond, holds, opaque),
         }
+    }
+
+    /// A flag, or any other test; one that still involves the caller is opaque.
+    fn other(&self, frame: &Frame<'a>, cond: &'a Expression, holds: bool, opaque: &mut bool) -> GuardTerm {
+        let mut caller = false;
+        cond.walk(&mut |e| caller |= self.caller_of(frame, e).is_some());
+        *opaque |= caller;
+        GuardTerm::leaf(state_kind(&names_in(cond)).unwrap_or(GuardKind::Condition), cond, holds)
     }
 
     /// A public state variable's getter counts; unknown callees do not.
@@ -417,6 +650,9 @@ impl<'a> Walker<'a> {
     }
 
     fn caller_at(&self, frame: &Frame<'a>, expr: &'a Expression, depth: usize) -> Option<Caller> {
+        if let Some(inner) = cast_operand(expr) {
+            return self.caller_at(frame, inner, depth);
+        }
         match &expr.kind {
             ExpressionKind::MemberAccess { object, member, .. } => match (&object.kind, member.as_str()) {
                 (ExpressionKind::Identifier { name, .. }, "sender") if name == "msg" => Some(Caller::Sender),
@@ -424,34 +660,18 @@ impl<'a> Walker<'a> {
                 _ => None,
             },
             ExpressionKind::Identifier { name, resolved } => frame.callers.get(&var_key(name, *resolved)).copied(),
-            ExpressionKind::TypeCast { expression, .. } => self.caller_at(frame, expression, depth),
             ExpressionKind::Tuple { elements } if elements.len() == 1 => {
                 self.caller_at(frame, elements[0].as_ref()?, depth)
             }
             ExpressionKind::FunctionCall { callee, arguments, call, .. } => {
-                let is_cast = match &callee.kind {
-                    ExpressionKind::TypeMeta { .. } => true,
-                    ExpressionKind::Identifier { name, .. } => is_type_cast(name),
-                    _ => false,
-                };
-                if is_cast {
-                    return match arguments.as_slice() {
-                        [inner] => self.caller_at(frame, inner, depth),
-                        _ => None,
-                    };
-                }
-                let kind = match call {
-                    CallType::Call(kind) if kind.is_internal() => Some(*kind),
-                    CallType::Unknown => None,
-                    _ => return None,
-                };
-                if depth >= MAX_DEPTH {
+                let kind = internal_kind(*call)?;
+                if self.cap(depth + 1) {
                     return None;
                 }
                 // a helper every return of which is the caller
                 match self.callee(frame, callee, arguments, kind) {
                     Some((inner, func)) => {
-                        let values = returned(func);
+                        let values = func.returned_values();
                         let first = self.caller_at(&inner, values.first()?, depth + 1)?;
                         values[1..].iter().all(|v| self.caller_at(&inner, v, depth + 1) == Some(first)).then_some(first)
                     }
@@ -529,9 +749,10 @@ impl<'a> Walker<'a> {
         let callers = func
             .params
             .iter()
-            .zip(args)
+            .zip(&args)
             .filter_map(|(p, a)| Some((var_key(&p.name, p.id), self.caller_of(frame, a)?)))
             .collect();
+        let sources = func.params.iter().zip(&args).map(|(p, a)| (var_key(&p.name, p.id), self.bound_source(frame, a))).collect();
         let shares_storage = match self.project {
             Some(p) => p.linearization(frame.context).iter().any(|c| c.key() == owner.key()),
             None => true,
@@ -539,7 +760,25 @@ impl<'a> Walker<'a> {
         let mut via = frame.via.clone();
         via.push(format!("{}::{}", owner.key(), func.key));
         let context = if shares_storage { frame.context } else { owner };
-        Some((Frame { context, owner, via, callers, depth: frame.depth + 1 }, func))
+        Some((Frame { context, owner, via, callers, sources, depth: frame.depth + 1, conditional: frame.conditional }, func))
+    }
+
+    /// Through helpers every return of which has the same source.
+    fn source(&self, frame: &Frame<'a>, expr: &'a Expression, depth: usize) -> ValueSource {
+        if let ExpressionKind::FunctionCall { callee, arguments, call, .. } = &uncast(expr).kind {
+            let helper = internal_kind(*call).filter(|_| depth < MAX_DEPTH).and_then(|kind| self.callee(frame, callee, arguments, kind));
+            if let Some((inner, func)) = helper {
+                let values: Vec<ValueSource> = func.returned_values().iter().map(|v| self.source(&inner, v, depth + 1)).collect();
+                if let Some(first) = values.first().filter(|first| values.iter().all(|v| v == *first)) {
+                    return first.clone();
+                }
+            }
+        }
+        self.bound_source(frame, expr)
+    }
+
+    fn bound_source(&self, frame: &Frame<'a>, expr: &Expression) -> ValueSource {
+        value_source(self.project, &frame.context.state_vars, expr, |name, id| frame.sources.get(&var_key(name, id)).cloned())
     }
 
     fn resolve(&self, frame: &Frame<'a>, callee: &'a Expression, kind: Option<CallKind>) -> Option<(&'a ContractDef, &'a FunctionDef)> {
@@ -600,12 +839,11 @@ impl<'a> Walker<'a> {
                     out.insert(name);
                 }
             }
-            ExpressionKind::FunctionCall { callee, arguments, call, .. } if frame.depth <= MAX_DEPTH => {
-                let kind = match call {
-                    CallType::Call(k) if k.is_internal() => Some(*k),
-                    CallType::Unknown => None,
-                    _ => return,
-                };
+            ExpressionKind::FunctionCall { callee, arguments, call, .. } => {
+                let Some(kind) = internal_kind(*call) else { return };
+                if self.cap(frame.depth) {
+                    return;
+                }
                 if let Some((inner, func)) = self.callee(frame, callee, arguments, kind) {
                     if let Some(body) = &func.body {
                         self.assigned(&inner, body, out);
@@ -655,43 +893,6 @@ fn revert_text(stmts: &[Statement]) -> Option<String> {
     }
 }
 
-/// Named return variables count only when assigned at top level.
-fn returned(func: &FunctionDef) -> Vec<&Expression> {
-    fn walk<'e>(stmts: &'e [Statement], func: &FunctionDef, out: &mut Vec<&'e Expression>) {
-        for stmt in stmts {
-            match &stmt.kind {
-                StatementKind::Return { value: Some(v) } => out.push(v),
-                StatementKind::ExpressionStmt { expression } => {
-                    if let ExpressionKind::Assignment { target, value, .. } = &expression.kind {
-                        if let ExpressionKind::Identifier { name, resolved } = &target.kind {
-                            let named = func.returns.iter().any(|r| match (resolved, r.id) {
-                                (Some(a), Some(b)) => *a == b,
-                                _ => !r.name.is_empty() && r.name == *name,
-                            });
-                            if named {
-                                out.push(value);
-                            }
-                        }
-                    }
-                }
-                StatementKind::If { then_body, else_body, .. } => {
-                    walk(then_body, func, out);
-                    if let Some(e) = else_body {
-                        walk(e, func, out);
-                    }
-                }
-                StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => walk(statements, func, out),
-                _ => {}
-            }
-        }
-    }
-    let mut out = Vec::new();
-    if let Some(body) = &func.body {
-        walk(body, func, &mut out);
-    }
-    out
-}
-
 fn index_chain<'e>(expr: &'e Expression, out: &mut Vec<&'e Expression>) {
     match &expr.kind {
         ExpressionKind::IndexAccess { base, index } => {
@@ -705,45 +906,27 @@ fn index_chain<'e>(expr: &'e Expression, out: &mut Vec<&'e Expression>) {
     }
 }
 
-fn names_in(expr: &Expression, out: &mut BTreeSet<String>) {
-    match &expr.kind {
-        ExpressionKind::Identifier { name, .. } => {
-            out.insert(name.clone());
-        }
-        ExpressionKind::MemberAccess { object, member, .. } => {
-            out.insert(member.clone());
-            names_in(object, out);
-        }
-        ExpressionKind::FunctionCall { callee, arguments, .. } => {
-            names_in(callee, out);
-            for a in arguments {
-                names_in(a, out);
-            }
-        }
-        ExpressionKind::BinaryOp { left, right, .. } => {
-            names_in(left, out);
-            names_in(right, out);
-        }
-        ExpressionKind::UnaryOp { operand, .. } => names_in(operand, out),
-        ExpressionKind::IndexAccess { base, index } => {
-            names_in(base, out);
-            if let Some(i) = index {
-                names_in(i, out);
-            }
-        }
-        ExpressionKind::Tuple { elements } => {
-            for e in elements.iter().flatten() {
-                names_in(e, out);
-            }
-        }
-        ExpressionKind::TypeCast { expression, .. } => names_in(expression, out),
-        ExpressionKind::Ternary { condition, true_expr, false_expr } => {
-            names_in(condition, out);
-            names_in(true_expr, out);
-            names_in(false_expr, out);
+/// A pause or initialization flag, by name.
+fn state_kind(names: &BTreeSet<String>) -> Option<GuardKind> {
+    let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+    if lower.iter().any(|n| n.contains("paused")) {
+        Some(GuardKind::Pause)
+    } else if lower.iter().any(|n| n.contains("initializ")) {
+        Some(GuardKind::Initializer)
+    } else {
+        None
+    }
+}
+
+fn names_in(expr: &Expression) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    expr.walk(&mut |e| match &e.kind {
+        ExpressionKind::Identifier { name, .. } | ExpressionKind::MemberAccess { member: name, .. } => {
+            names.insert(name.clone());
         }
         _ => {}
-    }
+    });
+    names
 }
 
 fn root_name(expr: &Expression) -> Option<String> {
@@ -764,43 +947,31 @@ fn bool_literal(expr: &Expression) -> Option<bool> {
 
 // a sanity check, not a caller check
 fn is_zero(expr: &Expression) -> bool {
-    match &expr.kind {
+    match &uncast(expr).kind {
         ExpressionKind::Literal { value, .. } => {
             let digits = value.strip_prefix("0x").unwrap_or(value);
             !digits.is_empty() && digits.chars().all(|c| c == '0')
-        }
-        ExpressionKind::TypeCast { expression, .. } => is_zero(expression),
-        ExpressionKind::FunctionCall { callee, arguments, .. } => {
-            let cast = match &callee.kind {
-                ExpressionKind::TypeMeta { .. } => true,
-                ExpressionKind::Identifier { name, .. } => is_type_cast(name),
-                _ => false,
-            };
-            cast && matches!(arguments.as_slice(), [inner] if is_zero(inner))
         }
         _ => false,
     }
 }
 
-/// A `_` counts: the rest of the modifier runs after the body.
-fn may_exit(stmts: &[Statement]) -> bool {
-    stmts.iter().any(|s| match &s.kind {
-        StatementKind::Return { .. } | StatementKind::Placeholder | StatementKind::Assembly { .. } => true,
-        StatementKind::If { then_body, else_body, .. } => may_exit(then_body) || else_body.as_deref().is_some_and(may_exit),
-        StatementKind::For { body, .. } | StatementKind::While { body, .. } | StatementKind::DoWhile { body, .. } => may_exit(body),
-        StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => may_exit(statements),
-        StatementKind::TryCatch { clauses, .. } => clauses.iter().any(|c| may_exit(&c.body)),
-        _ => false,
-    })
+/// The kind of a call into contract code that runs in this frame; `None` inside means untyped.
+fn internal_kind(call: CallType) -> Option<Option<CallKind>> {
+    match call {
+        CallType::Call(kind) if kind.is_internal() => Some(Some(kind)),
+        CallType::Unknown => Some(None),
+        _ => None,
+    }
 }
 
-fn contains_assembly(stmts: &[Statement]) -> bool {
-    stmts.iter().any(|s| match &s.kind {
-        StatementKind::Assembly { .. } => true,
-        StatementKind::Block { statements } | StatementKind::UncheckedBlock { statements } => contains_assembly(statements),
-        StatementKind::If { then_body, else_body, .. } => {
-            contains_assembly(then_body) || else_body.as_deref().is_some_and(contains_assembly)
-        }
-        _ => false,
-    })
+fn contains(stmts: &[Statement], kind: impl Fn(&StatementKind) -> bool) -> bool {
+    let mut found = false;
+    walk_all(stmts, &mut |s| found |= kind(&s.kind), &mut |_| {});
+    found
+}
+
+/// A `_` counts: the rest of the modifier runs after the body.
+fn may_exit(stmts: &[Statement]) -> bool {
+    contains(stmts, |k| matches!(k, StatementKind::Return { .. } | StatementKind::Placeholder | StatementKind::Assembly { .. }))
 }

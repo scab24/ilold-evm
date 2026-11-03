@@ -289,6 +289,8 @@ fn aave_state_flow() {
         let writes = &b.transitive_state_write_paths;
         println!("== Pool.{name}: direct writes {:?}, can_revert {}, read_only {}", b.state_writes, b.can_revert, b.read_only);
         println!("   transitive write paths ({}): {:?}", writes.len(), writes);
+        let effective = b.effective_state_write_paths();
+        println!("   effective write paths ({}): {:?}", effective.len(), effective);
         for t in traces(b, EffectKind::StateWrite).iter().take(4) {
             println!("   write {t}");
         }
@@ -370,17 +372,33 @@ fn aave_state_flow() {
         }
     }
     println!("== no constant or immutable read or written as state in {checked} behaviors");
-    let incomplete: Vec<String> = analysis.sequence_analyses.iter()
-        .flat_map(|(c, sa)| sa.functions.iter().filter(|b| b.effects_incomplete).map(move |b| format!("{c}::{}", b.name)))
+    let mut incomplete: Vec<(String, bool)> = analysis.sequence_analyses.iter()
+        .flat_map(|(c, sa)| sa.functions.iter().filter(|b| b.effects_incomplete)
+            .map(move |b| (format!("{c}::{}::{}", b.owner, b.name), !b.assembly_blocks.is_empty())))
         .collect();
-    println!("== behaviors with incomplete effects: {incomplete:?}");
+    incomplete.sort();
+    let own: Vec<&String> = incomplete.iter().filter(|(_, own)| *own).map(|(b, _)| b).collect();
+    println!("== behaviors with incomplete effects: {} ({} with their own or a modifier's assembly: {own:?})", incomplete.len(), own.len());
+    let reads: Vec<String> = analysis.sequence_analyses.iter()
+        .flat_map(|(c, sa)| sa.functions.iter().filter(|b| b.reads_incomplete && !b.effects_incomplete)
+            .map(move |b| format!("{c}::{}::{}", b.owner, b.name)))
+        .collect();
+    let assembly = analysis.sequence_analyses.values().flat_map(|sa| &sa.functions).filter(|b| !b.assembly_blocks.is_empty()).count();
+    let reverts = analysis.sequence_analyses.values().flat_map(|sa| &sa.functions).filter(|b| b.reverts_incomplete).count();
+    println!("== behaviors with only reads incomplete: {}; with reverts incomplete: {reverts}; with assembly blocks of their own: {assembly}", reads.len());
+    let reserves = behavior("Pool", "getReservesList");
+    println!("== Pool.getReservesList assembly {:?} effects_incomplete {} reads_incomplete {}",
+        reserves.assembly_blocks, reserves.effects_incomplete, reserves.reads_incomplete);
+    // a view function: its Yul may read state but not change it
+    assert!(!reserves.assembly_blocks.is_empty() && reserves.reads_incomplete && !reserves.effects_incomplete);
+    assert!(reserves.reverts_incomplete);
 }
 
 #[test]
 #[ignore = "needs ILOLD_AAVE_ROOT pointing at a scratch copy of aave-v3-origin"]
 fn aave_access_guards() {
     use ilold_core::classify::entry_points::AccessLevel;
-    use ilold_core::classify::guards::GuardKind;
+    use ilold_core::classify::guards::{GuardKind, GuardScope};
     use ilold_core::model::function::Visibility;
     use ilold_core::narrative::function::build_function_narrative;
     use ilold_core::narrative::types::ObservationKind;
@@ -412,7 +430,8 @@ fn aave_access_guards() {
             let found = guards(c, af.owner.key(), &f.key);
             let shown: Vec<String> = found
                 .iter()
-                .map(|g| format!("{:?}{} `{}` via [{}]", g.kind, if g.heuristic { " (heuristic)" } else { "" }, g.condition, g.via.join(" -> ")))
+                .map(|g| format!("{:?}{}{} `{}` via [{}]", g.kind, if g.heuristic { " (heuristic)" } else { "" },
+                    if g.scope == GuardScope::Conditional { " (conditional)" } else { "" }, g.condition, g.via.join(" -> ")))
                 .collect();
             let from = if af.is_inherited { format!(" (from {})", af.owner.key()) } else { String::new() };
             println!("  {}{from}: {}\n    {}", f.key, access(c, &f.name), if shown.is_empty() { "-".into() } else { shown.join("\n    ") });

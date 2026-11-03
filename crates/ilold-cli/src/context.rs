@@ -20,8 +20,6 @@ use ilold_core::sequence::analysis::analyze_sequences;
 
 use crate::colors::*;
 
-const SHARED_SEQ_DEPTH: usize = 3;
-
 pub fn run(
     path: &PathBuf,
     contract_filter: Option<&str>,
@@ -53,8 +51,7 @@ pub fn run(
         cfgs.insert(key.clone(), cfg);
         pt_map.insert(key, pt);
     }
-    // sequence depth does not affect what context prints, so the CLI default shares the cached analysis
-    let params = AnalysisParams::new(SHARED_SEQ_DEPTH);
+    let params = AnalysisParams::new(crate::SHARED_SEQ_DEPTH);
     let all_sequence_analyses =
         ProjectAnalysis::load_or_build(&project, key.as_ref(), &params).sequence_analyses;
     let analysis = all_sequence_analyses

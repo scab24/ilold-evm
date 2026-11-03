@@ -1,0 +1,585 @@
+//! `ilold graph --json`: exit codes, determinism, git-root-relative ids and one sample of every record kind.
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+use serde_json::Value;
+
+fn repo() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+}
+
+fn fixture(name: &str) -> PathBuf {
+    repo().join("tests/fixtures/solc").join(name)
+}
+
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().canonicalize().unwrap().join(format!(
+        "ilold-graph-{name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn graph(project: &Path, out: &Path, cache: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_ilold"))
+        .arg("graph")
+        .arg("--json")
+        .arg(out)
+        .arg(project)
+        .env("ILOLD_PROJECT_CACHE_DIR", cache)
+        .env_remove("ILOLD_DISABLE_PROJECT_CACHE")
+        .env_remove("FOUNDRY_PROFILE")
+        .output()
+        .expect("run ilold graph")
+}
+
+fn records(out: &Path) -> Vec<Value> {
+    fs::read_to_string(out)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{e}: {line}")))
+        .collect()
+}
+
+/// Runs the export into a scratch directory and returns its records.
+fn export(project: &Path, name: &str, code: i32) -> Vec<Value> {
+    let dir = scratch(name);
+    let out = dir.join("graph.jsonl");
+    let run = graph(project, &out, &dir.join("cache"));
+    assert_eq!(run.status.code(), Some(code), "stderr: {}", String::from_utf8_lossy(&run.stderr));
+    let found = records(&out);
+    fs::remove_dir_all(&dir).unwrap();
+    found
+}
+
+fn of_kind<'a>(records: &'a [Value], kind: &str) -> Vec<&'a Value> {
+    records.iter().filter(|r| r["kind"] == kind).collect()
+}
+
+fn find<'a>(records: &'a [Value], kind: &str, matches: impl Fn(&Value) -> bool) -> &'a Value {
+    let found: Vec<&Value> = of_kind(records, kind).into_iter().filter(|r| matches(r)).collect();
+    match found.as_slice() {
+        [only] => only,
+        _ => panic!("expected one {kind}, found {}: {found:#?}", found.len()),
+    }
+}
+
+fn file_status<'a>(envelope: &'a Value, path: &str) -> &'a Value {
+    envelope["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["path"] == path)
+        .unwrap_or_else(|| panic!("{path} missing from {:#}", envelope["files"]))
+}
+
+const FACTS: &str = "tests/fixtures/solc/facts/src/Facts.sol";
+const KINDS: &str = "tests/fixtures/solc/export/kinds";
+
+fn facts_id(member: &str) -> String {
+    format!("evm:{FACTS}:{member}")
+}
+
+fn kinds_id(file: &str, member: &str) -> String {
+    format!("evm:{KINDS}/{file}:{member}")
+}
+
+fn is_hex(value: &Value, len: usize) -> bool {
+    value.as_str().is_some_and(|s| s.len() == len && s.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+#[test]
+fn every_record_has_the_common_fields_and_sorted_ids() {
+    let records = export(&fixture("facts"), "common", 0);
+    assert_eq!(records[0]["kind"], "envelope");
+    let body = &records[1..];
+    let nodes = body.iter().take_while(|r| is_node(r)).count();
+    assert!(body[nodes..].iter().all(|r| !is_node(r)), "nodes come first");
+    for part in [&body[..nodes], &body[nodes..]] {
+        let ids: Vec<&str> = part.iter().map(|r| r["id"].as_str().unwrap()).collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(ids, sorted, "sorted by id, ids unique");
+    }
+    for record in body {
+        let tag = record["tag"].as_str().unwrap_or_else(|| panic!("tag: {record}"));
+        assert!(["EXTRACTED", "TYPE_RESOLVED", "INFERRED", "AMBIGUOUS"].contains(&tag), "{record}");
+        assert!(record["rule"].as_str().is_some_and(|r| !r.is_empty()), "{record}");
+        let span = &record["span"];
+        assert!(span["file"].as_str().is_some_and(|f| f.starts_with("tests/fixtures/solc/facts/")), "{record}");
+        assert!(span["start_line"].as_u64().is_some() && span["end_line"].as_u64().is_some(), "{record}");
+    }
+}
+
+fn is_node(record: &Value) -> bool {
+    ["contract", "function", "state_var", "event", "error", "modifier"].contains(&record["kind"].as_str().unwrap_or(""))
+}
+
+#[test]
+fn exit_0_on_a_complete_export_with_guards_calls_and_code_facts() {
+    let records = export(&fixture("facts"), "facts", 0);
+    let envelope = &records[0];
+    assert_eq!(envelope["status"], "complete");
+    assert_eq!(envelope["schema_version"], "1.0.0");
+    assert_eq!(envelope["project_root"], "tests/fixtures/solc/facts");
+    assert_eq!(envelope["solc_versions"], serde_json::json!(["0.8.28"]));
+    assert_eq!(envelope["profile"], "default");
+    assert!(is_hex(&envelope["remappings_sha256"], 64) && is_hex(&envelope["target"]["sources_sha256"], 64), "{envelope}");
+    assert!(is_hex(&envelope["target"]["git_commit"], 40), "{envelope}");
+    let tool = &envelope["tool"];
+    let built_in_git = is_hex(&tool["git_commit"], 40) && tool["dirty"].is_boolean();
+    let built_elsewhere = tool["git_commit"].is_null() && tool["dirty"].is_null();
+    assert!(built_in_git || built_elsewhere, "{tool}");
+    assert_eq!((&tool["name"], &tool["version"]), (&Value::from("ilold"), &Value::from(env!("CARGO_PKG_VERSION"))));
+    assert!(envelope["target"]["dirty"].is_boolean(), "{envelope}");
+    assert_eq!(file_status(envelope, FACTS)["status"], "analysed");
+
+    let guard = |function: &str| find(&records, "guards", |g| g["function"] == facts_id(function) && g["guard_kind"] == "caller_equals");
+    let one_branch = guard("Guards.oneBranch(uint256)");
+    assert_eq!((&one_branch["scope"], &one_branch["tag"]), (&Value::from("conditional"), &Value::from("INFERRED")));
+    let after_write = guard("Guards.writeThenCheck(uint256)");
+    assert_eq!((&after_write["scope"], &after_write["tag"]), (&Value::from("unconditional"), &Value::from("EXTRACTED")));
+    assert_eq!(after_write["compared_against"]["kind"], "state_var");
+    assert_eq!(after_write["compared_against"]["id"], facts_id("Guards.owner"));
+    assert_eq!(after_write["in_context"], facts_id("Guards"));
+    assert_eq!(guard("Guards.toCheck(address)")["compared_against"], serde_json::json!({"kind": "param", "index": 0, "name": "to"}));
+    let role = find(&records, "guards", |g| g["function"] == facts_id("Guards.roleViaModifier()"));
+    assert_eq!(role["via"], serde_json::json!([facts_id("Guards.onlyRole")]));
+    assert_eq!(role["checked_by"], "hasRole");
+    assert_eq!(role["role"], serde_json::json!({"kind": "constant", "name": "ADMIN", "id": facts_id("Guards.ADMIN")}));
+    assert_eq!((&role["account"], &role["role_implied_by"]), (&serde_json::json!({"kind": "msg_sender"}), &Value::Null));
+    assert_eq!((&role["compared_against"], &role["alternatives"]), (&Value::Null, &serde_json::json!([])));
+    let either = find(&records, "guards", |g| g["function"] == facts_id("Guards.eitherRole()"));
+    let implied: Vec<&Value> = either["alternatives"].as_array().unwrap().iter().map(|a| &a["role_implied_by"]).collect();
+    assert_eq!(implied, ["isA", "isB"]);
+    for field in ["checked_by", "role", "role_implied_by", "account", "compared_against"] {
+        assert_eq!(either[field], Value::Null, "{field}: a compound guard leaves it to its parts");
+    }
+    assert_eq!((&either["restricts"], &role["restricts"]), (&Value::from(true), &Value::from(true)));
+    let open = find(&records, "guards", |g| g["function"] == facts_id("Guards.ownerOrOpen()"));
+    assert_eq!((&open["restricts"], &open["guard_kind"], &open["account"]), (&Value::from(false), &Value::from("caller_equals"), &Value::Null));
+    assert_eq!((&open["alternatives"][1]["guard_kind"], &open["alternatives"][1]["condition_text"]), (&Value::from("condition"), &Value::from("open")));
+    let alternative = &either["alternatives"][1];
+    assert_eq!((&alternative["checked_by"], &alternative["role"]), (&Value::from("isB"), &Value::Null));
+    assert_eq!((&alternative["guard_kind"], &alternative["account"]), (&Value::from("role_check"), &serde_json::json!({"kind": "msg_sender"})));
+    let guard_of = |function: &str| find(&records, "guards", |g| g["function"] == facts_id(function));
+    let unpaused = &guard_of("Guards.ownerUnpaused()")["conjuncts"];
+    assert_eq!((&unpaused[1]["guard_kind"], &unpaused[1]["condition_text"], &unpaused[1]["negated"]), (&Value::from("pause"), &Value::from("paused"), &Value::from(true)));
+    assert_eq!(unpaused[0]["conjuncts"], serde_json::json!([]));
+    let deny = guard_of("Guards.notBlacklisted()");
+    assert_eq!((&deny["negated"], &deny["tag"]), (&Value::from(true), &Value::from("EXTRACTED")));
+    let unreadable = guard_of("Guards.unreadable()");
+    assert_eq!((&unreadable["tag"], &unreadable["conjuncts"]), (&Value::from("AMBIGUOUS"), &serde_json::json!([])));
+    assert_eq!(unreadable["condition_text"], "require(hasRole(ADMIN, msg.sender) && uint160(msg.sender) > 7)");
+
+    let call = |function: &str| find(&records, "calls", |c| c["from"] == facts_id(function));
+    let from_state = call("Targets.fromState()");
+    assert_eq!(from_state["target_source"], serde_json::json!({"kind": "state_var", "name": "pool", "id": facts_id("Targets.pool")}));
+    assert_eq!((&from_state["kind"], &from_state["call_kind"]), (&Value::from("calls"), &Value::from("external")));
+    assert_eq!(from_state["to"], facts_id("IPool.supply(address,uint256)"));
+    assert_eq!(from_state["tag"], "TYPE_RESOLVED");
+    assert_eq!(call("Targets.fromSender()")["target_source"], serde_json::json!({"kind": "msg_sender"}));
+    let ignored = call("LowLevel.ignored(address)");
+    assert_eq!((&ignored["to"], &ignored["tag"], &ignored["result_used"]), (&Value::Null, &Value::from("AMBIGUOUS"), &Value::from(false)));
+    assert_eq!(ignored["call_kind"], "low_level_call");
+    assert_eq!(call("LowLevel.checked(address)")["result_used"], true);
+
+    let builtins: Vec<&Value> = of_kind(&records, "builtin_use").into_iter()
+        .filter(|b| b["function"] == facts_id("Builtins.all(bytes32,uint8,bytes32,bytes32,address)"))
+        .map(|b| &b["name"]).collect();
+    for name in ["ecrecover", "tx.origin", "block.timestamp", "gasleft", "msg.value", "abi.encodePacked"] {
+        assert!(builtins.contains(&&Value::from(name)), "{name}: {builtins:?}");
+    }
+    find(&records, "unchecked_block", |u| u["function"] == facts_id("Builtins.all(bytes32,uint8,bytes32,bytes32,address)"));
+    let asm = find(&records, "opaque_assembly", |a| a["function"] == facts_id("Asm.writesAsm()"));
+    assert_eq!(asm["rule"], "cfg");
+    let writes_asm = find(&records, "function", |f| f["id"] == facts_id("Asm.writesAsm()"));
+    let flags = find_context(writes_asm, &facts_id("Asm"));
+    assert_eq!((&flags["effects_incomplete"], &flags["reverts_incomplete"]), (&Value::from(true), &Value::from(true)));
+    let deep = find(&records, "function", |f| f["id"] == facts_id("Guards.deep()"));
+    assert_eq!(find_context(deep, &facts_id("Guards"))["guards_incomplete"], true);
+
+    let rare = find(&records, "writes", |w| w["function"] == facts_id("PathCap.branches(uint256)") && w["state_var"] == facts_id("PathCap.rare"));
+    assert_eq!((&rare["path"], &rare["tag"]), (&Value::from("rare"), &Value::from("TYPE_RESOLVED")));
+    let branches = find(&records, "function", |f| f["id"] == facts_id("PathCap.branches(uint256)"));
+    assert!(branches["paths"]["total_paths"].as_u64().is_some(), "{branches}");
+
+    let exposed = find(&records, "exposes", |e| e["contract"] == facts_id("Guards") && e["function"] == facts_id("Guards.oneBranch(uint256)"));
+    assert_eq!(exposed["via_base"], Value::Null);
+    let truncation = &envelope["truncation"];
+    assert!(truncation["guards_incomplete"].as_u64().unwrap() >= 1, "{truncation}");
+    assert!(truncation["limits"]["max_paths"].as_u64().is_some(), "{truncation}");
+}
+
+fn find_context<'a>(function: &'a Value, context: &str) -> &'a Value {
+    function["analysis"].as_array().unwrap().iter().find(|a| a["in_context"] == context)
+        .unwrap_or_else(|| panic!("{context} missing: {function}"))
+}
+
+#[test]
+fn call_resolution_records_dispatch_inheritance_and_exposure() {
+    let records = export(&fixture("call_resolution"), "calls", 0);
+    let id = |file: &str, member: &str| format!("evm:tests/fixtures/solc/call_resolution/src/{file}:{member}");
+    let leaf = id("Hierarchy.sol", "Leaf");
+    let leaf_node = find(&records, "contract", |c| c["id"] == leaf);
+    assert_eq!(leaf_node["bases"], serde_json::json!([id("Hierarchy.sol", "Middle"), id("Hierarchy.sol", "Root")]));
+    assert_eq!(leaf_node["deployable"], true);
+    let inherits = find(&records, "inherits", |e| e["child"] == leaf && e["base"] == id("Hierarchy.sol", "Root"));
+    assert_eq!(inherits["order"], 2);
+
+    let hook = find(&records, "calls", |c| {
+        c["from"] == id("Hierarchy.sol", "Root.run(uint256)") && c["in_context"] == leaf && c["target_text"] == "hook"
+    });
+    assert_eq!(hook["static_target"], id("Hierarchy.sol", "Root.hook()"));
+    assert_eq!(hook["dispatch_target"], id("Hierarchy.sol", "Leaf.hook()"));
+    assert_eq!(hook["to"], id("Hierarchy.sol", "Leaf.hook()"));
+    assert_eq!(hook["call_kind"], "internal");
+
+    let run = find(&records, "exposes", |e| e["contract"] == leaf && e["function"] == id("Hierarchy.sol", "Root.run(uint256)"));
+    assert_eq!(run["via_base"], id("Hierarchy.sol", "Root"));
+    let over = find(&records, "function", |f| f["id"] == id("Overloads.sol", "Over.put(uint256)"));
+    assert!(is_hex(&over["selector"], 8), "{over}");
+    assert_eq!(over["signature"], "put(uint256)");
+    find(&records, "function", |f| f["id"] == id("Overloads.sol", "Over.receive()"));
+
+    let tracked = find(&records, "writes", |w| {
+        w["function"] == id("Hierarchy.sol", "Leaf.move(uint256)") && w["path"] == "tracked" && w["in_context"] == leaf
+    });
+    assert_eq!(tracked["via"], serde_json::json!([id("Hierarchy.sol", "Root.track"), id("Hierarchy.sol", "Root._track()")]));
+    assert_eq!(tracked["rule"], "effects");
+}
+
+#[test]
+fn every_node_kind_dependency_stubs_and_ambiguous_facts() {
+    let records = export(&fixture("export/kinds"), "kinds", 0);
+    let envelope = &records[0];
+    assert_eq!(file_status(envelope, &format!("{KINDS}/src/Vault.sol"))["status"], "analysed");
+    assert_eq!(file_status(envelope, &format!("{KINDS}/lib/dep/Ownable.sol"))["status"], "dependency");
+    let unused = file_status(envelope, &format!("{KINDS}/lib/dep/Unused.sol"));
+    assert_eq!(unused["status"], "excluded");
+    assert!(unused["reason"].as_str().is_some_and(|r| !r.is_empty()), "{unused}");
+    assert_eq!(file_status(envelope, &format!("{KINDS}/test/Vault.t.sol"))["status"], "test_or_script");
+
+    let vault = kinds_id("src/Vault.sol", "Vault");
+    find(&records, "event", |e| e["id"] == kinds_id("src/Vault.sol", "Vault.Deposited(address,uint256)"));
+    find(&records, "event", |e| e["id"] == kinds_id("src/Vault.sol", "Vault.Deposited(address)"));
+    find(&records, "event", |e| e["id"] == kinds_id("lib/dep/Ownable.sol", "Ownable.OwnerSet"));
+    find(&records, "error", |e| e["id"] == kinds_id("src/Vault.sol", "Vault.TooSmall"));
+    find(&records, "modifier", |m| m["id"] == kinds_id("lib/dep/Ownable.sol", "Ownable.onlyOwner"));
+    let total = find(&records, "state_var", |v| v["id"] == kinds_id("src/Vault.sol", "Vault.total"));
+    assert_eq!((&total["type"], &total["order"]), (&Value::from("uint256"), &Value::from(0)));
+    find(&records, "function", |f| f["id"] == kinds_id("src/Vault.sol", "Vault._sum(uint256[] storage)"));
+    find(&records, "function", |f| f["id"] == kinds_id("src/Vault.sol", "Vault._sum(uint256[] memory)"));
+    let clamp = find(&records, "function", |f| f["id"] == kinds_id("src/Vault.sol", "clamp(uint256)"));
+    assert_eq!(clamp["contract"], Value::Null);
+
+    let ownable = find(&records, "contract", |c| c["id"] == kinds_id("lib/dep/Ownable.sol", "Ownable"));
+    assert_eq!((&ownable["is_dependency"], &ownable["reachable_from_project"]), (&Value::from(true), &Value::from(true)));
+    let feed = find(&records, "contract", |c| c["id"] == kinds_id("lib/dep/MathLib.sol", "IFeed"));
+    assert_eq!(feed["is_dependency"], true);
+    find(&records, "function", |f| f["id"] == kinds_id("lib/dep/MathLib.sol", "MathLib.twice(uint256)"));
+    assert!(of_kind(&records, "function").iter().all(|f| f["id"] != kinds_id("lib/dep/MathLib.sol", "MathLib.thrice(uint256)")),
+        "unreached dependency functions get no facts");
+    let twice = find(&records, "reverts", |r| r["function"] == kinds_id("lib/dep/MathLib.sol", "MathLib.twice(uint256)"));
+    assert_eq!(twice["in_context"], kinds_id("lib/dep/MathLib.sol", "MathLib"));
+
+    let deposit = kinds_id("src/Vault.sol", "Vault.deposit(uint256)");
+    let emitted = find(&records, "emits", |e| e["function"] == deposit);
+    assert_eq!(emitted["event"], kinds_id("src/Vault.sol", "Vault.Deposited(address,uint256)"));
+    assert_eq!(emitted["tag"], "TYPE_RESOLVED", "an overload resolves by declaration id");
+    let ping = find(&records, "emits", |e| e["function"] == kinds_id("src/Vault.sol", "Vault.ping()"));
+    assert_eq!((&ping["event"], &ping["tag"]), (&Value::from(kinds_id("src/Vault.sol", "Vault.Deposited(address)")), &Value::from("TYPE_RESOLVED")));
+    find(&records, "event", |e| e["id"] == kinds_id("src/Vault.sol", "Swept"));
+    let touch = kinds_id("src/Vault.sol", "Vault.touch()");
+    let announce = kinds_id("src/Vault.sol", "Vault._announce()");
+    for event in [kinds_id("src/Vault.sol", "Vault.Deposited(address)"), kinds_id("src/Vault.sol", "Swept")] {
+        let direct = find(&records, "emits", |e| e["function"] == announce && e["event"] == event);
+        assert_eq!((&direct["tag"], &direct["via"]), (&Value::from("TYPE_RESOLVED"), &serde_json::json!([])), "{event}");
+        let lifted = find(&records, "emits", |e| e["function"] == touch && e["event"] == event);
+        assert_eq!((&lifted["tag"], &lifted["via"]), (&Value::from("TYPE_RESOLVED"), &serde_json::json!([announce])), "{event}");
+    }
+    assert!(of_kind(&records, "emits").iter().all(|e| e["tag"] != "AMBIGUOUS"), "every emit resolves");
+
+    let set_feed = kinds_id("src/Vault.sol", "Vault.setFeed(IFeed)");
+    let only_owner = serde_json::json!([kinds_id("lib/dep/Ownable.sol", "Ownable.onlyOwner")]);
+    let read = find(&records, "reads", |r| r["function"] == set_feed && r["path"] == "owner");
+    assert_eq!(read["via"], only_owner, "a read in modifier code names the modifier");
+    let revert = find(&records, "reverts", |r| r["function"] == set_feed);
+    assert_eq!(revert["via"], only_owner, "a revert in modifier code names the modifier");
+    let body_read = find(&records, "reads", |r| r["function"] == kinds_id("src/Vault.sol", "Vault.price()") && r["path"] == "feed");
+    assert_eq!(body_read["via"], serde_json::json!([]));
+    let owner_set = find(&records, "emits", |e| e["function"] == kinds_id("src/Vault.sol", "Vault.constructor(IFeed)"));
+    assert_eq!(owner_set["event"], kinds_id("lib/dep/Ownable.sol", "Ownable.OwnerSet"));
+    assert_eq!(owner_set["via"], serde_json::json!([kinds_id("lib/dep/Ownable.sol", "Ownable._setOwner(address)")]));
+    find(&records, "reverts", |r| r["function"] == deposit && r["via"] == serde_json::json!([]) && r["reason"].as_str().unwrap().contains("TooSmall"));
+    let free = find(&records, "calls", |c| c["from"] == deposit && c["target_text"] == "clamp");
+    assert_eq!(free["to"], kinds_id("src/Vault.sol", "clamp(uint256)"));
+    let price = find(&records, "calls", |c| c["from"] == kinds_id("src/Vault.sol", "Vault.price()"));
+    assert_eq!(price["to"], kinds_id("lib/dep/MathLib.sol", "IFeed.price()"));
+
+    let spawn = find(&records, "calls", |c| c["from"] == kinds_id("src/Vault.sol", "Vault.spawn(uint256)"));
+    assert_eq!((&spawn["to"], &spawn["tag"], &spawn["call_kind"]), (&Value::from(kinds_id("src/Vault.sol", "Receipt")), &Value::from("INFERRED"), &Value::from("creation")));
+    assert_eq!(spawn["options"], serde_json::json!({"salt": "bytes32(amount)"}));
+
+    let gated = find(&records, "uses_modifier", |m| m["function"] == kinds_id("src/Vault.sol", "Vault.setFeed(IFeed)"));
+    assert_eq!((&gated["modifier"], &gated["order"]), (&Value::from(kinds_id("lib/dep/Ownable.sol", "Ownable.onlyOwner")), &Value::from(0)));
+    let pending = find(&records, "uses_modifier", |m| m["function"] == kinds_id("src/Vault.sol", "Pending.mark()"));
+    assert_eq!(pending["modifier"], kinds_id("src/Vault.sol", "Pending.pending"), "declared without code");
+    assert_eq!((&pending["tag"], &pending["name"]), (&Value::from("AMBIGUOUS"), &Value::from("pending")));
+
+    let getter = find(&records, "exposes", |e| e["contract"] == vault && e["function"] == kinds_id("lib/dep/Ownable.sol", "Ownable.owner"));
+    assert_eq!((&getter["getter"], &getter["via_base"]), (&Value::from(true), &Value::from(kinds_id("lib/dep/Ownable.sol", "Ownable"))));
+}
+
+#[test]
+fn output_is_byte_identical_across_runs_and_cold_or_warm_caches() {
+    let dir = scratch("determinism");
+    let cache = dir.join("cache");
+    let outputs: Vec<Vec<u8>> = (0..3)
+        .map(|run| {
+            let out = dir.join(format!("run-{run}.jsonl"));
+            // the third run uses a cold cache of its own
+            let cache = if run == 2 { dir.join("fresh-cache") } else { cache.clone() };
+            let output = graph(&fixture("export/kinds"), &out, &cache);
+            assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+            if run == 1 {
+                assert!(String::from_utf8_lossy(&output.stderr).contains("ilold analysis cache hit"), "warm run");
+            }
+            fs::read(&out).unwrap()
+        })
+        .collect();
+    assert!(outputs[0] == outputs[1] && outputs[1] == outputs[2], "runs differ");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn output_holds_no_absolute_path_or_timestamp() {
+    let dir = scratch("paths");
+    let out = dir.join("graph.jsonl");
+    assert_eq!(graph(&fixture("export/kinds"), &out, &dir.join("cache")).status.code(), Some(0));
+    let text = fs::read_to_string(&out).unwrap();
+    let home = std::env::var("HOME").unwrap();
+    for needle in [repo().to_string_lossy().as_ref(), home.as_str(), "/Users/", "/home/", "/private/", "/tmp/", "\"/"] {
+        assert!(!text.contains(needle), "{needle} in the output");
+    }
+    let year_like = text.as_bytes().windows(11).any(|w| {
+        w[..4].iter().all(u8::is_ascii_digit) && w[4] == b'-' && w[5..7].iter().all(u8::is_ascii_digit) && w[7] == b'-'
+            && w[8..10].iter().all(u8::is_ascii_digit) && w[10] == b'T'
+    });
+    assert!(!year_like, "timestamp-like text in the output");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn ids_are_relative_to_the_git_root_of_a_nested_project() {
+    let dir = scratch("git");
+    let project = dir.join("repo/contracts/core");
+    copy_dir(&fixture("facts"), &project);
+    let head = commit_all(&dir.join("repo"));
+
+    let out = dir.join("graph.jsonl");
+    let run = graph(&project.join("src"), &out, &dir.join("cache"));
+    assert_eq!(run.status.code(), Some(0), "{}", String::from_utf8_lossy(&run.stderr));
+    let records = records(&out);
+    let envelope = &records[0];
+    assert_eq!(envelope["project_root"], "contracts/core");
+    assert_eq!(envelope["target"]["git_commit"], head.as_str());
+    assert_eq!(envelope["target"]["dirty"], false);
+    assert_eq!(file_status(envelope, "contracts/core/src/Facts.sol")["status"], "analysed");
+    find(&records, "contract", |c| c["id"] == "evm:contracts/core/src/Facts.sol:Guards");
+    assert!(records[1..].iter().all(|r| r["span"]["file"].as_str().is_some_and(|f| f.starts_with("contracts/core/"))));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn edge_ids_survive_moving_unrelated_code() {
+    let dir = scratch("moved");
+    let repo = dir.join("repo");
+    copy_dir(&fixture("facts"), &repo);
+    commit_all(&repo);
+    let edge_ids = |name: &str| -> Vec<String> {
+        let out = dir.join(name);
+        let run = graph(&repo, &out, &dir.join("cache"));
+        assert_eq!(run.status.code(), Some(0), "{}", String::from_utf8_lossy(&run.stderr));
+        records(&out)[1..].iter().filter(|r| !is_node(r))
+            .map(|r| r["id"].as_str().unwrap().to_string()).filter(|id| !id.contains("Moved")).collect()
+    };
+    let before = edge_ids("before.jsonl");
+    let source = repo.join("src/Facts.sol");
+    let text = fs::read_to_string(&source).unwrap();
+    let (head, rest) = text.split_once("// Facts a code map").unwrap();
+    fs::write(&source, format!("{head}\n\n\ncontract Moved {{\n    function added() external {{}}\n}}\n\n// Facts a code map{rest}")).unwrap();
+    let after = edge_ids("after.jsonl");
+    assert!(before.len() > 100, "{}", before.len());
+    let changed: Vec<&String> = before.iter().filter(|id| !after.contains(id)).collect();
+    assert!(changed.is_empty() && before.len() == after.len(), "{changed:?}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn identical_calls_in_one_function_get_distinct_ids_ordered_by_position() {
+    let records = export(&fixture("facts"), "twice", 0);
+    let calls: Vec<&Value> = of_kind(&records, "calls").into_iter().filter(|c| c["from"] == facts_id("Targets.twice()")).collect();
+    let ids: Vec<&str> = calls.iter().map(|c| c["id"].as_str().unwrap()).collect();
+    let [first, second] = ids.as_slice() else { panic!("{ids:?}") };
+    let prefix = format!("calls:{}#", facts_id("Targets.twice()"));
+    let hash = |id: &str| id.strip_prefix(&prefix).and_then(|h| h.split_once('.')).map(|(h, n)| (h.to_string(), n.to_string()));
+    let ((h0, n0), (h1, n1)) = (hash(first).unwrap(), hash(second).unwrap());
+    assert!(h0 == h1 && is_hex(&Value::from(h0.as_str()), 16), "{ids:?}");
+    assert_eq!((n0.as_str(), n1.as_str()), ("0", "1"));
+    assert!(calls[0]["span"]["start_line"].as_u64() < calls[1]["span"]["start_line"].as_u64(), "{calls:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn output_does_not_depend_on_where_the_project_lives() {
+    let dir = scratch("relocated");
+    let warning = |lib: &str| serde_json::json!({"kind": "empty_dependency", "message": format!("{lib} is empty (git submodule not initialised?)")});
+    for (case, populated, code, expected) in
+        [("complete", true, 0, vec![]), ("failing", false, 4, vec![warning("lib/dep"), warning("lib/gone")])]
+    {
+        let copies = [dir.join(case).join("first/repo"), dir.join(case).join("second/deeper/elsewhere")];
+        // the second copy is reached through a symlink, so the given path is not the canonical one
+        let given = [copies[0].clone(), dir.join(case).join("link")];
+        fs::create_dir_all(&copies[1]).unwrap();
+        std::os::unix::fs::symlink(&copies[1], &given[1]).unwrap();
+        let outputs: Vec<String> = copies.iter().zip(&given).enumerate().map(|(i, (copy, given))| {
+            copy_dir(&fixture("export/kinds"), copy);
+            if !populated {
+                fs::remove_dir_all(copy.join("lib/dep")).unwrap();
+                fs::create_dir(copy.join("lib/dep")).unwrap();
+            }
+            let modules = "[submodule \"dep\"]\n\tpath = lib/dep\n\turl = https://example.invalid/dep\n";
+            let gone = "[submodule \"gone\"]\n\tpath = lib/gone\n\turl = https://example.invalid/gone\n";
+            fs::write(copy.join(".gitmodules"), if populated { modules.to_string() } else { format!("{modules}{gone}") }).unwrap();
+            commit_all(copy);
+            let out = dir.join(format!("{case}-{i}.jsonl"));
+            let run = graph(given, &out, &dir.join(format!("cache-{case}-{i}")));
+            assert_eq!(run.status.code(), Some(code), "{}", String::from_utf8_lossy(&run.stderr));
+            fs::read_to_string(&out).unwrap()
+        }).collect();
+        assert!(outputs[0] == outputs[1], "{case}: the copies differ\n{}\n{}", outputs[0], outputs[1]);
+        let mut needles = vec!["/private".to_string(), "/var".into(), "/Users".into(), "/tmp".into(), "\"/".into()];
+        for path in copies.iter().chain(&given) {
+            needles.extend(path.components().skip(1).map(|c| format!("/{}/", c.as_os_str().to_string_lossy())));
+        }
+        for needle in needles {
+            assert!(!outputs[0].contains(&needle), "{case}: {needle} in {}", outputs[0]);
+        }
+        let envelope: Value = serde_json::from_str(outputs[0].lines().next().unwrap()).unwrap();
+        let empty: Vec<&Value> = envelope["warnings"].as_array().unwrap().iter().filter(|w| w["kind"] == "empty_dependency").collect();
+        assert_eq!(empty, expected.iter().collect::<Vec<_>>(), "{case}");
+        if !populated {
+            let vault = file_status(&envelope, "src/Vault.sol");
+            assert_eq!(vault["status"], "failed_compile");
+            assert!(vault["error"].as_str().is_some_and(|e| e.contains("dep/Ownable.sol")), "{vault}");
+        }
+    }
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A git repository at `repo` with everything in it committed; returns HEAD.
+fn commit_all(repo: &Path) -> String {
+    let git = |args: &[&str]| {
+        // fixed dates keep HEAD identical for identical content
+        let out = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z").env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z")
+            .args(args).current_dir(repo).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "fixture"]);
+    git(&["rev-parse", "HEAD"])
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap().map(Result::unwrap) {
+        let name = entry.file_name();
+        if ["out", "cache"].contains(&name.to_string_lossy().as_ref()) {
+            continue;
+        }
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &to.join(name));
+        } else {
+            fs::copy(entry.path(), to.join(name)).unwrap();
+        }
+    }
+}
+
+#[test]
+fn exit_1_on_a_tool_error_writes_no_file() {
+    let dir = scratch("unwritable");
+    let out = dir.join("missing/graph.jsonl");
+    let run = graph(&fixture("facts"), &out, &dir.join("cache"));
+    assert_eq!(run.status.code(), Some(1), "{}", String::from_utf8_lossy(&run.stderr));
+    assert!(!dir.join("missing").exists());
+
+    let not_foundry = dir.join("empty");
+    fs::create_dir_all(&not_foundry).unwrap();
+    let out = dir.join("graph.jsonl");
+    assert_eq!(graph(&not_foundry, &out, &dir.join("cache")).status.code(), Some(1));
+    assert!(!out.exists(), "no output on a tool error");
+    let leftovers: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert!(leftovers.iter().all(|n| !n.to_string_lossy().contains("tmp")), "{leftovers:?}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn exit_2_on_bad_arguments() {
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_ilold")).args(args).output().unwrap();
+    for args in [&["graph"][..], &["graph", "--json"], &["graph", "--json", "a.jsonl", ".", "extra"], &["graph", "--nope"]] {
+        let out = run(args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    let help = String::from_utf8_lossy(&run(&["graph", "--help"]).stdout).into_owned();
+    for needle in ["0  ", "1  ", "2  ", "3  ", "4  ", "analyze"] {
+        assert!(help.contains(needle), "{needle} missing from: {help}");
+    }
+}
+
+#[test]
+fn exit_3_when_a_test_file_fails_and_the_sources_are_exported() {
+    let records = export(&fixture("model/partial"), "partial", 3);
+    let envelope = &records[0];
+    assert_eq!(envelope["status"], "complete_with_warnings");
+    let broken = file_status(envelope, "tests/fixtures/solc/model/partial/test/Broken.t.sol");
+    assert_eq!(broken["status"], "failed_compile");
+    assert!(broken["error"].as_str().is_some_and(|e| e.contains("not a number")), "{broken}");
+    assert_eq!(file_status(envelope, "tests/fixtures/solc/model/partial/src/Good.sol")["status"], "analysed");
+    assert!(!envelope["warnings"].as_array().unwrap().is_empty(), "{envelope}");
+    find(&records, "contract", |c| c["id"] == "evm:tests/fixtures/solc/model/partial/src/Good.sol:Good");
+}
+
+#[test]
+fn exit_4_on_a_compile_error_inside_the_sources_still_writes_the_inventory() {
+    let records = export(&fixture("export/broken_src"), "broken", 4);
+    assert_eq!(records.len(), 1, "envelope only: {records:#?}");
+    let envelope = &records[0];
+    assert_eq!(envelope["status"], "no_facts");
+    let root = "tests/fixtures/solc/export/broken_src";
+    let bad = file_status(envelope, &format!("{root}/src/Bad.sol"));
+    assert_eq!(bad["status"], "failed_compile");
+    assert!(bad["error"].as_str().is_some_and(|e| e.contains("not a number")), "{bad}");
+    assert_eq!(bad["line"], 7);
+    for entry in envelope["files"].as_array().unwrap() {
+        let has_reason = entry["reason"].as_str().is_some_and(|r| !r.is_empty());
+        let has_error = entry["error"].as_str().is_some_and(|e| !e.is_empty());
+        match entry["status"].as_str() {
+            Some("excluded") => assert!(has_reason, "an excluded file says why: {entry}"),
+            Some("failed_compile") => assert!(has_error, "a failed file carries its error: {entry}"),
+            _ => panic!("only excluded or failed files without facts: {entry}"),
+        }
+    }
+    for other in ["src/Good.sol", "test/Good.t.sol"] {
+        let entry = file_status(envelope, &format!("{root}/{other}"));
+        assert_eq!(entry["status"], "excluded", "{entry}");
+        assert!(entry["reason"].as_str().is_some_and(|r| r.contains("compile error")), "{entry}");
+    }
+}

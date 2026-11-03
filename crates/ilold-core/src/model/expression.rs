@@ -9,6 +9,35 @@ pub struct Expression {
     pub span: SourceSpan,
 }
 
+impl Expression {
+    /// Itself, then every nested expression in source order.
+    pub fn walk<'a>(&'a self, visit: &mut impl FnMut(&'a Expression)) {
+        visit(self);
+        let options = |options: &'a [CallOption]| options.iter().map(|o| &o.value);
+        let children: Vec<&'a Expression> = match &self.kind {
+            ExpressionKind::FunctionCall { callee, arguments, options: opts, .. } => {
+                std::iter::once(callee.as_ref()).chain(options(opts)).chain(arguments).collect()
+            }
+            ExpressionKind::MemberAccess { object, .. } => vec![object],
+            ExpressionKind::BinaryOp { left, right, .. } => vec![left, right],
+            ExpressionKind::UnaryOp { operand, .. } => vec![operand],
+            ExpressionKind::IndexAccess { base, index } => std::iter::once(base.as_ref()).chain(index.as_deref()).collect(),
+            ExpressionKind::Assignment { target, value, .. } => vec![target, value],
+            ExpressionKind::Ternary { condition, true_expr, false_expr } => vec![condition, true_expr, false_expr],
+            ExpressionKind::TypeCast { expression, .. } => vec![expression],
+            ExpressionKind::New { arguments, options: opts, .. } => options(opts).chain(arguments).collect(),
+            ExpressionKind::Tuple { elements } => elements.iter().flatten().collect(),
+            ExpressionKind::IndexRange { base, start, end } => {
+                std::iter::once(base.as_ref()).chain(start.as_deref()).chain(end.as_deref()).collect()
+            }
+            ExpressionKind::Identifier { .. } | ExpressionKind::Literal { .. } | ExpressionKind::TypeMeta { .. } => Vec::new(),
+        };
+        for child in children {
+            child.walk(visit);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExpressionKind {
     FunctionCall {

@@ -13,9 +13,9 @@ use sha2::{Digest, Sha256};
 
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclEntry, DeclTable};
-use crate::model::project::{Project, SourceFile};
+use crate::model::project::{CompileFailure, Project, SourceFile};
 
-const VERSION: &str = "ilold-project-v9-foundry-0.21-sha256";
+const VERSION: &str = "ilold-project-v12-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
 const MAX_SOURCES: usize = 20_000;
@@ -23,7 +23,7 @@ const MAX_ENTRIES: usize = 1_000_000;
 const MAX_DECLARATIONS: usize = 262_144;
 const MAX_INPUT: u64 = 256 * 1024 * 1024;
 /// Pruned only inside library and remapping trees; the import preflight bypasses the cache on imports into them.
-const NON_SOURCE_DIRS: &[&str] = &[".git", ".codegraph", "node_modules", "target", "out", "cache",
+pub(crate) const NON_SOURCE_DIRS: &[&str] = &[".git", ".codegraph", "node_modules", "target", "out", "cache",
     "broadcast", "artifacts", "zkout", "coverage"];
 const MAX_COMPILER: u64 = 128 * 1024 * 1024;
 const MAX_SNAPSHOT: u64 = 64 * 1024 * 1024;
@@ -166,6 +166,8 @@ struct SnapshotRef<'a> {
     declarations: Vec<DeclEntry>,
     warnings: &'a [String],
     test_dirs: &'a [String],
+    solc_versions: &'a [String],
+    compile_failures: &'a [CompileFailure],
 }
 #[derive(Deserialize)]
 struct Snapshot {
@@ -174,6 +176,8 @@ struct Snapshot {
     declarations: Vec<DeclEntry>,
     warnings: Vec<String>,
     test_dirs: Vec<String>,
+    solc_versions: Vec<String>,
+    compile_failures: Vec<CompileFailure>,
 }
 impl Snapshot {
     fn into_project(self) -> Option<Project> {
@@ -183,6 +187,8 @@ impl Snapshot {
         }
         project.warnings = self.warnings;
         project.test_dirs = self.test_dirs;
+        project.solc_versions = self.solc_versions;
+        project.compile_failures = self.compile_failures;
         Some(project)
     }
 }
@@ -238,7 +244,8 @@ impl Store {
     pub(super) fn publish(&self, root: &Path, key: &str, project: &Project) -> Result<(), String> {
         if project.decl_table.len() > MAX_DECLARATIONS { return Err("declaration count limit".into()); }
         let snapshot = SnapshotRef { sources: &project.source_files, contracts: &project.contracts,
-            declarations: project.decl_table.snapshot(), warnings: &project.warnings, test_dirs: &project.test_dirs };
+            declarations: project.decl_table.snapshot(), warnings: &project.warnings, test_dirs: &project.test_dirs,
+            solc_versions: &project.solc_versions, compile_failures: &project.compile_failures };
         write_envelope(&self.snapshot_path(root)?, VERSION, key, MAX_SNAPSHOT, &snapshot)
     }
 }

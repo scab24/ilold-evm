@@ -1949,7 +1949,8 @@ fn print_narrative(val: &serde_json::Value) {
         .iter()
         .map(|g| {
             let via = if g.via.is_empty() { String::new() } else { format!(" (via {})", g.via.join(" → ")) };
-            format!("{}{}: {}{}", g.kind.label(), if g.heuristic { "?" } else { "" }, g.condition, via)
+            let conditional = if g.scope == ilold_core::classify::guards::GuardScope::Conditional { " (some paths only)" } else { "" };
+            format!("{}{}: {}{}{conditional}", g.kind.label(), if g.heuristic { "?" } else { "" }, g.condition, via)
         })
         .collect();
     if !guards.is_empty() {

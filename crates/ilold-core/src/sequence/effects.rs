@@ -6,18 +6,20 @@ use petgraph::graph::DiGraph;
 use petgraph::stable_graph::NodeIndex;
 
 use crate::cfg::types::{BlockKind, CfgGraph, CfgStatement, StorageArg};
+use crate::model::common::SourceSpan;
 use crate::model::contract::ContractDef;
-use crate::model::decl_id::DeclId;
+use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::CallKind;
-use crate::model::function::FunctionDef;
+use crate::model::function::{FunctionDef, Mutability};
 use crate::model::project::Project;
-use crate::pathtree::walker::normalize_path;
+use crate::pathtree::types::PathAnnotations;
+use crate::pathtree::walker::{block_annotations, normalize_path};
 use crate::util::{is_type_cast, push_unique};
 
 use super::analysis::{EffectKind, EffectTrace};
 
 /// A recursion passing `n.kids[i]` for `n` writes ever longer paths, so a cycle may not converge.
-const MAX_ROUNDS: usize = 64;
+pub(crate) const MAX_ROUNDS: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct CallSite {
@@ -26,6 +28,34 @@ pub struct CallSite {
     pub declaration: Option<(String, String)>,
     pub storage_args: Vec<StorageArg>,
     pub modifier: Option<String>,
+}
+
+impl CallSite {
+    /// The calls whose effects the caller takes on: internal calls and library delegatecalls.
+    pub fn of(stmt: &CfgStatement, decls: &DeclTable) -> Option<CallSite> {
+        match stmt {
+            CfgStatement::ExternalCall { target, function, kind: kind @ CallKind::LibraryDelegatecall, resolved, storage_args, from_modifier, .. } => {
+                Some(CallSite {
+                    call: format!("{target}.{function}"),
+                    kind: *kind,
+                    declaration: resolved.and_then(|id| decls.function(id)).map(|t| (t.contract.clone(), t.function.clone())),
+                    storage_args: storage_args.clone(),
+                    modifier: from_modifier.clone(),
+                })
+            }
+            CfgStatement::InternalCall { function, target, kind, declaration, storage_args, from_modifier, .. } => Some(CallSite {
+                call: match target {
+                    Some(target) => format!("{target}.{function}"),
+                    None => function.clone(),
+                },
+                kind: *kind,
+                declaration: declaration.clone(),
+                storage_args: storage_args.clone(),
+                modifier: from_modifier.clone(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -41,9 +71,14 @@ pub struct CfgSummary {
     pub reverts: Vec<String>,
     pub calls: Vec<CallSite>,
     pub unresolved_modifiers: Vec<String>,
+    /// What every reachable block does, however many paths the path tree enumerates.
+    pub annotations: PathAnnotations,
+    pub assembly: Vec<SourceSpan>,
+    /// Some path ends without reverting.
+    pub returns: bool,
 }
 
-fn reachable(cfg: &CfgGraph) -> Vec<NodeIndex> {
+pub(crate) fn reachable(cfg: &CfgGraph) -> Vec<NodeIndex> {
     let Some(entry) = cfg.node_indices().find(|&n| cfg[n].kind == BlockKind::Entry) else {
         return Vec::new();
     };
@@ -81,7 +116,11 @@ pub fn summarize(cfg: &CfgGraph, project: &Project) -> CfgSummary {
     };
     for n in reachable(cfg) {
         let block = &cfg[n];
-        for read in &block.reads {
+        s.annotations.extend(&block_annotations(block));
+        // as the path walker ends a path: no successor, and an empty entry runs nothing
+        let ends = cfg.neighbors(n).next().is_none() && !(block.kind == BlockKind::Entry && block.statements.is_empty());
+        s.returns |= block.kind == BlockKind::Return || (ends && block.kind != BlockKind::Revert);
+        for read in block.reads.iter().map(|r| &r.place) {
             match read.param {
                 Some(i) => push_unique(&mut s.param_reads, (i, normalize_path(&read.path))),
                 None => push_unique(&mut s.state_reads, normalize_path(&read.path)),
@@ -91,41 +130,20 @@ pub fn summarize(cfg: &CfgGraph, project: &Project) -> CfgSummary {
             push_unique(&mut s.reverts, reason.clone());
         }
         for stmt in &block.statements {
+            s.calls.extend(CallSite::of(stmt, decls));
             match stmt {
                 CfgStatement::Assignment { storage: Some(place), .. } => write(&mut s, &place.path, place.param),
                 CfgStatement::StateWrite { variable, param, .. } => write(&mut s, variable, *param),
-                CfgStatement::ExternalCall { target, function, kind, resolved, storage_args, from_modifier, .. } => {
+                CfgStatement::ExternalCall { target, function, kind, resolved, .. } => {
                     let call = format!("{target}.{function}");
                     push_unique(&mut s.external_calls, call.clone());
                     if !is_view_call(project, *kind, *resolved) {
-                        push_unique(&mut s.state_changing_calls, call.clone());
+                        push_unique(&mut s.state_changing_calls, call);
                     }
-                    if *kind == CallKind::LibraryDelegatecall {
-                        s.calls.push(CallSite {
-                            call,
-                            kind: *kind,
-                            declaration: resolved
-                                .and_then(|id| decls.function(id))
-                                .map(|t| (t.contract.clone(), t.function.clone())),
-                            storage_args: storage_args.clone(),
-                            modifier: from_modifier.clone(),
-                        });
-                    }
-                }
-                CfgStatement::InternalCall { function, target, kind, declaration, storage_args, from_modifier, .. } => {
-                    s.calls.push(CallSite {
-                        call: match target {
-                            Some(target) => format!("{target}.{function}"),
-                            None => function.clone(),
-                        },
-                        kind: *kind,
-                        declaration: declaration.clone(),
-                        storage_args: storage_args.clone(),
-                        modifier: from_modifier.clone(),
-                    });
                 }
                 CfgStatement::EmitEvent { event, .. } => push_unique(&mut s.events, event.clone()),
                 CfgStatement::UnresolvedModifier { name, .. } => push_unique(&mut s.unresolved_modifiers, name.clone()),
+                CfgStatement::AssemblyBlock { span: Some(span), .. } => push_unique(&mut s.assembly, *span),
                 _ => {}
             }
         }
@@ -191,8 +209,12 @@ pub struct Effects {
     pub events: BTreeMap<String, Vec<String>>,
     pub reverts: BTreeMap<String, Vec<String>>,
     pub internal_calls: BTreeSet<String>,
-    /// A cycle stopped at `MAX_ROUNDS` before converging.
+    /// Assembly that may change state runs, or a cycle stopped at `MAX_ROUNDS` before converging.
     pub incomplete: bool,
+    /// Assembly in a `view` function runs: solc lets its Yul read state but not change it.
+    pub reads_incomplete: bool,
+    /// Assembly runs at any mutability: Yul can revert.
+    pub reverts_incomplete: bool,
 }
 
 fn insert<K: Ord>(map: &mut BTreeMap<K, Vec<String>>, key: K, via: Vec<String>) {
@@ -205,7 +227,8 @@ fn insert<K: Ord>(map: &mut BTreeMap<K, Vec<String>>, key: K, via: Vec<String>) 
 }
 
 impl Effects {
-    fn direct(summary: &CfgSummary) -> Self {
+    /// solc holds a function's Yul, its modifiers' included, to its mutability.
+    fn direct(summary: &CfgSummary, mutability: Mutability) -> Self {
         let mut e = Effects::default();
         let none = Vec::new;
         for p in &summary.state_writes { insert(&mut e.state_writes, p.clone(), none()); }
@@ -216,6 +239,13 @@ impl Effects {
         e.state_changing_calls.extend(summary.state_changing_calls.iter().cloned());
         for ev in &summary.events { insert(&mut e.events, ev.clone(), none()); }
         for r in &summary.reverts { insert(&mut e.reverts, r.clone(), none()); }
+        let opaque = !summary.assembly.is_empty();
+        e.reverts_incomplete = opaque;
+        match mutability {
+            Mutability::Pure => {}
+            Mutability::View => e.reads_incomplete = opaque,
+            Mutability::Payable | Mutability::NonPayable => e.incomplete = opaque,
+        }
         e
     }
 
@@ -254,6 +284,8 @@ impl Effects {
         for (e, v) in &callee_effects.events { insert(&mut self.events, e.clone(), via(v)); }
         for (r, v) in &callee_effects.reverts { insert(&mut self.reverts, r.clone(), via(v)); }
         self.incomplete |= callee_effects.incomplete;
+        self.reads_incomplete |= callee_effects.reads_incomplete;
+        self.reverts_incomplete |= callee_effects.reverts_incomplete;
         self.internal_calls.insert(call.call.clone());
         self.internal_calls.extend(callee_effects.internal_calls.iter().cloned());
     }
@@ -281,6 +313,7 @@ type EffectKey = (String, String, String);
 
 struct Pending<'a> {
     summary: Option<&'a CfgSummary>,
+    mutability: Mutability,
     calls: Vec<(usize, EffectKey, &'a ContractDef, &'a FunctionDef, bool)>,
 }
 
@@ -345,9 +378,9 @@ impl<'a> EffectEngine<'a> {
             }
             let n = index[&key].index();
             if pending.len() <= n {
-                pending.resize_with(n + 1, || Pending { summary: None, calls: Vec::new() });
+                pending.resize_with(n + 1, || Pending { summary: None, mutability: Mutability::NonPayable, calls: Vec::new() });
             }
-            pending[n] = Pending { summary, calls };
+            pending[n] = Pending { summary, mutability: func.mutability, calls };
         }
 
         // tarjan_scc yields callees first
@@ -380,7 +413,7 @@ impl<'a> EffectEngine<'a> {
 
     fn lift_calls(&self, pending: &Pending<'a>, cycle: &HashMap<EffectKey, Effects>) -> Effects {
         let Some(summary) = pending.summary else { return Effects::default() };
-        let mut effects = Effects::direct(summary);
+        let mut effects = Effects::direct(summary, pending.mutability);
         let empty = Effects::default();
         for (i, callee_key, callee_owner, callee, shares_storage) in &pending.calls {
             let call = &summary.calls[*i];

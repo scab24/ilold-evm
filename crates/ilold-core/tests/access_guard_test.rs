@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::classify::entry_points::{classify_in, AccessLevel};
-use ilold_core::classify::guards::{GuardFact, GuardKind};
+use ilold_core::classify::guards::{GuardFact, GuardKind, GuardScope};
 use ilold_core::model::contract::ContractDef;
 use ilold_core::model::project::Project;
 use ilold_core::narrative::function::build_function_narrative;
@@ -295,8 +295,9 @@ fn no_access_control_observation_follows_guard_facts() {
 // checks that must not be reported as access guards
 
 #[test]
-fn checks_after_an_early_return_are_not_guards() {
-    assert_eq!(facts("Lookalikes", "setAfterEarlyReturn"), []);
+fn checks_after_an_early_return_are_conditional_guards() {
+    assert_eq!(facts("Lookalikes", "setAfterEarlyReturn"), [fact(GuardKind::CallerEquals, "require(msg.sender == admin)", &[])]);
+    assert!(guards("Lookalikes", "setAfterEarlyReturn").iter().all(|g| g.scope == GuardScope::Conditional));
     assert_eq!(access("Lookalikes", "setAfterEarlyReturn"), AccessLevel::Public);
 }
 
@@ -312,8 +313,16 @@ fn only_view_calls_taking_the_caller_are_role_checks() {
 
 #[test]
 fn negations_and_disjunctions_follow_what_must_hold() {
-    for f in ["everyoneButAdmin", "adminReverts", "blockList", "adminOrOpen", "notAdminAndClosed"] {
-        assert_eq!(facts("Lookalikes", f), [], "{f}");
+    // a deny-list is reported, negated, and never restricts
+    for (f, kind) in [("everyoneButAdmin", GuardKind::CallerEquals), ("adminReverts", GuardKind::CallerEquals), ("blockList", GuardKind::RoleCheck)] {
+        let found: Vec<(GuardKind, bool, bool)> = guards("Lookalikes", f).iter().map(|g| (g.kind, g.negated, g.restricts())).collect();
+        assert_eq!(found, [(kind, true, false)], "{f}");
+        assert_eq!(access("Lookalikes", f), AccessLevel::Public, "{f}");
+    }
+    // a branch any caller passes: reported, never restricting
+    for f in ["adminOrOpen", "notAdminAndClosed"] {
+        let found: Vec<(GuardKind, usize, bool)> = guards("Lookalikes", f).iter().map(|g| (g.kind, g.alternatives.len(), g.restricts())).collect();
+        assert_eq!(found, [(GuardKind::CallerEquals, 2, false)], "{f}");
         assert_eq!(access("Lookalikes", f), AccessLevel::Public, "{f}");
     }
     assert_eq!(

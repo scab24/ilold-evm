@@ -1,0 +1,687 @@
+//! Nodes for declarations and edges for what each function does in every contract that runs it.
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use serde::Serialize;
+use serde_json::{json, Value};
+
+use crate::analysis::{function_behavior, overrides_modifiers, ProjectAnalysis};
+use crate::cfg::builder::{modifier_code, CfgBuilder};
+use crate::cfg::types::{CfgGraph, CfgStatement};
+use crate::classify::guards::{GuardFact, GuardScope, GuardTerm};
+use crate::model::common::{Param, SourceSpan};
+use crate::model::contract::{ContractDef, ContractKind};
+use crate::model::decl_id::{DeclId, DeclKind};
+use crate::model::expression::CallKind;
+use crate::model::function::{FunctionDef, FunctionKind, Visibility};
+use crate::model::project::Project;
+use crate::model::source::ValueSource;
+use crate::parse::cache::digest;
+use crate::pathtree::walker::normalize_path;
+use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
+use crate::sequence::effects::{reachable, resolve_call, summarize, CallSite, EffectEngine};
+use crate::util::target_base_name;
+
+use super::ids::{param_types, Ids};
+
+const EXTRACTED: &str = "EXTRACTED";
+const TYPE_RESOLVED: &str = "TYPE_RESOLVED";
+const INFERRED: &str = "INFERRED";
+const AMBIGUOUS: &str = "AMBIGUOUS";
+
+/// A serde variant name in snake case: `LowLevelCall` is `low_level_call`.
+fn snake(value: impl Serialize) -> String {
+    let name = serde_json::to_value(value).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    let mut out = String::with_capacity(name.len() + 4);
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.extend(ch.to_lowercase());
+    }
+    out
+}
+
+fn deployable(c: &ContractDef) -> bool {
+    c.kind == ContractKind::Contract && !c.is_free_functions()
+}
+
+/// `context` runs `func`, declared in `owner`.
+struct Unit<'p> {
+    context: &'p ContractDef,
+    owner: &'p ContractDef,
+    func: &'p FunctionDef,
+    behavior: Cow<'p, FunctionBehavior>,
+}
+
+#[derive(Default)]
+pub(super) struct Truncation {
+    pub effects_incomplete: usize,
+    pub reads_incomplete: usize,
+    pub reverts_incomplete: usize,
+    pub guards_incomplete: usize,
+}
+
+pub(super) struct Graph {
+    pub nodes: BTreeMap<String, Value>,
+    pub edges: BTreeMap<String, Value>,
+    pub truncation: Truncation,
+}
+
+pub(super) struct Builder<'p> {
+    project: &'p Project,
+    analysis: &'p ProjectAnalysis,
+    ids: Ids<'p>,
+    /// Distinct facts by id without its occurrence index.
+    edges: BTreeMap<String, Vec<Value>>,
+    /// Per function id, its flags in each context.
+    flags: BTreeMap<String, BTreeMap<String, Value>>,
+    truncation: Truncation,
+}
+
+/// A fact about `function`, declared in `owner`, as `context` runs it.
+struct Site<'u> {
+    function: &'u str,
+    owner: &'u ContractDef,
+    context: &'u ContractDef,
+    context_id: Option<&'u str>,
+}
+
+/// Where a fact is, the chain that reaches it and the pass that found it.
+#[derive(Clone)]
+struct Origin<'r> {
+    span: SourceSpan,
+    via: Vec<Value>,
+    rule: &'r str,
+}
+
+impl<'p> Builder<'p> {
+    pub fn new(project: &'p Project, analysis: &'p ProjectAnalysis, ids: Ids<'p>) -> Self {
+        Self { project, analysis, ids, edges: BTreeMap::new(), flags: BTreeMap::new(), truncation: Truncation::default() }
+    }
+
+    fn contract(&self, key: &str) -> Option<&'p ContractDef> {
+        self.project.contract_index.get(key).map(|&i| &self.project.contracts[i])
+    }
+
+    /// Each declaration in every deployable contract that runs it, else in its own contract.
+    fn units(&self) -> Vec<Unit<'p>> {
+        let (project, analysis) = (self.project, self.analysis);
+        let mut units = Vec::new();
+        let mut covered = BTreeSet::new();
+        for context in project.project_contracts().filter(|c| deployable(c)) {
+            let Some(sequence) = analysis.sequence_analyses.get(context.key()) else { continue };
+            for behavior in &sequence.functions {
+                let Some(owner) = self.contract(&behavior.owner) else { continue };
+                let Some(func) = owner.functions.iter().find(|f| f.key == behavior.name) else { continue };
+                covered.insert((owner.key(), func.key.as_str()));
+                units.push(Unit { context, owner, func, behavior: Cow::Borrowed(behavior) });
+            }
+        }
+        let mut dependencies = Vec::new();
+        let mut keys: Vec<&(String, String)> = analysis.cfgs.keys().collect();
+        keys.sort();
+        for (owner_key, func_key) in keys {
+            let Some(owner) = self.contract(owner_key) else { continue };
+            let Some(func) = owner.functions.iter().find(|f| &f.key == func_key) else { continue };
+            if covered.contains(&(owner.key(), func.key.as_str())) {
+                continue;
+            }
+            let own = analysis.sequence_analyses.get(owner.key()).and_then(|s| find_behavior(&s.functions, owner.key(), &func.key));
+            match own {
+                Some(behavior) => units.push(Unit { context: owner, owner, func, behavior: Cow::Borrowed(behavior) }),
+                None if owner.is_dependency => dependencies.push((owner, func)),
+                None => {}
+            }
+        }
+        if !dependencies.is_empty() {
+            // dependency code outside every project contract is analysed in its own contract
+            let summaries = analysis.cfgs.iter().map(|(key, cfg)| (key.clone(), summarize(cfg, project))).collect();
+            let none = HashMap::new();
+            let mut engine = EffectEngine::new(project, &summaries, &none);
+            for (owner, func) in dependencies {
+                if let Some(behavior) = function_behavior(project, &mut engine, owner, owner, func) {
+                    units.push(Unit { context: owner, owner, func, behavior: Cow::Owned(behavior) });
+                }
+            }
+        }
+        units
+    }
+
+    pub fn build(mut self) -> Graph {
+        for unit in self.units() {
+            self.unit(&unit);
+        }
+        for c in self.project.contracts.iter().filter(|c| !c.is_free_functions()) {
+            self.inherits(c);
+            if !c.is_dependency && deployable(c) {
+                self.exposes(c);
+            }
+        }
+        let edges = self.numbered();
+        let nodes = self.nodes(&edges);
+        Graph { nodes, edges, truncation: self.truncation }
+    }
+
+    /// The hash leaves out the position, so moving other code keeps the id; equal facts collapse.
+    fn edge(&mut self, kind: &str, from: &str, mut record: Value, span: Option<SourceSpan>, tag: &str, rule: &str) {
+        record["kind"] = Value::from(kind);
+        let hash = digest(record.to_string().as_bytes());
+        record["span"] = span.map_or(Value::Null, |s| self.ids.span(s));
+        record["tag"] = Value::from(tag);
+        record["rule"] = Value::from(rule);
+        let same = self.edges.entry(format!("{kind}:{from}#{}", &hash[..16])).or_default();
+        if !same.contains(&record) {
+            same.push(record);
+        }
+    }
+
+    /// Facts differing only in position are numbered from 0 in source order.
+    fn numbered(&mut self) -> BTreeMap<String, Value> {
+        let mut edges = BTreeMap::new();
+        for (prefix, mut same) in std::mem::take(&mut self.edges) {
+            same.sort_by_cached_key(|record| (position(&record["span"]), record.to_string()));
+            for (n, mut record) in same.into_iter().enumerate() {
+                let id = format!("{prefix}.{n}");
+                record["id"] = Value::from(id.as_str());
+                edges.insert(id, record);
+            }
+        }
+        edges
+    }
+
+    fn fact(&mut self, site: &Site, kind: &str, mut record: Value, span: SourceSpan, tag: &str, rule: &str) {
+        record["function"] = Value::from(site.function);
+        record["in_context"] = site.context_id.map_or(Value::Null, Value::from);
+        self.edge(kind, site.function, record, Some(span), tag, rule);
+    }
+
+    fn unit(&mut self, unit: &Unit<'p>) {
+        let (project, context, owner, func) = (self.project, unit.context, unit.owner, unit.func);
+        let function = self.ids.function(owner, func);
+        let context_id = self.ids.contract(context);
+        let site = Site { function: &function, owner, context, context_id: context_id.as_deref() };
+        let b = unit.behavior.as_ref();
+
+        // a derived contract's modifier overrides change the code an inherited function runs
+        let cfg: Option<Cow<CfgGraph>> = if !std::ptr::eq(context, owner) && overrides_modifiers(project, context, owner, func) {
+            Some(Cow::Owned(CfgBuilder::build_with_project(func, context, Some(project))))
+        } else {
+            self.analysis.cfgs.get(&(owner.key().to_string(), func.key.clone())).map(Cow::Borrowed)
+        };
+        let mut call_spans = HashMap::new();
+        if let Some(cfg) = &cfg {
+            self.direct(&site, func, cfg, &mut call_spans);
+        }
+        for trace in &b.transitive_effects {
+            let span = trace.via.iter().find_map(|label| call_spans.get(label)).copied().unwrap_or(func.span);
+            let origin = Origin { span, via: self.via(context, &trace.via), rule: "effects" };
+            match trace.kind {
+                EffectKind::StateWrite => self.access(&site, "writes", &trace.item, None, origin),
+                EffectKind::StateRead => self.access(&site, "reads", &trace.item, None, origin),
+                EffectKind::StorageParamWrite | EffectKind::StorageParamRead => {
+                    let kind = if trace.kind == EffectKind::StorageParamWrite { "writes" } else { "reads" };
+                    let param = target_base_name(&trace.item).to_string();
+                    self.access(&site, kind, &trace.item, Some(param), origin);
+                }
+                EffectKind::Event => {
+                    let callee = trace.via.last().and_then(|label| label.split_once("::"));
+                    let declared_in = callee.and_then(|(c, _)| self.contract(c));
+                    for event_id in callee.map(|(c, f)| self.emitted(c, f, &trace.item)).unwrap_or_default() {
+                        self.emits(&site, event_id, declared_in, &trace.item, origin.clone());
+                    }
+                }
+                EffectKind::Revert => self.reverts(&site, &trace.item, origin),
+                // the call is an edge of the callee that makes it
+                EffectKind::ExternalCall => {}
+            }
+        }
+        for guard in &b.guards {
+            self.guard(&site, func, guard);
+        }
+        for used in &b.builtin_uses {
+            self.fact(&site, "builtin_use", json!({"name": used.builtin.name()}), used.span, EXTRACTED, "code_facts");
+        }
+        for span in &b.unchecked_blocks {
+            self.fact(&site, "unchecked_block", json!({}), *span, EXTRACTED, "code_facts");
+        }
+        for (order, used) in func.modifiers.iter().enumerate() {
+            let declared = self.modifier(context, &used.name);
+            let tag = if modifier_code(Some(project), context, &used.name).is_some() { EXTRACTED } else { AMBIGUOUS };
+            let record = json!({"modifier": declared, "name": used.name, "order": order});
+            self.fact(&site, "uses_modifier", record, func.span, tag, "linearization");
+        }
+
+        let counters = &mut self.truncation;
+        counters.effects_incomplete += usize::from(b.effects_incomplete);
+        counters.reads_incomplete += usize::from(b.reads_incomplete);
+        counters.reverts_incomplete += usize::from(b.reverts_incomplete);
+        counters.guards_incomplete += usize::from(b.guards_incomplete);
+        let flags = json!({
+            "in_context": context_id,
+            "effects_incomplete": b.effects_incomplete,
+            "reads_incomplete": b.reads_incomplete,
+            "reverts_incomplete": b.reverts_incomplete,
+            "guards_incomplete": b.guards_incomplete,
+        });
+        self.flags.entry(function.clone()).or_default().insert(context_id.unwrap_or_default(), flags);
+    }
+
+    /// What the function's own code and modifiers do, from every reachable block.
+    fn direct(&mut self, site: &Site, func: &FunctionDef, cfg: &CfgGraph, call_spans: &mut HashMap<String, SourceSpan>) {
+        let param_name = |index: Option<usize>| index.map(|i| func.params.get(i).map_or_else(|| i.to_string(), |p| p.name.clone()));
+        for n in reachable(cfg) {
+            let block = &cfg[n];
+            let block_span = block.span.unwrap_or(func.span);
+            for read in &block.reads {
+                let origin = Origin { span: block_span, via: self.in_modifier(site, read.from_modifier.as_deref()), rule: "cfg" };
+                self.access(site, "reads", &read.place.path, param_name(read.place.param), origin);
+            }
+            if let Some(reason) = &block.revert_reason {
+                let via = self.in_modifier(site, block.revert_modifier.as_deref());
+                self.reverts(site, reason, Origin { span: block_span, via, rule: "cfg" });
+            }
+            for stmt in &block.statements {
+                let (span, modifier) = stmt.origin();
+                let origin = Origin { span: span.unwrap_or(func.span), via: self.in_modifier(site, modifier), rule: "cfg" };
+                match stmt {
+                    CfgStatement::Assignment { storage: Some(place), .. } => {
+                        self.access(site, "writes", &place.path, param_name(place.param), origin);
+                    }
+                    CfgStatement::StateWrite { variable, param, .. } => {
+                        self.access(site, "writes", variable, param_name(*param), origin);
+                    }
+                    CfgStatement::ExternalCall { .. } | CfgStatement::InternalCall { .. } => {
+                        self.call(site, stmt, origin, call_spans);
+                    }
+                    CfgStatement::EmitEvent { event, event_id, .. } => self.emits(site, *event_id, None, event, origin),
+                    CfgStatement::AssemblyBlock { .. } => {
+                        self.fact(site, "opaque_assembly", json!({"via": origin.via}), origin.span, EXTRACTED, "cfg");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn call(&mut self, site: &Site, stmt: &CfgStatement, origin: Origin, call_spans: &mut HashMap<String, SourceSpan>) {
+        let project = self.project;
+        let (target_text, kind, static_target, dispatch_target, tag) = match CallSite::of(stmt, &project.decl_table) {
+            Some(call) => {
+                let declared = call.declaration.as_ref().and_then(|(c, f)| self.ids.function_by_key(c, f));
+                let runs = resolve_call(project, site.context, site.owner, &call);
+                if let Some((callee_owner, callee)) = runs {
+                    call_spans.entry(format!("{}::{}", callee_owner.key(), callee.key)).or_insert(origin.span);
+                }
+                let dispatch = runs.map(|(c, f)| self.ids.function(c, f));
+                let tag = match (&declared, &dispatch) {
+                    (Some(_), _) => TYPE_RESOLVED,
+                    (None, Some(_)) => INFERRED,
+                    (None, None) => AMBIGUOUS,
+                };
+                (call.call, call.kind, declared, dispatch, tag)
+            }
+            None => {
+                let CfgStatement::ExternalCall { target, function, kind, resolved, contract, .. } = stmt else { return };
+                let declared = resolved.and_then(|id| project.decl_table.lookup(id)).and_then(|t| match t.kind {
+                    DeclKind::Function => self.ids.function_by_key(&t.contract, &t.function),
+                    DeclKind::StateVariable => self.contract(&t.contract).map(|c| self.ids.member(c, &t.name)),
+                    _ => None,
+                });
+                let created = contract.as_deref().filter(|_| *kind == CallKind::Creation).and_then(|name| project.lookup_contract(name).ok());
+                let (declared, tag) = match (declared, created.and_then(|c| self.ids.contract(c))) {
+                    (Some(id), _) => (Some(id), TYPE_RESOLVED),
+                    (None, Some(id)) => (Some(id), INFERRED),
+                    (None, None) => (None, AMBIGUOUS),
+                };
+                (format!("{target}.{function}"), *kind, declared, None, tag)
+            }
+        };
+        let (options, target_source, result_used) = match stmt {
+            CfgStatement::ExternalCall { options, target_source, result_used, .. } => (
+                options.iter().map(|(name, value)| (name.clone(), Value::from(value.as_str()))).collect(),
+                target_source.as_ref().map(|s| self.source(s)),
+                *result_used,
+            ),
+            _ => (serde_json::Map::new(), None, None),
+        };
+        let record = json!({
+            "from": site.function,
+            "to": dispatch_target.as_ref().or(static_target.as_ref()),
+            "target_text": target_text,
+            "call_kind": snake(kind),
+            "options": options,
+            "static_target": static_target,
+            "dispatch_target": dispatch_target,
+            "target_source": target_source,
+            "result_used": result_used,
+            "via": origin.via,
+            "in_context": site.context_id,
+        });
+        self.edge("calls", site.function, record, Some(origin.span), tag, origin.rule);
+    }
+
+    fn access(&mut self, site: &Site, kind: &str, path: &str, param: Option<String>, origin: Origin) {
+        let state_var = if param.is_some() { None } else { self.state_var(site.context, path) };
+        let tag = match (&param, &state_var) {
+            (Some(_), _) => EXTRACTED,
+            (None, Some(_)) => TYPE_RESOLVED,
+            (None, None) => AMBIGUOUS,
+        };
+        let record = json!({"state_var": state_var, "path": normalize_path(path), "param": param, "via": origin.via});
+        self.fact(site, kind, record, origin.span, tag, origin.rule);
+    }
+
+    /// The declarations `name` resolves to where the function keyed `func` in `contract` emits it; `None` stands for an emit without an id.
+    fn emitted(&self, contract: &str, func: &str, name: &str) -> BTreeSet<Option<DeclId>> {
+        let mut ids = BTreeSet::new();
+        if let Some(cfg) = self.analysis.cfgs.get(&(contract.to_string(), func.to_string())) {
+            for n in reachable(cfg) {
+                for stmt in &cfg[n].statements {
+                    if let CfgStatement::EmitEvent { event, event_id, .. } = stmt {
+                        if event == name {
+                            ids.insert(*event_id);
+                        }
+                    }
+                }
+            }
+        }
+        if ids.is_empty() {
+            ids.insert(None);
+        }
+        ids
+    }
+
+    /// By the declaration solc resolved; without one, by name from the context, then from the contract that declares the emitting function.
+    fn emits(&mut self, site: &Site, event_id: Option<DeclId>, declared_in: Option<&ContractDef>, name: &str, origin: Origin) {
+        let (event, tag) = match event_id.and_then(|id| self.event_by_id(id)) {
+            Some(event) => (Some(event), TYPE_RESOLVED),
+            None => match self.event(site.context, name).or_else(|| declared_in.and_then(|c| self.event(c, name))) {
+                Some(event) => (Some(event), INFERRED),
+                None => (None, AMBIGUOUS),
+            },
+        };
+        let record = json!({"event": event, "event_text": name, "via": origin.via});
+        self.fact(site, "emits", record, origin.span, tag, origin.rule);
+    }
+
+    fn reverts(&mut self, site: &Site, reason: &str, origin: Origin) {
+        self.fact(site, "reverts", json!({"reason": reason, "via": origin.via}), origin.span, EXTRACTED, origin.rule);
+    }
+
+    fn guard(&mut self, site: &Site, func: &FunctionDef, guard: &GuardFact) {
+        let tag = if guard.ambiguous {
+            AMBIGUOUS
+        } else if guard.heuristic || guard.scope == GuardScope::Conditional {
+            INFERRED
+        } else {
+            EXTRACTED
+        };
+        let mut record = self.term(&guard.term());
+        record["via"] = Value::from(self.via(site.context, &guard.via));
+        record["scope"] = Value::from(snake(guard.scope));
+        record["restricts"] = Value::from(guard.restricts());
+        record["heuristic"] = Value::from(guard.heuristic);
+        self.fact(site, "guards", record, guard.span.unwrap_or(func.span), tag, "guards");
+    }
+
+    fn term(&self, term: &GuardTerm) -> Value {
+        let source = |s: &Option<ValueSource>| s.as_ref().map(|s| self.source(s));
+        json!({
+            "guard_kind": snake(term.kind),
+            "condition_text": term.condition,
+            "negated": term.negated,
+            "compared_against": source(&term.compared_against),
+            "checked_by": term.checked_by,
+            "role": source(&term.role),
+            "role_implied_by": term.role_implied_by,
+            "account": source(&term.account),
+            "alternatives": term.alternatives.iter().map(|t| self.term(t)).collect::<Vec<_>>(),
+            "conjuncts": term.conjuncts.iter().map(|t| self.term(t)).collect::<Vec<_>>(),
+        })
+    }
+
+    fn in_modifier(&self, site: &Site, modifier: Option<&str>) -> Vec<Value> {
+        modifier.map(|m| self.via(site.context, &[format!("modifier {m}")])).unwrap_or_default()
+    }
+
+    /// Analysis labels (`modifier m`, `<contract key>::<function key>`) as ids; an unknown label stays as it is.
+    fn via(&self, context: &ContractDef, labels: &[String]) -> Vec<Value> {
+        labels
+            .iter()
+            .map(|label| {
+                let id = match label.strip_prefix("modifier ") {
+                    Some(name) => self.modifier(context, name),
+                    None => label.split_once("::").and_then(|(c, f)| self.ids.function_by_key(c, f)),
+                };
+                Value::from(id.unwrap_or_else(|| label.clone()))
+            })
+            .collect()
+    }
+
+    fn modifier(&self, context: &ContractDef, name: &str) -> Option<String> {
+        let def = self.project.resolve_modifier(context, name)?;
+        let owner = self.project.linearization(context).into_iter().find(|c| c.modifiers.iter().any(|m| std::ptr::eq(m, def)))?;
+        Some(self.ids.member(owner, name))
+    }
+
+    // state variables cannot be shadowed, so the name selects one declaration in the linearization
+    fn state_var(&self, context: &ContractDef, path: &str) -> Option<String> {
+        let name = target_base_name(path);
+        self.project
+            .linearization(context)
+            .into_iter()
+            .find_map(|c| c.state_vars.iter().any(|v| v.name == name).then(|| self.ids.member(c, name)))
+    }
+
+    /// Only a name: an overloaded event stays unresolved.
+    fn event(&self, scope: &ContractDef, name: &str) -> Option<String> {
+        let (contracts, short) = match name.rsplit_once('.') {
+            Some((qualifier, short)) => (self.project.lookup_contract(qualifier).ok().into_iter().collect(), short),
+            None => (self.project.linearization(scope), name),
+        };
+        let found: Vec<String> = contracts
+            .iter()
+            .flat_map(|c| c.events.iter().filter(|e| e.name == short).map(move |e| self.event_id(c, &e.name, &e.params)))
+            .collect();
+        match found.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        }
+    }
+
+    fn event_by_id(&self, id: DeclId) -> Option<String> {
+        let target = self.project.decl_table.lookup(id).filter(|t| t.kind == DeclKind::Event)?;
+        let c = self.contract(&target.contract)?;
+        let event = c.events.iter().find(|e| e.id == Some(id))?;
+        Some(self.event_id(c, &event.name, &event.params))
+    }
+
+    fn event_id(&self, c: &ContractDef, name: &str, params: &[Param]) -> String {
+        let overloaded = c.events.iter().filter(|e| e.name == name).count() > 1;
+        self.ids.overloadable(c, name, params, overloaded)
+    }
+
+    fn source(&self, source: &ValueSource) -> Value {
+        let declared = |kind: &str, name: &str, key: &Option<String>| {
+            json!({"kind": kind, "name": name, "id": key.as_deref().and_then(|k| self.ids.member_by_key(k))})
+        };
+        match source {
+            ValueSource::StateVar { name, key } => declared("state_var", name, key),
+            ValueSource::Immutable { name, key } => declared("immutable", name, key),
+            ValueSource::Constant { name, key } => declared("constant", name, key),
+            ValueSource::Param { index, name } => json!({"kind": "param", "index": index, "name": name}),
+            ValueSource::Literal { text } => json!({"kind": "literal", "text": text}),
+            ValueSource::MsgSender => json!({"kind": "msg_sender"}),
+            ValueSource::TxOrigin => json!({"kind": "tx_origin"}),
+            ValueSource::Expression { text } => json!({"kind": "expression", "text": text}),
+        }
+    }
+
+    fn linearization_tag(c: &ContractDef) -> &'static str {
+        if c.linearized_bases.is_empty() { INFERRED } else { TYPE_RESOLVED }
+    }
+
+    fn inherits(&mut self, c: &'p ContractDef) {
+        let Some(child) = self.ids.contract(c) else { return };
+        for (i, base) in self.project.linearization(c).into_iter().enumerate().skip(1) {
+            let direct = base.id.is_some_and(|id| c.base_ids.contains(&id)) || c.inherits.contains(&base.name);
+            let record = json!({"child": child, "base": self.ids.contract(base), "order": i, "direct": direct});
+            self.edge("inherits", &child, record, Some(c.span), Self::linearization_tag(c), "linearization");
+        }
+    }
+
+    /// Everything a deployed contract answers: functions, inherited ones included, and public state getters.
+    fn exposes(&mut self, c: &'p ContractDef) {
+        let Some(contract) = self.ids.contract(c) else { return };
+        let tag = Self::linearization_tag(c);
+        for af in self.project.accessible_functions(c) {
+            let f = af.function;
+            if f.kind == FunctionKind::Constructor || !matches!(f.visibility, Visibility::Public | Visibility::External) {
+                continue;
+            }
+            let via_base = if af.is_inherited { self.ids.contract(af.owner) } else { None };
+            let record = json!({"contract": contract, "function": self.ids.function(af.owner, f), "via_base": via_base, "selector": f.selector, "getter": false});
+            self.edge("exposes", &contract, record, Some(f.span), tag, "linearization");
+        }
+        for (var, owner_key, inherited) in self.project.accessible_state_vars(c) {
+            let Some(owner) = self.contract(&owner_key).filter(|_| var.visibility == Visibility::Public) else { continue };
+            let via_base = if inherited { self.ids.contract(owner) } else { None };
+            let record = json!({"contract": contract, "function": self.ids.member(owner, &var.name), "via_base": via_base, "selector": var.selector, "getter": true});
+            self.edge("exposes", &contract, record, Some(var.span), tag, "linearization");
+        }
+    }
+
+    fn node(&self, kind: &str, id: String, mut record: Value, span: SourceSpan) -> (String, Value) {
+        record["id"] = Value::from(id.as_str());
+        record["kind"] = Value::from(kind);
+        record["span"] = self.ids.span(span);
+        record["tag"] = Value::from(EXTRACTED);
+        record["rule"] = Value::from("parse");
+        (id, record)
+    }
+
+    /// A dependency contract is a stub unless project code inherits it; its other members appear once an edge reaches them.
+    fn nodes(&mut self, edges: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+        let project = self.project;
+        let inherited: BTreeSet<&str> =
+            project.project_contracts().flat_map(|c| project.linearization(c)).filter(|c| c.is_dependency).map(|c| c.key()).collect();
+        let mut referenced = BTreeSet::new();
+        for edge in edges.values() {
+            collect_ids(edge, &mut referenced);
+        }
+        referenced.extend(self.flags.keys().cloned());
+
+        let mut nodes = BTreeMap::new();
+        for c in &project.contracts {
+            let full = !c.is_dependency || inherited.contains(c.key());
+            let members: Vec<(String, Value)> = self.members(c).into_iter().filter(|(id, _)| full || referenced.contains(id)).collect();
+            if let Some(id) = self.ids.contract(c) {
+                let record = json!({
+                    "name": c.name,
+                    "contract_kind": snake(c.kind),
+                    "bases": project.linearization(c).iter().skip(1).filter_map(|b| self.ids.contract(b)).collect::<Vec<_>>(),
+                    "is_dependency": c.is_dependency,
+                    "deployable": deployable(c),
+                    "reachable_from_project": full || !members.is_empty(),
+                });
+                let (id, record) = self.node("contract", id, record, c.span);
+                nodes.insert(id, record);
+            }
+            nodes.extend(members);
+        }
+        nodes
+    }
+
+    fn members(&mut self, c: &'p ContractDef) -> Vec<(String, Value)> {
+        let project = self.project;
+        let contract = self.ids.contract(c);
+        let mut out = Vec::new();
+        for f in &c.functions {
+            let id = self.ids.function(c, f);
+            let overrides = f
+                .is_override
+                .then(|| project.implementation(&project.linearization(c), f.match_signature(), Some(c.key())))
+                .flatten()
+                .map(|(o, base)| self.ids.function(o, base));
+            let record = json!({
+                "name": f.name,
+                "contract": contract,
+                "function_kind": snake(f.kind),
+                "visibility": snake(f.visibility),
+                "mutability": snake(f.mutability),
+                "selector": f.selector,
+                "signature": f.match_signature(),
+                "modifiers": f.modifiers.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+                "virtual": f.is_virtual,
+                "override": f.is_override,
+                "overrides": overrides,
+                "is_entry_point": f.kind != FunctionKind::Constructor && matches!(f.visibility, Visibility::Public | Visibility::External),
+                "has_body": f.body.is_some(),
+                "paths": self.analysis.path_trees.get(&(c.key().to_string(), f.key.clone())).map(|t| &t.stats),
+                "analysis": self.flags.remove(&id).map(|flags| flags.into_values().collect::<Vec<_>>()).unwrap_or_default(),
+            });
+            out.push(self.node("function", id, record, f.span));
+        }
+        for (order, v) in c.state_vars.iter().enumerate() {
+            let record = json!({
+                "name": v.name,
+                "contract": contract,
+                "type": v.type_name,
+                "visibility": snake(v.visibility),
+                "constant": v.is_constant,
+                "immutable": v.is_immutable,
+                "order": order,
+                "selector": v.selector,
+            });
+            out.push(self.node("state_var", self.ids.member(c, &v.name), record, v.span));
+        }
+        for e in &c.events {
+            let record = json!({"name": e.name, "contract": contract, "params": param_types(&e.params)});
+            out.push(self.node("event", self.event_id(c, &e.name, &e.params), record, e.span));
+        }
+        for e in &c.errors {
+            let overloaded = c.errors.iter().filter(|other| other.name == e.name).count() > 1;
+            let record = json!({"name": e.name, "contract": contract, "params": param_types(&e.params)});
+            out.push(self.node("error", self.ids.overloadable(c, &e.name, &e.params, overloaded), record, e.span));
+        }
+        for m in &c.modifiers {
+            let record = json!({"name": m.name, "contract": contract, "params": param_types(&m.params), "has_body": !m.body.is_empty()});
+            out.push(self.node("modifier", self.ids.member(c, &m.name), record, m.span));
+        }
+        out
+    }
+}
+
+fn position(span: &Value) -> (String, [u64; 4]) {
+    let at = |field: &str| span[field].as_u64().unwrap_or_default();
+    let file = span["file"].as_str().unwrap_or_default().to_string();
+    (file, [at("start_line"), at("start_col"), at("end_line"), at("end_col")])
+}
+
+fn collect_ids(value: &Value, out: &mut BTreeSet<String>) {
+    match value {
+        Value::String(s) if s.starts_with("evm:") => {
+            out.insert(s.clone());
+        }
+        Value::Array(items) => items.iter().for_each(|v| collect_ids(v, out)),
+        Value::Object(map) => map.values().for_each(|v| collect_ids(v, out)),
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snake;
+    use crate::classify::guards::GuardKind;
+    use crate::model::expression::CallKind;
+    use crate::model::function::Mutability;
+
+    #[test]
+    fn variant_names_become_snake_case() {
+        assert_eq!(snake(CallKind::LowLevelCall), "low_level_call");
+        assert_eq!(snake(CallKind::Internal), "internal");
+        assert_eq!(snake(GuardKind::TxOrigin), "tx_origin");
+        assert_eq!(snake(Mutability::NonPayable), "non_payable");
+    }
+}

@@ -12,6 +12,15 @@ export function isAccessGuard(guard: GuardFact): boolean {
   return guard.kind === 'CallerEquals' || guard.kind === 'RoleCheck' || guard.kind === 'TxOrigin' || guard.kind === 'AccessByName';
 }
 
+export function isConditional(guard: GuardFact): boolean {
+  return guard.scope === 'Conditional';
+}
+
+/** Only an access check on every path that must hold restricts who may call, as the analysis decides access. */
+export function restricts(guard: GuardFact): boolean {
+  return (guard.requires_caller ?? isAccessGuard(guard)) && !isConditional(guard);
+}
+
 export function describeGuard(guard: GuardFact): string {
-  return `${guard.kind}: ${guard.condition}`;
+  return `${guard.kind}${isConditional(guard) ? ' (conditional)' : ''}: ${guard.condition}`;
 }

@@ -42,7 +42,20 @@ state, emits no event and makes only staticcalls or calls to `view`/`pure`
 functions and getters. Mutually recursive functions all get the effects of the
 whole cycle, and call chains have no depth limit. A recursion whose written
 places keep growing (`walk(n.kids[i])`) is cut after 64 rounds and its behaviors
-are marked `effects_incomplete`.
+are marked `effects_incomplete`. Yul is not read: `assembly_blocks` lists the
+blocks in a function and its modifiers, and solc holds them to the function's
+mutability. What a block marks depends on that mutability, and the mark spreads
+to every caller:
+
+- in a non-`view`, non-`pure` function: `effects_incomplete` (and
+  `reads_incomplete`);
+- in a `view` function: `reads_incomplete` only, as its Yul may read state but
+  not change it;
+- in a `pure` function: no state flag.
+
+Yul can revert at any mutability, so any assembly marks the function and its
+callers `reverts_incomplete`: the revert sources may miss some, while
+`can_revert` counts only the reverts that are seen.
 
 Boundaries:
 

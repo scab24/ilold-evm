@@ -62,7 +62,7 @@ pub fn classify_named(project: &Project, context: &ContractDef, name: &str) -> O
     Some(classify_in(project, context, owner, func).0)
 }
 
-/// The role names the modifiers carrying the guards, or the checks when no modifier is on the chain.
+/// The role names the modifiers carrying the guards, or the checks when no modifier is on the chain; conditional guards never restrict.
 pub fn access_level(func: &FunctionDef, guards: &[GuardFact]) -> AccessLevel {
     match func.kind {
         FunctionKind::Constructor => return AccessLevel::Special { kind: "constructor".into() },
@@ -74,7 +74,7 @@ pub fn access_level(func: &FunctionDef, guards: &[GuardFact]) -> AccessLevel {
         return AccessLevel::Internal;
     }
     let mut sources: Vec<String> = Vec::new();
-    for g in guards.iter().filter(|g| g.kind.is_access()) {
+    for g in guards.iter().filter(|g| g.restricts()) {
         let source = match g.via.iter().find_map(|v| v.strip_prefix("modifier ")) {
             Some(modifier) => modifier.to_string(),
             None => g.condition.clone(),

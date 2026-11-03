@@ -1,9 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::classify::code_facts::BuiltinUse;
+use crate::model::common::SourceSpan;
 use crate::model::function::FunctionDef;
-use crate::pathtree::types::{InternalCallTarget, PathTree};
+use crate::pathtree::types::{InternalCallTarget, PathAnnotations, PathTree};
 
 use super::effects::{CfgSummary, Effects};
 
@@ -56,11 +58,27 @@ pub struct FunctionBehavior {
     pub transitive_effects: Vec<EffectTrace>,
     #[serde(default)]
     pub unresolved_modifiers: Vec<String>,
-    /// The effects of a recursion whose written places keep growing were cut.
+    /// Assembly that may change state runs on some path, or the effects of a recursion whose written places keep growing were cut.
     #[serde(default)]
     pub effects_incomplete: bool,
+    /// Reads may be missing: assembly in a `view` function runs, or the effects are incomplete altogether.
+    #[serde(default)]
+    pub reads_incomplete: bool,
+    /// Assembly runs on some path: Yul can revert whatever the mutability, so the revert sources may miss some.
+    #[serde(default)]
+    pub reverts_incomplete: bool,
     #[serde(default)]
     pub guards: Vec<crate::classify::guards::GuardFact>,
+    /// A helper chain deeper than the guard walk follows was cut.
+    #[serde(default)]
+    pub guards_incomplete: bool,
+    /// Inline assembly in the function or its modifiers; its mutability tells what it may hide.
+    #[serde(default)]
+    pub assembly_blocks: Vec<SourceSpan>,
+    #[serde(default)]
+    pub builtin_uses: Vec<BuiltinUse>,
+    #[serde(default)]
+    pub unchecked_blocks: Vec<SourceSpan>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -158,122 +176,69 @@ pub fn analyze_sequences(
     SequenceAnalysis { functions, transitions }
 }
 
+/// From path trees, for callers without CFG summaries; see [`direct_behavior`].
 pub fn direct_behaviors(
     path_trees: &HashMap<(String, String), PathTree>,
     contract_name: &str,
 ) -> Vec<FunctionBehavior> {
-    let mut behaviors: Vec<FunctionBehavior> = Vec::new();
-
-    for ((c, f), pt) in path_trees {
-        if c != contract_name || f.is_empty() { continue; }
-
-        let mut preconditions = HashSet::new();
-        let mut state_writes = HashSet::new();
-        let mut state_reads = HashSet::new();
-        let mut state_write_paths = HashSet::new();
-        let mut state_read_paths = HashSet::new();
-        let mut external_calls = HashSet::new();
-        let mut internal_calls = HashSet::new();
-        let mut internal_call_targets = HashSet::new();
-        let mut events = HashSet::new();
-        let has_return = pt.stats.happy_paths > 0;
-        let has_revert = pt.stats.revert_paths > 0;
-
-        for annotations in pt.block_annotations() {
-            for check in &annotations.require_checks {
-                preconditions.insert(check.clone());
+    let mut behaviors: Vec<FunctionBehavior> = path_trees
+        .iter()
+        .filter(|((c, f), _)| c == contract_name && !f.is_empty())
+        .map(|((c, f), pt)| {
+            let mut annotations = PathAnnotations::default();
+            for block in pt.block_annotations() {
+                annotations.extend(block);
             }
-            for write in &annotations.state_writes {
-                let base = write
-                    .split(|c| c == '[' || c == '.')
-                    .next()
-                    .unwrap_or(write)
-                    .to_string();
-                state_writes.insert(base);
-            }
-            for write in &annotations.state_write_paths {
-                state_write_paths.insert(write.clone());
-            }
-            for read in &annotations.state_reads {
-                let base = read
-                    .split(|c| c == '[' || c == '.')
-                    .next()
-                    .unwrap_or(read)
-                    .to_string();
-                state_reads.insert(base);
-            }
-            for read in &annotations.state_read_paths {
-                state_read_paths.insert(read.clone());
-            }
-            for call in &annotations.external_calls {
-                external_calls.insert(format!("{}.{}", call.target, call.function));
-            }
-            for ic in &annotations.internal_calls {
-                internal_calls.insert(ic.clone());
-            }
-            for target in &annotations.internal_call_targets {
-                internal_call_targets.insert(target.clone());
-            }
-            for event in &annotations.events_emitted {
-                events.insert(event.clone());
-            }
-        }
-
-        let read_only = state_writes.is_empty() && external_calls.is_empty();
-
-        let mut state_writes: Vec<String> = state_writes.into_iter().collect();
-        state_writes.sort();
-        let mut state_reads: Vec<String> = state_reads.into_iter().collect();
-        state_reads.sort();
-        let mut state_write_paths: Vec<String> = state_write_paths.into_iter().collect();
-        state_write_paths.sort();
-        let mut state_read_paths: Vec<String> = state_read_paths.into_iter().collect();
-        state_read_paths.sort();
-        let mut external_calls: Vec<String> = external_calls.into_iter().collect();
-        external_calls.sort();
-        let mut internal_calls: Vec<String> = internal_calls.into_iter().collect();
-        internal_calls.sort();
-        let mut internal_call_targets: Vec<InternalCallTarget> = internal_call_targets.into_iter().collect();
-        internal_call_targets.sort();
-        let mut preconditions: Vec<String> = preconditions.into_iter().collect();
-        preconditions.sort();
-        let mut events: Vec<String> = events.into_iter().collect();
-        events.sort();
-
-        behaviors.push(FunctionBehavior {
-            name: f.clone(),
-            owner: c.clone(),
-            preconditions,
-            state_writes,
-            state_reads,
-            state_write_paths,
-            state_read_paths,
-            external_calls,
-            internal_calls,
-            internal_call_targets,
-            events,
-            can_revert: has_revert,
-            always_reverts: !has_return && has_revert,
-            read_only,
-            transitive_state_writes: Vec::new(),
-            transitive_state_reads: Vec::new(),
-            transitive_state_write_paths: Vec::new(),
-            transitive_state_read_paths: Vec::new(),
-            transitive_external_calls: Vec::new(),
-            transitive_events: Vec::new(),
-            transitive_internal_calls: Vec::new(),
-            revert_sources: Vec::new(),
-            storage_param_writes: Vec::new(),
-            storage_param_reads: Vec::new(),
-            transitive_effects: Vec::new(),
-            unresolved_modifiers: Vec::new(),
-            effects_incomplete: false,
-            guards: Vec::new(),
-        });
-    }
-
+            direct_behavior(c, f, &annotations, pt.stats.happy_paths > 0, pt.stats.revert_paths > 0)
+        })
+        .collect();
     behaviors.sort_by(|a, b| a.name.cmp(&b.name));
     behaviors
+}
+
+/// `annotations` covers every block the function may run.
+pub fn direct_behavior(owner: &str, key: &str, annotations: &PathAnnotations, returns: bool, reverts: bool) -> FunctionBehavior {
+    let bases = |paths: &[String]| sorted(paths.iter().map(|p| base_name(p)));
+    let state_writes = bases(&annotations.state_writes);
+    let external_calls = sorted(annotations.external_calls.iter().map(|c| format!("{}.{}", c.target, c.function)));
+    let read_only = state_writes.is_empty() && external_calls.is_empty();
+    let internal_call_targets: BTreeSet<InternalCallTarget> = annotations.internal_call_targets.iter().cloned().collect();
+    FunctionBehavior {
+        name: key.to_string(),
+        owner: owner.to_string(),
+        preconditions: sorted(annotations.require_checks.iter().cloned()),
+        state_writes,
+        state_reads: bases(&annotations.state_reads),
+        state_write_paths: sorted(annotations.state_write_paths.iter().cloned()),
+        state_read_paths: sorted(annotations.state_read_paths.iter().cloned()),
+        external_calls,
+        internal_calls: sorted(annotations.internal_calls.iter().cloned()),
+        internal_call_targets: internal_call_targets.into_iter().collect(),
+        events: sorted(annotations.events_emitted.iter().cloned()),
+        can_revert: reverts,
+        always_reverts: !returns && reverts,
+        read_only,
+        transitive_state_writes: Vec::new(),
+        transitive_state_reads: Vec::new(),
+        transitive_state_write_paths: Vec::new(),
+        transitive_state_read_paths: Vec::new(),
+        transitive_external_calls: Vec::new(),
+        transitive_events: Vec::new(),
+        transitive_internal_calls: Vec::new(),
+        revert_sources: Vec::new(),
+        storage_param_writes: Vec::new(),
+        storage_param_reads: Vec::new(),
+        transitive_effects: Vec::new(),
+        unresolved_modifiers: Vec::new(),
+        effects_incomplete: false,
+        reads_incomplete: false,
+        reverts_incomplete: false,
+        guards: Vec::new(),
+        guards_incomplete: false,
+        assembly_blocks: Vec::new(),
+        builtin_uses: Vec::new(),
+        unchecked_blocks: Vec::new(),
+    }
 }
 
 /// Pairs where the first function changes something the second one uses.
@@ -327,7 +292,7 @@ fn base_name(path: &str) -> String {
 }
 
 fn sorted(items: impl IntoIterator<Item = String>) -> Vec<String> {
-    let set: std::collections::BTreeSet<String> = items.into_iter().collect();
+    let set: BTreeSet<String> = items.into_iter().collect();
     set.into_iter().collect()
 }
 
@@ -356,7 +321,10 @@ pub fn apply_effects(behavior: &mut FunctionBehavior, summary: &CfgSummary, effe
     b.storage_param_writes = sorted(summary.param_writes.iter().map(|(_, p)| p.clone()));
     b.storage_param_reads = sorted(summary.param_reads.iter().map(|(_, p)| p.clone()));
     b.unresolved_modifiers = summary.unresolved_modifiers.clone();
+    b.assembly_blocks = summary.assembly.clone();
     b.effects_incomplete = effects.incomplete;
+    b.reads_incomplete = effects.reads_incomplete || effects.incomplete;
+    b.reverts_incomplete = effects.reverts_incomplete;
     b.can_revert = b.can_revert || !effects.reverts.is_empty();
     // solc already rejects state changes in view and pure functions
     b.read_only = func.mutability.is_view_or_pure()

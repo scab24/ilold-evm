@@ -104,7 +104,7 @@ pub fn build_function_narrative_capped(
         .collect();
     let paths_omitted = routes.count();
 
-    let unguarded = access.is_unrestricted() && !guards.iter().any(|g| g.kind.is_access());
+    let unguarded = access.is_unrestricted() && !guards.iter().any(|g| g.restricts());
     let observations = generate_observations(unguarded, path_tree, cfg, all_behaviors, root_behavior);
 
     let mut writes = HashSet::new();

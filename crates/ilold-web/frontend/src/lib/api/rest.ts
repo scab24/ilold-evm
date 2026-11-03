@@ -243,6 +243,13 @@ export interface SequenceAnalysis {
     can_revert: boolean;
     always_reverts: boolean;
     read_only: boolean;
+    effects_incomplete?: boolean;
+    reads_incomplete?: boolean;
+    reverts_incomplete?: boolean;
+    guards_incomplete?: boolean;
+    assembly_blocks?: SourceSpan[];
+    builtin_uses?: { builtin: string; span: SourceSpan }[];
+    unchecked_blocks?: SourceSpan[];
   }[];
   transitions: {
     from: string;

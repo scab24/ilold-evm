@@ -20,7 +20,7 @@ npm --prefix crates/ilold-web/frontend run build
 cargo build --release
 ```
 
-The binary is at `target/release/ilold` with five subcommands: `analyze`, `context`, `serve`, `explore`, and `evm-mcp` (the [MCP server](docs/guide/src/reference/mcp.md) for LLM agents). `--max-seq-depth` (on `analyze`, `serve` and `explore`) takes 1 to 8, the depths the server serves. The frontend build is required **before** Rust builds and is embedded in the binary; `build.rs` does not download or generate frontend dependencies. A missing `frontend/build/index.html` fails the Rust build with the commands to fix it. Rebuild the frontend before rebuilding Rust after UI changes. The built binary serves the UI without the source checkout. A previously installed `ilold` on PATH is not replaced by `cargo build`: run `./target/release/ilold` to test this checkout.
+The binary is at `target/release/ilold` with six subcommands: `analyze`, `context`, `serve`, `explore`, `evm-mcp` (the [MCP server](docs/guide/src/reference/mcp.md) for LLM agents), and `graph` (a deterministic [JSON Lines export](docs/guide/src/reference/graph-export.md) of the code map). `--max-seq-depth` (on `analyze`, `serve` and `explore`) takes 1 to 8, the depths the server serves. The frontend build is required **before** Rust builds and is embedded in the binary; `build.rs` does not download or generate frontend dependencies. A missing `frontend/build/index.html` fails the Rust build with the commands to fix it. Rebuild the frontend before rebuilding Rust after UI changes. The built binary serves the UI without the source checkout. A previously installed `ilold` on PATH is not replaced by `cargo build`: run `./target/release/ilold` to test this checkout.
 
 ## The dependency graph
 
@@ -40,7 +40,7 @@ In the REPL, `deps <contract>` lists what a contract depends on and `usedby <con
 ./target/release/ilold analyze tests/fixtures/solc/cross --deps
 ```
 
-`analyze --contract <name>` limits the output to one contract. An unknown name exits with status 1 and names the closest contracts (`Did you mean: Vault?`) or lists the available ones. Exit codes for every subcommand: `0` success, `1` error (unknown contract, not a Foundry project, compile or server failure), `2` invalid command-line usage.
+`analyze --contract <name>` limits the output to one contract. An unknown name exits with status 1 and names the closest contracts (`Did you mean: Vault?`) or lists the available ones. Exit codes for every subcommand: `0` success, `1` error (unknown contract, not a Foundry project, compile or server failure), `2` invalid command-line usage. `graph` adds `3` (complete, but tests or scripts failed to compile) and `4` (a compile error inside the sources: only the file inventory is written).
 
 ## Exploring a contract
 
@@ -93,6 +93,7 @@ Key pages:
 - [Contract Commands](docs/guide/src/commands/contract.md)
 - [Mapping a Codebase](docs/guide/src/workflows/dependency-mapping.md)
 - [HTTP API](docs/guide/src/reference/api-endpoints.md)
+- [Graph Export](docs/guide/src/reference/graph-export.md)
 - [Known Limitations](docs/guide/src/reference/limitations.md)
 
 ## Project layout

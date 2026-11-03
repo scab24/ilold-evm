@@ -2,7 +2,7 @@
   import Collapsible from '$lib/Collapsible.svelte';
   import { ownEntry } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
-  import { formatAccess } from '$lib/utils/access';
+  import { formatAccess, isConditional } from '$lib/utils/access';
   import type { FunctionSummary } from '$lib/api/rest';
 
   interface Props {
@@ -79,7 +79,9 @@
             <Collapsible title="Guards" count={summary.guards.length} open={true}>
               {#each summary.guards as guard}
                 <div class="pd-item check" title={guard.heuristic ? 'Inferred from the name: the modifier has no code to read' : ''}>
-                  <span class="guard-kind">{guard.kind}</span> {guard.condition}
+                  <span class="guard-kind">{guard.kind}</span>
+                  {#if isConditional(guard)}<span class="guard-conditional" title="Checked on some paths only: it does not restrict the caller">conditional</span>{/if}
+                  {guard.condition}
                   {#if guard.via.length > 0}<div class="guard-via">via {guard.via.join(' → ')}</div>{/if}
                 </div>
               {/each}
@@ -548,4 +550,5 @@
   .pd-item.ev { background: color-mix(in srgb, var(--color-success) 9%, transparent); color: var(--color-success-light); }
   .guard-kind { font-weight: 600; }
   .guard-via { font-size: 10px; color: var(--color-text-dim); }
+  .guard-conditional { font-size: 10px; color: var(--color-text-dim); font-style: italic; }
 </style>

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use foundry_compilers::solc::{Solc, SolcCompiler, SolcLanguage, SolcSettings};
 use foundry_compilers::{ProjectBuilder, ProjectPathsConfig};
 use foundry_compilers_artifacts_solc::ast::{Ast, Node, NodeType};
-use foundry_compilers_artifacts_solc::error::Error as SolcError;
+use foundry_compilers_artifacts_solc::error::{Error as SolcError, SourceLocation};
 use foundry_compilers_artifacts_solc::output_selection::OutputSelection;
 use foundry_compilers_artifacts_solc::{EvmVersion, Remapping, Settings};
 use toml_edit::{DocumentMut, Item};
@@ -84,6 +84,7 @@ impl SolcFrontend {
 
         // broken tests or scripts must not discard the model: compile the sources alone
         let mut warnings = Vec::new();
+        let mut compile_failures = Vec::new();
         if output.has_compiler_errors() {
             let errors: Vec<&SolcError> = output.output().errors.iter().filter(|e| e.is_error()).collect();
             let failing = failing_files(&errors, &roots);
@@ -91,6 +92,7 @@ impl SolcFrontend {
             if !outside_sources {
                 return Err(compile_error(root, &errors, &roots));
             }
+            compile_failures = failures(&errors, &roots);
             let failing: std::collections::BTreeSet<String> =
                 failing.iter().flatten().map(|f| relative_path(f, &roots)).collect();
             output = project.compile_files(solidity_files(&src_dir)).map_err(|e| ParseError::Internal {
@@ -110,27 +112,26 @@ impl SolcFrontend {
         }
 
         let aggregated = output.into_output();
-        let units: Vec<(&PathBuf, &Ast)> = aggregated
+        let units: Vec<(&PathBuf, &Ast, String)> = aggregated
             .sources
-            .sources()
-            .filter_map(|(path, source_file)| source_file.ast.as_ref().map(|ast| (path, ast)))
+            .sources_with_version()
+            .filter_map(|(path, source_file, version)| source_file.ast.as_ref().map(|ast| (path, ast, version.to_string())))
             .collect();
         let reached = import_closure(&units, &src_dir);
 
         let mut source_files = Vec::new();
         let mut contracts = Vec::new();
-        for (unit, (path, ast)) in units.iter().enumerate() {
+        let mut solc_versions = std::collections::BTreeSet::new();
+        for (unit, (path, ast, version)) in units.iter().enumerate() {
             if !reached.contains(&unit) {
                 continue;
             }
+            solc_versions.insert(version.clone());
             let content = read_source(path)?;
             let file_index = source_files.len();
             let index = LineIndex::new(file_index, &content);
             let path_str = path.display().to_string();
-            let vendored = ["/dependencies/", "/deployments/", "/config-engine/"]
-                .iter()
-                .any(|seg| path_str.contains(seg));
-            let is_dependency = !path.starts_with(&src_dir) || vendored;
+            let is_dependency = is_dependency_path(path, &src_dir);
             let relative = relative_path(path, &roots);
 
             for node in &ast.nodes {
@@ -152,16 +153,18 @@ impl SolcFrontend {
         let mut project = Project::new(source_files, contracts, decl_table);
         project.warnings = warnings;
         project.test_dirs = test_dirs;
+        project.solc_versions = solc_versions.into_iter().collect();
+        project.compile_failures = compile_failures;
         Ok(project)
     }
 }
 
 /// Tests and scripts no source imports stay out of the model.
-fn import_closure(units: &[(&PathBuf, &Ast)], src_dir: &Path) -> std::collections::HashSet<usize> {
+fn import_closure(units: &[(&PathBuf, &Ast, String)], src_dir: &Path) -> std::collections::HashSet<usize> {
     let by_id: std::collections::HashMap<usize, usize> =
-        units.iter().enumerate().map(|(i, (_, ast))| (ast.id, i)).collect();
+        units.iter().enumerate().map(|(i, (_, ast, _))| (ast.id, i)).collect();
     let mut pending: Vec<usize> =
-        units.iter().enumerate().filter(|(_, (path, _))| path.starts_with(src_dir)).map(|(i, _)| i).collect();
+        units.iter().enumerate().filter(|(_, (path, _, _))| path.starts_with(src_dir)).map(|(i, _)| i).collect();
     let mut reached: std::collections::HashSet<usize> = pending.iter().copied().collect();
     while let Some(i) = pending.pop() {
         for node in units[i].1.nodes.iter().filter(|n| n.node_type == NodeType::ImportDirective) {
@@ -204,20 +207,78 @@ fn failing_files(errors: &[&SolcError], roots: &[PathBuf]) -> Vec<Option<PathBuf
         .collect()
 }
 
+fn error_span(loc: &SourceLocation, roots: &[PathBuf]) -> (PathBuf, Option<SourceSpan>) {
+    let file = absolute_in(&loc.file, roots);
+    let span = std::fs::read_to_string(&file).ok().map(|content| {
+        LineIndex::new(0, &content).span(loc.start.max(0) as usize, loc.end.max(loc.start).max(0) as usize)
+    });
+    (file, span)
+}
+
+// the formatted message would carry absolute paths
+fn failures(errors: &[&SolcError], roots: &[PathBuf]) -> Vec<CompileFailure> {
+    errors
+        .iter()
+        .map(|e| {
+            let location = e.source_location.as_ref().map(|loc| error_span(loc, roots));
+            let code = e.error_code.map(|code| format!(" {code}")).unwrap_or_default();
+            CompileFailure {
+                path: location.as_ref().map(|(file, _)| relative_path(file, roots)),
+                line: location.and_then(|(_, span)| span).map(|span| span.start_line),
+                message: format!("{}{code}: {}", e.r#type, e.message.trim()),
+            }
+        })
+        .collect()
+}
+
 fn compile_error(root: &Path, errors: &[&SolcError], roots: &[PathBuf]) -> ParseError {
     let message = errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ");
-    let first = errors.iter().find_map(|e| e.source_location.as_ref());
-    let (path, span) = match first {
+    let (path, span) = match errors.iter().find_map(|e| e.source_location.as_ref()) {
         Some(loc) => {
-            let file = absolute_in(&loc.file, roots);
-            let span = std::fs::read_to_string(&file).ok().map(|content| {
-                LineIndex::new(0, &content).span(loc.start.max(0) as usize, loc.end.max(loc.start).max(0) as usize)
-            });
+            let (file, span) = error_span(loc, roots);
             (file.display().to_string(), span)
         }
         None => (root.display().to_string(), None),
     };
-    ParseError::SyntaxError { path, message, span }
+    ParseError::SyntaxError { path, message, span, failures: failures(errors, roots) }
+}
+
+/// Outside the sources, or vendored inside them.
+pub fn is_dependency_path(path: &Path, src_dir: &Path) -> bool {
+    let text = path.to_string_lossy();
+    !path.starts_with(src_dir)
+        || ["/dependencies/", "/deployments/", "/config-engine/"].iter().any(|segment| text.contains(segment))
+}
+
+/// The Foundry directories and settings a parse of a root uses.
+#[derive(Debug, Clone)]
+pub struct ProjectLayout {
+    pub root: PathBuf,
+    pub profile: String,
+    pub sources: PathBuf,
+    pub tests: PathBuf,
+    pub scripts: PathBuf,
+    /// `context:name=path` in the order solc receives them, paths relative to the root.
+    pub remappings: Vec<String>,
+}
+
+pub fn project_layout(root: &Path) -> Result<ProjectLayout, ParseError> {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let Prepared { paths, profile, .. } = prepare(&root)?;
+    let roots = [root.clone()];
+    let remappings = paths
+        .remappings
+        .iter()
+        .map(|r| Remapping { path: relative_path(Path::new(&r.path), &roots), ..r.clone() }.to_string())
+        .collect();
+    Ok(ProjectLayout {
+        profile,
+        sources: paths.sources,
+        tests: paths.tests,
+        scripts: paths.scripts,
+        remappings,
+        root,
+    })
 }
 
 fn solidity_files(dir: &Path) -> Vec<PathBuf> {
@@ -754,11 +815,13 @@ fn map_contract(node: &Node, index: &LineIndex, path: &str, is_dependency: bool)
 
 pub use crate::model::contract::FREE_FUNCTIONS;
 
-/// File-level functions as a library, so calls to them resolve like internal library calls.
+/// File-level functions as a library, so calls to them resolve like internal library calls; file-level events and errors join them.
 fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependency: bool) -> Option<ContractDef> {
-    let free: Vec<&Node> = nodes.iter().filter(|n| n.node_type == NodeType::FunctionDefinition).collect();
-    let first = free.first()?;
-    let mut functions: Vec<FunctionDef> = free.iter().map(|n| map_function(n, index)).collect();
+    let of = |kind: NodeType| nodes.iter().filter(move |n| n.node_type == kind);
+    let first = nodes.iter().find(|n| {
+        matches!(n.node_type, NodeType::FunctionDefinition | NodeType::EventDefinition | NodeType::ErrorDefinition)
+    })?;
+    let mut functions: Vec<FunctionDef> = of(NodeType::FunctionDefinition).map(|n| map_function(n, index)).collect();
     assign_function_keys(&mut functions);
     let name = FREE_FUNCTIONS.to_string();
     Some(ContractDef {
@@ -774,8 +837,8 @@ fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependen
         state_vars: Vec::new(),
         structs: Vec::new(),
         enums: Vec::new(),
-        events: Vec::new(),
-        errors: Vec::new(),
+        events: of(NodeType::EventDefinition).map(|n| map_event(n, index)).collect(),
+        errors: of(NodeType::ErrorDefinition).map(|n| map_error(n, index)).collect(),
         inherits: Vec::new(),
         base_ids: Vec::new(),
         span: span_of(first, index),
@@ -836,8 +899,8 @@ fn map_function(node: &Node, index: &LineIndex) -> FunctionDef {
         kind,
         visibility: vis,
         mutability: mutability(node),
-        modifiers: modifier_refs(node, false),
-        base_constructor_calls: modifier_refs(node, true),
+        modifiers: modifier_refs(node, false, index),
+        base_constructor_calls: modifier_refs(node, true, index),
         params,
         returns: param_list(node, "returnParameters"),
         body: node.body.as_deref().map(|b| map_body(b, index)),
@@ -1028,7 +1091,11 @@ fn map_statement(node: &Node, index: &LineIndex) -> Statement {
         },
         NodeType::EmitStatement => {
             let (name, arguments) = call_parts(node, "eventCall", index);
-            StatementKind::Emit { event_name: name, arguments }
+            let event_id = node
+                .attribute::<Node>("eventCall")
+                .and_then(|call| call.attribute::<Node>("expression"))
+                .and_then(|callee| referenced_decl(&callee));
+            StatementKind::Emit { event_name: name, arguments, event_id }
         }
         NodeType::RevertStatement => {
             let (name, arguments) = call_parts(node, "errorCall", index);
@@ -1316,7 +1383,7 @@ fn call_type(callee: &Node) -> CallType {
     CallType::Call(kind)
 }
 
-fn canonical_type(type_string: &str) -> String {
+pub(crate) fn canonical_type(type_string: &str) -> String {
     const DROP: [&str; 9] =
         ["memory", "calldata", "storage", "ref", "pointer", "struct", "enum", "contract", "payable"];
     let mut tokens: Vec<String> = Vec::new();
@@ -1480,7 +1547,7 @@ fn literal_value(node: &Node) -> String {
 }
 
 // solc lists constructor base calls among the modifiers
-fn modifier_refs(node: &Node, base_constructors: bool) -> Vec<ModifierRef> {
+fn modifier_refs(node: &Node, base_constructors: bool, index: &LineIndex) -> Vec<ModifierRef> {
     node.attribute::<Vec<serde_json::Value>>("modifiers")
         .unwrap_or_default()
         .iter()
@@ -1494,7 +1561,13 @@ fn modifier_refs(node: &Node, base_constructors: bool) -> Vec<ModifierRef> {
                 .and_then(|s| s.as_str())
                 .map(|name| ModifierRef {
                     name: name.to_string(),
-                    arguments: Vec::new(),
+                    arguments: m
+                        .get("arguments")
+                        .and_then(|a| serde_json::from_value::<Vec<Node>>(a.clone()).ok())
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|a| map_expression(a, index))
+                        .collect(),
                 })
         })
         .collect()
