@@ -2,23 +2,26 @@
 mod dispatch;
 mod keys;
 mod trycatch;
+mod value;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cfg::types::CfgGraph;
+use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::ContractDef;
-use crate::model::decl_id::DeclId;
+use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::CallKind;
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
+use crate::sequence::effects::CallSite;
 
 pub use dispatch::{call_target, external_calls, ExternalCallSite};
 pub use keys::{key_kinds, storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
 pub use trycatch::{try_catches, CatchClauseFact, CatchEffects, CatchKind, EffectSite, GuardedCall, TryCatchFact, TryReason};
+pub use value::{value_facts, value_flows, AssetKind, BalanceRead, Direction, Operation, ValueFacts, ValueFlow, ValueReason, ValueTransfer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -26,6 +29,7 @@ pub enum Tag {
     Inferred,
     Ambiguous,
     Extracted,
+    TypeResolved,
 }
 
 /// Strongest first.
@@ -169,6 +173,14 @@ pub fn state_var_ref(project: &Project, context: &ContractDef, source: &ValueSou
         return None;
     };
     Some(format!("{}::{name}", project.state_var_owner(context, name)?.key()))
+}
+
+/// `<target>.<function>` of a call, as the effect summaries name it.
+fn call_text(stmt: &CfgStatement, decls: &DeclTable) -> Option<String> {
+    CallSite::of(stmt, decls).map(|c| c.call).or_else(|| match stmt {
+        CfgStatement::ExternalCall { target, function, .. } => Some(format!("{target}.{function}")),
+        _ => None,
+    })
 }
 
 /// The parameter an identifier names: by declaration id, or by name when the model has none.

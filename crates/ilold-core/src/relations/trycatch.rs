@@ -14,10 +14,10 @@ use crate::model::expression::CallKind;
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::model::statement::{walk_all, CatchClause, Statement, StatementKind};
-use crate::sequence::effects::{reachable, CallSite};
+use crate::sequence::effects::reachable;
 
 use super::keys::{storage_accesses, AccessKind, StorageAccess};
-use super::Tag;
+use super::{call_text, Tag};
 
 /// The failures a clause catches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -197,14 +197,6 @@ fn try_statements<'a>(project: &'a Project, context: &'a ContractDef, func: &'a 
         );
     }
     found
-}
-
-/// `<target>.<function>` of a call, as the effect summaries name it.
-fn call_text(stmt: &CfgStatement, decls: &DeclTable) -> Option<String> {
-    CallSite::of(stmt, decls).map(|c| c.call).or_else(|| match stmt {
-        CfgStatement::ExternalCall { target, function, .. } => Some(format!("{target}.{function}")),
-        _ => None,
-    })
 }
 
 fn guarded(stmt: &CfgStatement, decls: &DeclTable) -> Option<GuardedCall> {

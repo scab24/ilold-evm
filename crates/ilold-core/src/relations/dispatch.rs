@@ -84,7 +84,7 @@ pub(super) fn build(project: &Project, cfgs: &HashMap<(String, String), CfgGraph
     Relations { dispatches: dispatches.into_values().collect(), assignments, links }
 }
 
-fn contract<'p>(project: &'p Project, key: &str) -> Option<&'p ContractDef> {
+pub(super) fn contract<'p>(project: &'p Project, key: &str) -> Option<&'p ContractDef> {
     project.contract_index.get(key).map(|&i| &project.contracts[i])
 }
 

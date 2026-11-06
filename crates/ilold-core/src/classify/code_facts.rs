@@ -60,7 +60,7 @@ pub struct CodeFacts {
 pub fn code_facts(project: Option<&Project>, context: &ContractDef, func: &FunctionDef) -> CodeFacts {
     let mut builtin_uses = Vec::new();
     let mut unchecked_blocks = Vec::new();
-    let mut on_expr = |e: &Expression| {
+    let mut on_expr = |_: Option<&str>, e: &Expression| {
         if let Some(builtin) = builtin(e) {
             builtin_uses.push(BuiltinUse { builtin, span: e.span });
         }
@@ -70,17 +70,28 @@ pub fn code_facts(project: Option<&Project>, context: &ContractDef, func: &Funct
             unchecked_blocks.push(s.span);
         }
     };
-    for mref in &func.modifiers {
-        mref.arguments.iter().for_each(|a| a.walk(&mut on_expr));
-        if let Some(def) = modifier_code(project, context, &mref.name) {
-            walk_all(&def.body, &mut on_stmt, &mut on_expr);
-        }
-    }
-    walk_all(func.body.as_deref().unwrap_or_default(), &mut on_stmt, &mut on_expr);
+    walk_function(project, context, func, &mut on_stmt, &mut on_expr);
     CodeFacts { builtin_uses, unchecked_blocks }
 }
 
-fn builtin(expr: &Expression) -> Option<Builtin> {
+/// In source order: each modifier's arguments and code as `context` resolves it, then the body; expressions come with the modifier whose code holds them.
+pub(crate) fn walk_function<'a>(
+    project: Option<&'a Project>,
+    context: &'a ContractDef,
+    func: &'a FunctionDef,
+    on_stmt: &mut impl FnMut(&'a Statement),
+    on_expr: &mut impl FnMut(Option<&'a str>, &'a Expression),
+) {
+    for mref in &func.modifiers {
+        mref.arguments.iter().for_each(|a| a.walk(&mut |e| on_expr(None, e)));
+        if let Some(def) = modifier_code(project, context, &mref.name) {
+            walk_all(&def.body, on_stmt, &mut |e| on_expr(Some(mref.name.as_str()), e));
+        }
+    }
+    walk_all(func.body.as_deref().unwrap_or_default(), on_stmt, &mut |e| on_expr(None, e));
+}
+
+pub(crate) fn builtin(expr: &Expression) -> Option<Builtin> {
     match &expr.kind {
         // a user function may shadow a builtin name
         ExpressionKind::FunctionCall { callee, call, .. } if !matches!(call, CallType::Call(_)) => match &callee.kind {

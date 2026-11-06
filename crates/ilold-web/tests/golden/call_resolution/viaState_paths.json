@@ -1,0 +1,64 @@
+{
+    "contract": "Caller",
+    "function": "viaState",
+    "page": {
+        "limit": 100,
+        "offset": 0,
+        "total": 1,
+        "truncated": false
+    },
+    "paths": [
+        {
+            "annotations": {
+                "eth_transfers": [],
+                "events_emitted": [],
+                "external_calls": [
+                    {
+                        "function": "balanceOf",
+                        "kind": "External",
+                        "target": "token"
+                    }
+                ],
+                "has_assembly": false,
+                "internal_call_targets": [],
+                "internal_calls": [],
+                "require_checks": [],
+                "state_read_paths": [
+                    "token"
+                ],
+                "state_reads": [
+                    "token"
+                ],
+                "state_write_paths": [],
+                "state_writes": []
+            },
+            "depth": 1,
+            "id": 0,
+            "nodes": [
+                {
+                    "block_id": 0,
+                    "block_kind": "Entry",
+                    "branch_taken": null
+                },
+                {
+                    "block_id": 1,
+                    "block_kind": "Return",
+                    "branch_taken": "Unconditional"
+                }
+            ],
+            "terminal": "Return"
+        }
+    ],
+    "stats": {
+        "cap_reached": false,
+        "depth_cutoff": 0,
+        "happy_paths": 1,
+        "loop_cutoff": 0,
+        "max_depth_reached": 1,
+        "paths_dropped": 0,
+        "revert_paths": 0,
+        "total_paths": 1,
+        "truncated": false
+    },
+    "truncation_note": null
+}

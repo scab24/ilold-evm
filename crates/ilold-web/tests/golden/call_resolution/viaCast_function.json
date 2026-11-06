@@ -1,0 +1,56 @@
+{
+    "access": "Public",
+    "can_revert": false,
+    "contract": "Caller",
+    "events": [],
+    "external_calls": [
+        "IToken(t).transfer"
+    ],
+    "guards": [],
+    "happy_paths": 1,
+    "internal_calls": [],
+    "modifiers": [],
+    "name": "viaCast",
+    "observations": [],
+    "path_stats": {
+        "cap_reached": false,
+        "depth_cutoff": 0,
+        "happy_paths": 1,
+        "loop_cutoff": 0,
+        "max_depth_reached": 1,
+        "paths_dropped": 0,
+        "revert_paths": 0,
+        "total_paths": 1,
+        "truncated": false
+    },
+    "paths": [
+        {
+            "id": 0,
+            "steps": [
+                {
+                    "branch": null,
+                    "description": "viaCast()",
+                    "detail": null,
+                    "step_type": "Entry"
+                },
+                {
+                    "branch": null,
+                    "description": "return",
+                    "detail": null,
+                    "step_type": "Return"
+                }
+            ],
+            "terminal": "Return"
+        }
+    ],
+    "paths_omitted": 0,
+    "revert_paths": 0,
+    "revert_sources": [],
+    "state_reads": [],
+    "state_writes": [],
+    "total_paths": 1,
+    "transitive_events": [],
+    "transitive_external_calls": [],
+    "transitive_state_reads": [],
+    "transitive_state_writes": []
+}
