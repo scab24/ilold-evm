@@ -18,7 +18,7 @@ use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
 use crate::pathtree::walker::normalize_path;
-use crate::relations::{call_target, state_var_ref, storage_accesses, AccessKey, AccessKind, ContractLink, KeySite, RecordKeys};
+use crate::relations::{call_target, state_var_ref, storage_accesses, try_catches, AccessKey, AccessKind, ContractLink, EffectSite, KeySite, RecordKeys, TryCatchFact};
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
 use crate::sequence::effects::{reachable, resolve_call, summarize, CallSite, EffectEngine};
 use crate::util::target_base_name;
@@ -32,7 +32,7 @@ const AMBIGUOUS: &str = "AMBIGUOUS";
 
 /// Fields added to a kind after schema 1.0, as JSON pointers; ids leave them out so they stay what 1.0 gave.
 const ADDED_FIELDS: &[(&str, &[&str])] = &[
-    ("calls", &["/dispatch_candidates", "/unresolved_reason", "/target_source/assigned_at"]),
+    ("calls", &["/dispatch_candidates", "/unresolved_reason", "/target_source/assigned_at", "/in_try"]),
     ("reads", KEY_FIELDS),
     ("writes", KEY_FIELDS),
 ];
@@ -94,7 +94,16 @@ pub(super) struct Builder<'p> {
     edges: BTreeMap<String, Vec<Pending>>,
     /// Per function id, its flags in each context.
     flags: BTreeMap<String, BTreeMap<String, Value>>,
+    /// Try statements wait for the ids of the calls they guard.
+    tries: Vec<PendingTry>,
     truncation: Truncation,
+}
+
+struct PendingTry {
+    function: String,
+    context_id: Option<String>,
+    via: Vec<Value>,
+    fact: TryCatchFact,
 }
 
 /// A fact about `function`, declared in `owner`, as `context` runs it.
@@ -121,7 +130,7 @@ struct Origin<'r> {
 
 impl<'p> Builder<'p> {
     pub fn new(project: &'p Project, analysis: &'p ProjectAnalysis, ids: Ids<'p>) -> Self {
-        Self { project, analysis, ids, edges: BTreeMap::new(), flags: BTreeMap::new(), truncation: Truncation::default() }
+        Self { project, analysis, ids, edges: BTreeMap::new(), flags: BTreeMap::new(), tries: Vec::new(), truncation: Truncation::default() }
     }
 
     fn contract(&self, key: &str) -> Option<&'p ContractDef> {
@@ -191,7 +200,25 @@ impl<'p> Builder<'p> {
         for link in &self.analysis.relations.links {
             self.link(link, &calls);
         }
+        let mut call_ids: HashMap<(String, String, String), String> = HashMap::new();
+        for (id, call) in edges.iter().filter(|(_, e)| e["kind"] == "calls") {
+            let key = (call["from"].to_string(), call["in_context"].to_string(), call["span"].to_string());
+            call_ids.insert(key, id.clone());
+        }
+        for pending in std::mem::take(&mut self.tries) {
+            self.try_catch(pending, &call_ids);
+        }
         edges.extend(self.numbered());
+        let guarded: Vec<(String, Value)> = edges
+            .iter()
+            .filter(|(_, e)| e["kind"] == "try_catch")
+            .filter_map(|(id, e)| Some((e["guarded_call"].as_str()?.to_string(), Value::from(id.as_str()))))
+            .collect();
+        for (call, id) in guarded {
+            if let Some(call) = edges.get_mut(&call) {
+                call["in_try"] = id;
+            }
+        }
         let nodes = self.nodes(&edges);
         Graph { nodes, edges, truncation: self.truncation }
     }
@@ -336,6 +363,57 @@ impl<'p> Builder<'p> {
                 }
             }
         }
+        for fact in try_catches(self.project, site.context, site.owner, func, cfg) {
+            let via = self.in_modifier(site, fact.modifier.as_deref());
+            self.tries.push(PendingTry { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });
+        }
+    }
+
+    /// Clauses and positions stay out of the id, so editing a catch keeps it.
+    fn try_catch(&mut self, pending: PendingTry, calls: &HashMap<(String, String, String), String>) {
+        let PendingTry { function, context_id, via, fact } = pending;
+        let in_context = json!(context_id);
+        let span = |s: SourceSpan| self.ids.span(s);
+        let guarded = fact.guarded_call.as_ref().and_then(|call| {
+            let key = (Value::from(function.as_str()).to_string(), in_context.to_string(), span(call.span).to_string());
+            calls.get(&key).cloned()
+        });
+        let site = |site: &EffectSite, field: &str| json!({field: site.text, "span": span(site.span)});
+        let context = self.contract(&fact.in_context);
+        let clauses: Vec<Value> = fact
+            .catch_clauses
+            .iter()
+            .map(|clause| {
+                let writes: Vec<Value> = clause
+                    .effects
+                    .writes
+                    .iter()
+                    .map(|w| {
+                        let mut write = site(w, "path");
+                        write["state_var"] = json!(context.and_then(|c| self.state_var(c, &w.text)));
+                        write
+                    })
+                    .collect();
+                json!({
+                    "kind": clause.kind,
+                    "span": span(clause.span),
+                    "empty": clause.empty,
+                    "effects": {
+                        "writes": writes,
+                        "calls": clause.effects.calls.iter().map(|c| site(c, "text")).collect::<Vec<_>>(),
+                        "emits": clause.effects.emits.iter().map(|e| site(e, "event")).collect::<Vec<_>>(),
+                        "reverts": clause.effects.reverts,
+                    },
+                })
+            })
+            .collect();
+        let success_span = fact.success_span.map(span);
+        let record = json!({"function": function, "in_context": in_context, "guarded_call": guarded, "via": via});
+        let tag = json!(fact.tag);
+        let pending = self.edge("try_catch", &function, record, Some(fact.span), tag.as_str().unwrap_or_default(), "cfg");
+        pending.record["success_span"] = json!(success_span);
+        pending.record["catch_clauses"] = Value::from(clauses);
+        pending.record["reason"] = json!(fact.reason);
     }
 
     fn call(&mut self, site: &Site, stmt: &CfgStatement, origin: Origin, call_spans: &mut HashMap<String, SourceSpan>) {
@@ -800,6 +878,7 @@ mod tests {
         v1_1["dispatch_candidates"] = json!([]);
         v1_1["unresolved_reason"] = json!("no_implementation");
         v1_1["target_source"]["assigned_at"] = json!([]);
+        v1_1["in_try"] = json!("try_catch:f#0123456789abcdef.0");
         assert_eq!(as_1_0(&v1_1), v1);
         v1_1["kind"] = json!("reads");
         assert_eq!(as_1_0(&v1_1), v1_1, "other kinds keep every field");

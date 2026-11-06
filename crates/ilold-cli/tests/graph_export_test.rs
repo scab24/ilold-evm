@@ -765,3 +765,47 @@ fn reads_and_writes_carry_the_keys_they_index_with() {
         assert!(record.get("keys").is_some() && record.get("keys_reason").is_some() && record["key_sites"].is_array(), "{record}");
     }
 }
+
+const TRYCATCH: &str = "tests/fixtures/solc/trycatch/src/TryCatch.sol";
+
+fn try_id(member: &str) -> String {
+    format!("evm:{TRYCATCH}:TryCatch.{member}")
+}
+
+#[test]
+fn try_statements_link_the_guarded_call_and_list_each_clause() {
+    let records = export(&fixture("trycatch"), "trycatch", 0);
+    let try_in = |function: &str| find(&records, "try_catch", |r| r["function"] == try_id(function));
+    let call = |id: &Value| find(&records, "calls", |r| r["id"] == *id);
+
+    let swallow = try_in("swallow()");
+    let guarded = call(&swallow["guarded_call"]);
+    assert_eq!((&guarded["target_text"], &guarded["in_try"]), (&Value::from("this.step"), &swallow["id"]));
+    assert!(swallow["id"].as_str().unwrap().starts_with(&format!("try_catch:{}#", try_id("swallow()"))), "{swallow}");
+    assert_eq!((&swallow["tag"], &swallow["rule"], &swallow["reason"]), (&Value::from("EXTRACTED"), &Value::from("cfg"), &Value::Null));
+    assert_eq!((swallow["span"]["start_line"].as_u64(), swallow["success_span"]["start_line"].as_u64()), (Some(46), Some(46)));
+    let clause = &swallow["catch_clauses"][0];
+    assert_eq!((&clause["kind"], &clause["empty"]), (&Value::from("all"), &Value::from(true)));
+    assert_eq!(clause["effects"], serde_json::json!({"writes": [], "calls": [], "emits": [], "reverts": false}));
+
+    let clauses = try_in("clauses(uint256)");
+    let kinds: Vec<&str> = clauses["catch_clauses"].as_array().unwrap().iter().map(|c| c["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["Error", "Panic", "bytes"]);
+    let panic = &clauses["catch_clauses"][1]["effects"];
+    assert_eq!(panic["writes"][0]["path"], "panics[code]");
+    assert_eq!(panic["writes"][0]["state_var"], try_id("panics"));
+    assert_eq!(clauses["catch_clauses"][0]["effects"]["emits"][0]["event"], "Rejected");
+    assert_eq!(clauses["catch_clauses"][2]["effects"]["calls"][0]["text"], "pinger.ping");
+    let in_catch = find(&records, "calls", |r| r["from"] == try_id("clauses(uint256)") && r["target_text"] == "pinger.ping");
+    assert!(in_catch.get("in_try").is_none(), "only the guarded call is in the try: {in_catch}");
+
+    assert_eq!(try_in("rethrow()")["catch_clauses"][0]["effects"]["reverts"], true);
+    let created = call(&try_in("create(uint256)")["guarded_call"]);
+    assert_eq!((&created["call_kind"], &created["target_text"]), (&Value::from("creation"), &Value::from("Child.constructor")));
+    assert_eq!(try_in("guarded()")["via"], serde_json::json!([try_id("pinged")]));
+
+    for record in of_kind(&records, "try_catch") {
+        assert_eq!(call(&record["guarded_call"])["in_try"], record["id"], "{record}");
+    }
+    assert_eq!(of_kind(&records, "try_catch").len(), 8);
+}
