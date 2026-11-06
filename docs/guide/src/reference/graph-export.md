@@ -84,7 +84,7 @@ Counts of where the analysis stopped, and the limits it used. Exported facts nev
 
 `<path>` is the declaring file relative to the git root. A function signature is its name and parameter types: `deposit(uint256)`. Contract types appear by name (`setFeed(IFeed)`). Internal and private functions keep data locations, because overloads may differ only by them: `_sum(uint256[] storage)` and `_sum(uint256[] memory)`. `receive()`, `fallback()` and `constructor(...)` follow the same form. The `selector` field carries the ABI selector where one exists.
 
-Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason` and `target_source.assigned_at`; on `reads` and `writes`: `keys`, `keys_reason` and `key_sites`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
+Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason`, `target_source.assigned_at` and `in_try`; on `reads` and `writes`: `keys`, `keys_reason` and `key_sites`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. A `try_catch` hashes only `function`, `in_context`, `guarded_call` and `via`, so editing a catch clause keeps its id. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
 
 ## Common fields
 
@@ -102,10 +102,10 @@ Every node and edge has:
 
 | Tag | Meaning |
 | --- | --- |
-| `EXTRACTED` | Read from the syntax: declarations, reverts, code facts, guards found in code on every path, storage-parameter accesses. |
+| `EXTRACTED` | Read from the syntax: declarations, reverts, code facts, guards found in code on every path, storage-parameter accesses, try statements. |
 | `TYPE_RESOLVED` | Resolved through solc declaration ids and types: call targets, emitted events, state variables of reads and writes, linearization. |
 | `INFERRED` | A heuristic: guards from a modifier name, guards on some paths only (`scope: conditional`), events matched by name where solc gave no id, calls resolved by name, linearization without solc data, an external call with exactly one in-scope implementation. |
-| `AMBIGUOUS` | Unresolved: the edge keeps its text and `to`, `event` or `state_var` is `null`. A modifier without code is `AMBIGUOUS` too, and so are dispatch candidates and contract links when several in-scope contracts may answer one call. |
+| `AMBIGUOUS` | Unresolved: the edge keeps its text and `to`, `event` or `state_var` is `null`. A modifier without code is `AMBIGUOUS` too, and so are dispatch candidates and contract links when several in-scope contracts may answer one call, and a try statement whose clauses cannot be told apart (`reason`). |
 
 ### Rules
 
@@ -113,7 +113,7 @@ Every node and edge has:
 | --- | --- |
 | `parse` | The solc AST model: every node. |
 | `linearization` | C3 linearization and name lookup over it: `inherits`, `exposes`, `uses_modifier`. |
-| `cfg` | The function's control-flow graph, modifiers inlined: direct `calls`, `reads`, `writes`, `emits`, `reverts`, `opaque_assembly`. |
+| `cfg` | The function's control-flow graph, modifiers inlined: direct `calls`, `reads`, `writes`, `emits`, `reverts`, `opaque_assembly`, `try_catch`. |
 | `effects` | Effects of the functions it calls, which run on its storage: facts with a non-empty `via`. |
 | `guards` | The guard walk over the function, its modifiers and helpers. |
 | `code_facts` | Builtins and unchecked blocks, modifiers included. |
@@ -151,7 +151,8 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 | --- | --- |
 | `inherits` | `child`, `base`, `order` (1-based position in the child's linearization), `direct` (declared in `is`). |
 | `exposes` | `contract`, `function` (a function, or a state variable for a getter), `via_base` (the declaring base when inherited, else `null`), `selector`, `getter`. One per externally callable function of each deployable project contract. |
-| `calls` | `from`, `to` (`dispatch_target`, else `static_target`, else `null`), `target_text`, `call_kind`, `static_target` (the declaration the code names), `dispatch_target` (what runs in this context: the virtual override, the `super` target), `options` (`{value, gas, salt}` as written), `target_source`, `result_used` (low-level calls and `send` only), `via`. External calls to a contract (`external`, `external_self`) also carry `dispatch_candidates` and, when that list is empty, `unresolved_reason`. See [Dispatch candidates](#dispatch-candidates). |
+| `calls` | `from`, `to` (`dispatch_target`, else `static_target`, else `null`), `target_text`, `call_kind`, `static_target` (the declaration the code names), `dispatch_target` (what runs in this context: the virtual override, the `super` target), `options` (`{value, gas, salt}` as written), `target_source`, `result_used` (low-level calls and `send` only), `via`. External calls to a contract (`external`, `external_self`) also carry `dispatch_candidates` and, when that list is empty, `unresolved_reason`. See [Dispatch candidates](#dispatch-candidates). The call a try statement guards carries `in_try`, the id of its `try_catch`. |
+| `try_catch` | `function`, `in_context`, `guarded_call` (the id of the `calls` record it guards, `null` when unknown), `success_span`, `catch_clauses`, `reason`, `via`. See [Try statements](#try-statements). |
 | `contract_link` | `from_contract`, `to_contract`, `via_state_vars` (ids of the state variables holding the called address), `call_ids` (the `calls` records it aggregates), `basis`. See [Contract links](#contract-links). |
 | `reads`, `writes` | `state_var`, `path` (`balances[]`, `s.x`), `param` (the storage parameter it goes through, then `state_var` is `null`), `via`, `keys`, `keys_reason`, `key_sites`. See [Mapping keys](#mapping-keys). |
 | `emits` | `event` (the declaration solc resolved; without an id, the one event with that name, else `null`), `event_text`, `via`. An emit reached through a call yields one edge per event declaration the callee emits under that name. |
@@ -255,6 +256,42 @@ Each record of the function's own code lists the distinct key sets it occurs wit
  "via": ["evm:src/Keys.sol:Keys._credit(address,uint256)"], "keys": null, "keys_reason": "transitive", "key_sites": [], "...": "..."}
 ```
 
+### Try statements
+
+One `try_catch` per try statement the function runs, its span the whole statement. `success_span` covers the success clause, from `returns` (or its block) to the closing brace. Each of `catch_clauses`, in source order, is `{kind, span, empty, effects}`:
+
+| `kind` | The clause |
+| --- | --- |
+| `Error` | `catch Error(string memory reason)`: a revert with a reason string. |
+| `Panic` | `catch Panic(uint256 code)`: a failed assertion, overflow, division by zero. |
+| `bytes` | `catch (bytes memory data)`: any failure, with its revert data. |
+| `all` | `catch { ... }`: any failure, without its data. |
+
+The kind comes from the clause's declaration, so a `bytes` catch and a bare one differ even where the control-flow graph names both alike. `empty` is `true` when the clause has no statement: the failure is swallowed and execution goes on after the try. `effects` is what the clause's own code does: `writes` (`{path, state_var, span}`, `path` keeping its keys), `calls` (`{text, span}`), `emits` (`{event, span}`, the event's name) and `reverts` (some path through the clause reverts). The effects of a function the clause calls are that function's records; code after the try statement belongs to no clause. The guarded `calls` record carries `in_try`, so the call reads as "may fail without reverting the caller".
+
+A try statement whose guarded call or clauses the model cannot read is `AMBIGUOUS` with `reason`: `statement_not_found` (no try statement has the call, so `catch_clauses` is empty) or `unknown_catch_kind` (a clause names an error other than `Error` or `Panic`; its `kind` is `null`).
+
+```json
+{"kind": "try_catch", "id": "try_catch:evm:src/TryCatch.sol:TryCatch.swallow()#6c18f36ba0abe966.0",
+ "function": "evm:src/TryCatch.sol:TryCatch.swallow()", "in_context": "evm:src/TryCatch.sol:TryCatch",
+ "guarded_call": "calls:evm:src/TryCatch.sol:TryCatch.swallow()#eff18cd9268cc749.0", "via": [],
+ "success_span": {"file": "src/TryCatch.sol", "start_line": 46, "start_col": 38, "end_line": 46, "end_col": 40},
+ "catch_clauses": [{"kind": "all", "empty": true, "effects": {"writes": [], "calls": [], "emits": [], "reverts": false},
+   "span": {"file": "src/TryCatch.sol", "start_line": 46, "start_col": 41, "end_line": 46, "end_col": 49}}],
+ "reason": null, "tag": "EXTRACTED", "rule": "cfg",
+ "span": {"file": "src/TryCatch.sol", "start_line": 46, "start_col": 9, "end_line": 46, "end_col": 49}}
+{"kind": "calls", "target_text": "this.step", "call_kind": "external_self",
+ "in_try": "try_catch:evm:src/TryCatch.sol:TryCatch.swallow()#6c18f36ba0abe966.0", "...": "..."}
+{"kind": "try_catch", "function": "evm:src/TryCatch.sol:TryCatch.clauses(uint256)",
+ "catch_clauses": [
+   {"kind": "Error", "empty": false, "effects": {"emits": [{"event": "Rejected", "span": {"...": "..."}}], "writes": [], "calls": [], "reverts": false}, "span": {"...": "..."}},
+   {"kind": "Panic", "empty": false, "effects": {"writes": [{"path": "panics[code]", "state_var": "evm:src/TryCatch.sol:TryCatch.panics", "span": {"...": "..."}}],
+     "calls": [], "emits": [], "reverts": false}, "span": {"...": "..."}},
+   {"kind": "bytes", "empty": false, "effects": {"writes": [{"path": "lastData", "state_var": "evm:src/TryCatch.sol:TryCatch.lastData", "span": {"...": "..."}}],
+     "calls": [{"text": "pinger.ping", "span": {"...": "..."}}], "emits": [], "reverts": false}, "span": {"...": "..."}}],
+ "...": "..."}
+```
+
 ### Spans
 
 A direct fact points at its statement; a read or revert, which the control-flow graph records per block, at its block. A fact with `via` points at the call in the function that leads to it. A guard found only by a modifier name points at the function.
@@ -266,6 +303,7 @@ A direct fact points at its statement; a read or revert, which the control-flow 
 - A condition that tests the caller only in a way the analysis does not read yields no access guard.
 - Keys are read from the index's text in the code making the access, its modifiers and the callees returning a storage pointer it calls; a key that reaches the path another way, or a text naming two declarations there, is an `expression`. So is a local declared in a tuple, `(address a, uint256 b) = ...`: the model keeps no declaration ids for its parts.
 - An access made in a callee carries no keys (`keys_reason: "transitive"`); its keys are on the callee's own record.
+- Catch clause effects list the clause's own code only, and name calls and events by their text, not by record id.
 
 ## Out of v1
 

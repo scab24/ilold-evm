@@ -50,11 +50,11 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert, `path_stats` with cutoffs and truncation; the first 100 narrated, `paths_omitted` counts the rest), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. `accesses` lists the reads and writes of its own code with the mapping keys of each index level. |
+| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert, `path_stats` with cutoffs and truncation; the first 100 narrated, `paths_omitted` counts the rest), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. `accesses` lists the reads and writes of its own code with the mapping keys of each index level. `try_catches` lists its try statements, as `ilold_cfg` does. |
 | `ilold_function_paths` | `contract`, `function`, `offset`, `limit` (optional) | One page of the execution paths with per-path annotations and terminal kind, plus the path stats (cutoffs, `cap_reached`, `truncated`); `page.truncated` means more paths follow. |
 | `ilold_trace` | `contract`, `function`, `depth` (optional), `reverts` (optional), `expand` (optional) | Execution tree with modifier bodies inlined and external calls resolved to their real target. |
 | `ilold_callgraph` | `contract` | Function call edges of the contract as the most derived contract (own and inherited functions, `super` and virtual dispatch resolved), with call kinds (internal, library internal/delegatecall, external, `this`, low-level, transfer/send, creation) and call counts; external calls carry their dispatch candidates or unresolved reason and the address assignment sites. |
-| `ilold_cfg` | `contract`, `function` | Control flow graph: basic blocks and branch edges. |
+| `ilold_cfg` | `contract`, `function` | Control flow graph: basic blocks and branch edges. `try_catches` lists each try statement: the guarded call, the blocks of its branches, and every catch clause with its kind (`Error`, `Panic`, `bytes`, `all`), whether it is empty (the failure is swallowed) and the writes, calls, events and reverts of its own code. |
 | `ilold_source` | `contract`, `function` | Source code of the function with its file path and line span. |
 
 ### Data flow

@@ -66,6 +66,13 @@ Guards list each revert check that gates the function, with the chain that reach
 
 When the path enumeration was cut short, a line under `Paths` names the causes, for example `truncated: 7518 depth cutoffs, 8 loop cutoffs, path cap reached (10 branches dropped)`; the happy and revert counts then cover only the paths found, and cut-off paths make up the rest of the total. `trace` shows the same line in its header. The function's own writes, reads, calls, events and reverts are read from every reachable block, so a cut never hides them.
 
+A function with try statements lists each under `Try/catch`: the guarded call and its line, then what every clause does with the failure (`failure swallowed` for an empty clause, its writes, calls and events, `reverts`):
+
+```
+  ├── Try/catch:
+  │      └── try pinger.quote (line 69) → catch Error: emits Rejected; catch Panic: writes panics[code]; catch (bytes): writes lastData, calls pinger.ping
+```
+
 The `info` command does not require the function to be in the session. It analyzes the function in isolation.
 
 ## trace
