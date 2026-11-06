@@ -22,9 +22,9 @@ OUT=$(./target/debug/ilold analyze "$CROSS" --contract Vault --verbose)
 while IFS= read -r edge; do
   has "$OUT" "$edge" && pass "$edge" || fail "missing call-graph edge: $edge"
 done <<'EDGES'
-depositVia → SafeMath.safeAdd
-depositVia → IPool.supply
-depositCast → IPool.supply
+Vault::depositVia → SafeMath::safeAdd
+Vault::depositVia → IPool::supply
+Vault::depositCast → IPool::supply
 EDGES
 has "$OUT" "pool::supply" && fail "unresolved placeholder 'pool::supply' present" || pass "no placeholders"
 
