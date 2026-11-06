@@ -84,7 +84,7 @@ Counts of where the analysis stopped, and the limits it used. Exported facts nev
 
 `<path>` is the declaring file relative to the git root. A function signature is its name and parameter types: `deposit(uint256)`. Contract types appear by name (`setFeed(IFeed)`). Internal and private functions keep data locations, because overloads may differ only by them: `_sum(uint256[] storage)` and `_sum(uint256[] memory)`. `receive()`, `fallback()` and `constructor(...)` follow the same form. The `selector` field carries the ABI selector where one exists.
 
-Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason` and `target_source.assigned_at`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
+Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason` and `target_source.assigned_at`; on `reads` and `writes`: `keys`, `keys_reason` and `key_sites`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
 
 ## Common fields
 
@@ -153,7 +153,7 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 | `exposes` | `contract`, `function` (a function, or a state variable for a getter), `via_base` (the declaring base when inherited, else `null`), `selector`, `getter`. One per externally callable function of each deployable project contract. |
 | `calls` | `from`, `to` (`dispatch_target`, else `static_target`, else `null`), `target_text`, `call_kind`, `static_target` (the declaration the code names), `dispatch_target` (what runs in this context: the virtual override, the `super` target), `options` (`{value, gas, salt}` as written), `target_source`, `result_used` (low-level calls and `send` only), `via`. External calls to a contract (`external`, `external_self`) also carry `dispatch_candidates` and, when that list is empty, `unresolved_reason`. See [Dispatch candidates](#dispatch-candidates). |
 | `contract_link` | `from_contract`, `to_contract`, `via_state_vars` (ids of the state variables holding the called address), `call_ids` (the `calls` records it aggregates), `basis`. See [Contract links](#contract-links). |
-| `reads`, `writes` | `state_var`, `path` (`balances[]`, `s.x`), `param` (the storage parameter it goes through, then `state_var` is `null`), `via`. |
+| `reads`, `writes` | `state_var`, `path` (`balances[]`, `s.x`), `param` (the storage parameter it goes through, then `state_var` is `null`), `via`, `keys`, `keys_reason`, `key_sites`. See [Mapping keys](#mapping-keys). |
 | `emits` | `event` (the declaration solc resolved; without an id, the one event with that name, else `null`), `event_text`, `via`. An emit reached through a call yields one edge per event declaration the callee emits under that name. |
 | `reverts` | `reason` (`require(cond)`, `revert Err(args)`, ...), `via`. |
 | `guards` | `guard_kind` (`caller_equals`, `role_check`, `tx_origin`, `access_by_name`, `pause`, `reentrancy`, `initializer`), `condition_text`, `scope` (`unconditional`, `conditional`), `restricts`, `negated`, `compared_against` (caller and `tx.origin` comparisons only), `checked_by` (the function or mapping a role check consults), `role` (the role argument), `role_implied_by` (the predicate that names the role when no argument does, as `aclManager.isPoolAdmin` in `aclManager.isPoolAdmin(msg.sender)`), `account` (whose access is checked: `msg_sender`, `tx_origin`), `alternatives`, `conjuncts`, `heuristic`, `via`. See [Guard conditions](#guard-conditions). |
@@ -224,6 +224,37 @@ One `contract_link` per ordered pair of contracts: code declared in `from_contra
  "span": {"file": "src/Router.sol", "start_line": 30, "start_col": 9, "end_line": 30, "end_col": 25}}
 ```
 
+### Mapping keys
+
+`path` drops the keys (`balances[]`); `keys` says what each index level reads, outermost first, as `{text, kind, ref}`. `text` is the index as the source writes it. `kind`:
+
+| `kind` | The index is | `ref` |
+| --- | --- | --- |
+| `msg_sender` | `msg.sender`: a slot per caller. | `null` |
+| `parameter` | a parameter of the code making the access. | the function, or the modifier for modifier code. |
+| `state_var` | a state variable, constants and immutables included. | the state variable. |
+| `local` | a local variable or named return. | `null` |
+| `literal` | a literal. | `null` |
+| `this` | `this`, casts such as `address(this)` included. | `null` |
+| `expression` | anything else: a call, arithmetic, a member. | `null` |
+
+A text that names different declarations in the same code (a local shadowing a parameter) is an `expression`: nothing picks one of them. The parameters of a callee that returns a storage pointer key what it returns, as in `_position(key).amount`, which writes `positions[id].amount` keyed by `_position`'s `id`.
+
+Each record of the function's own code lists the distinct key sets it occurs with in `key_sites`, `{keys, span}` sorted by span, then key text; records are never split by key, so their count and ids are those of schema 1.0. `keys` is the key set every site shares; a path without an index has `keys: []`. Reads are recorded per block, so a block reading `balances[from]` and `balances[to]` is one record whose sites differ: then `keys` is `null` and `keys_reason` is `several`. A record with `via` happens in a callee, whose summary keeps no keys: `keys` is `null`, `keys_reason` is `transitive`, `key_sites` is empty, and `via` leads to the callee's own record, which has them.
+
+```json
+{"kind": "writes", "function": "evm:src/Keys.sol:Keys.credit(address,uint256)", "path": "balances[]", "via": [],
+ "keys": [{"text": "account", "kind": "parameter", "ref": "evm:src/Keys.sol:Keys.credit(address,uint256)"}], "keys_reason": null,
+ "key_sites": [{"keys": [{"text": "account", "kind": "parameter", "ref": "evm:src/Keys.sol:Keys.credit(address,uint256)"}],
+   "span": {"file": "src/Keys.sol", "start_line": 26, "start_col": 9, "end_line": 26, "end_col": 35}}], "...": "..."}
+{"kind": "reads", "function": "evm:src/Keys.sol:Keys.move(address,address,uint256)", "path": "balances[]", "via": [],
+ "keys": null, "keys_reason": "several",
+ "key_sites": [{"keys": [{"text": "from", "kind": "parameter", "ref": "evm:src/Keys.sol:Keys.move(address,address,uint256)"}], "span": {"...": "..."}},
+   {"keys": [{"text": "to", "kind": "parameter", "ref": "evm:src/Keys.sol:Keys.move(address,address,uint256)"}], "span": {"...": "..."}}], "...": "..."}
+{"kind": "writes", "function": "evm:src/Keys.sol:Keys.creditLater(address,uint256)", "path": "balances[]",
+ "via": ["evm:src/Keys.sol:Keys._credit(address,uint256)"], "keys": null, "keys_reason": "transitive", "key_sites": [], "...": "..."}
+```
+
 ### Spans
 
 A direct fact points at its statement; a read or revert, which the control-flow graph records per block, at its block. A fact with `via` points at the call in the function that leads to it. A guard found only by a modifier name points at the function.
@@ -233,6 +264,8 @@ A direct fact points at its statement; a read or revert, which the control-flow 
 - `dispatch_target` is computed for internal calls only; an external call keeps the interface declaration and lists its in-scope implementations in `dispatch_candidates` instead.
 - Dispatch candidates do not follow the value of the address: a call through `hook` lists every implementation of `IHook`, whatever `assigned_at` sets it to.
 - A condition that tests the caller only in a way the analysis does not read yields no access guard.
+- Keys are read from the index's text in the code making the access, its modifiers and the callees returning a storage pointer it calls; a key that reaches the path another way, or a text naming two declarations there, is an `expression`. So is a local declared in a tuple, `(address a, uint256 b) = ...`: the model keeps no declaration ids for its parts.
+- An access made in a callee carries no keys (`keys_reason: "transitive"`); its keys are on the callee's own record.
 
 ## Out of v1
 

@@ -75,7 +75,7 @@ ilold[Staking]> v
   immutable rewardToken   address
 ```
 
-Tags are `mutable`, `const`, or `immutable`.
+Tags are `mutable`, `const`, or `immutable`. A mapping or array also lists the kinds of key the contract's functions index it with, such as `keys: msg_sender, parameter`.
 
 ## vars-all
 

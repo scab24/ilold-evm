@@ -6,7 +6,7 @@ Analysis commands query the contract model without modifying the session. Each c
 
 `w <variable>` or `who <variable>`
 
-Shows which functions read and write a state variable, with their access level. Searches across the active contract and its ancestors.
+Shows which functions read and write a state variable, with their access level. Searches across the active contract and its ancestors. `Keys` lists every site with the mapping keys it indexes with and their kind (`W` writes, `R` reads); an access made in a callee says its keys are not tracked.
 
 ```
 ilold[Staking]> who totalStaked
@@ -22,6 +22,19 @@ ilold[Staking]> who totalStaked
 ```
 
 The cross-reference hints suggest running [slice](#slice) for each writer and [timeline](#timeline) for the variable.
+
+For a mapping, the keys tell per-caller storage from shared storage (abridged):
+
+```
+ilold[Keys]> who balances
+    ...
+    Keys:
+      W credit        [account] parameter  line 26
+      W creditLater   in a callee: keys not tracked
+      W deposit       [msg.sender] msg_sender  line 22
+      W fundTreasury  [treasury] state_var  line 30
+      W selfCredit    [address(this)] this  line 42
+```
 
 ## info
 

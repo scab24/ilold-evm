@@ -50,7 +50,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert, `path_stats` with cutoffs and truncation; the first 100 narrated, `paths_omitted` counts the rest), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. |
+| `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert, `path_stats` with cutoffs and truncation; the first 100 narrated, `paths_omitted` counts the rest), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. `accesses` lists the reads and writes of its own code with the mapping keys of each index level. |
 | `ilold_function_paths` | `contract`, `function`, `offset`, `limit` (optional) | One page of the execution paths with per-path annotations and terminal kind, plus the path stats (cutoffs, `cap_reached`, `truncated`); `page.truncated` means more paths follow. |
 | `ilold_trace` | `contract`, `function`, `depth` (optional), `reverts` (optional), `expand` (optional) | Execution tree with modifier bodies inlined and external calls resolved to their real target. |
 | `ilold_callgraph` | `contract` | Function call edges of the contract as the most derived contract (own and inherited functions, `super` and virtual dispatch resolved), with call kinds (internal, library internal/delegatecall, external, `this`, low-level, transfer/send, creation) and call counts; external calls carry their dispatch candidates or unresolved reason and the address assignment sites. |
@@ -62,7 +62,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 | Tool | Parameters | Returns |
 | --- | --- | --- |
 | `ilold_slice` | `function`, `variable`, `direction` (backward/forward/both) | Backward and forward dataflow of a variable in a function of the active contract. A forward slice of a parameter is a taint analysis. Requires `ilold_use`. |
-| `ilold_who_touches` | `contract`, `variable` | Functions that read and write a state variable, with their access level. |
+| `ilold_who_touches` | `contract`, `variable` | Functions that read and write a state variable, with their access level. `accesses` gives each function's key sites (`msg_sender` keys a slot per caller, `state_var`, `literal` and `this` a shared one), or `keys_reason: "transitive"` when a callee makes the access. |
 | `ilold_timeline` | `variable` | Mutations of a variable across the steps of the active session. Requires `ilold_use`. |
 
 ### Sequences (multi-function)

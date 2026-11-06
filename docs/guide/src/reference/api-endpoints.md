@@ -61,7 +61,7 @@ Each contract owns an independent session store (scenarios, forks and steps). A 
 - `StepAdded`: `step_index`, `function`, `access`, `state_changed` (list of variable names, including writes made through calls such as `_reserves[].liquidityIndex`)
 - `StateView`: `summary` (list of variable summaries with writers per step)
 - `FunctionList`: `functions` (name, access level, writes_state, has_external_calls)
-- `VariableInfo`: `variable`, `writers` (name + access), `readers` (name + access)
+- `VariableInfo`: `variable`, `writers` (name + access), `readers` (name + access), `accesses`: per function and `kind` (`read` or `write`), the mapping keys of its own code (`keys`, `keys_reason`, `key_sites`, as in the [graph export](graph-export.md#mapping-keys)), or an entry with `keys_reason: "transitive"` when a callee makes the access
 - `Error`: `message`
 
 ## Session query endpoints
@@ -144,7 +144,7 @@ Returns a FlowTree for the given function, computed on demand from the current a
 
 ### GET /api/session/function/{contract}/{func}
 
-Returns a function narrative without requiring a session step. Useful for inspecting functions that have not been called in the session.
+Returns a function narrative without requiring a session step. Useful for inspecting functions that have not been called in the session. `accesses` lists the reads and writes of the function's own code with their keys, as in [`GET /api/contract/{name}`](#get-apicontractname); it is absent when there are none.
 
 **Path params:** `contract` -- contract name (404 unknown, 409 ambiguous), `func` -- function name.
 
@@ -182,7 +182,7 @@ Returns the contract dependency graph in Cytoscape-compatible JSON. Nodes carry 
 
 ### GET /api/contract/{name}
 
-Returns contract detail: name, `display_name`, `qualified_id`, `is_dependency`, kind, direct bases (`inherits` as written, `inherit_keys` as route segments, so an aliased or same-named base links to the right contract; bases outside the model are omitted), functions (with `path_count`, `happy_paths`, `revert_paths` and `paths_truncated`), state variables, and inherited functions and state variables. Inherited functions are the public, external and internal functions of the linearization that the contract does not override; private functions and base constructors are not inherited, and an interface function implemented by a public state variable getter is not listed. Inherited state variables are in storage layout order, most base contract first (slot numbers are not computed). `outgoing_links` and `incoming_links` list the contract links from and to the contract. Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
+Returns contract detail: name, `display_name`, `qualified_id`, `is_dependency`, kind, direct bases (`inherits` as written, `inherit_keys` as route segments, so an aliased or same-named base links to the right contract; bases outside the model are omitted), functions (with `path_count`, `happy_paths`, `revert_paths` and `paths_truncated`), state variables, and inherited functions and state variables. Inherited functions are the public, external and internal functions of the linearization that the contract does not override; private functions and base constructors are not inherited, and an interface function implemented by a public state variable getter is not listed. Inherited state variables are in storage layout order, most base contract first (slot numbers are not computed). `outgoing_links` and `incoming_links` list the contract links from and to the contract. Each function lists in `accesses` the reads and writes of its own code and modifiers: `kind` (`read` or `write`), the raw `path` with its keys, `param` (the storage parameter it is rooted at), `modifier`, `span`, `block` and `keys`, each `{text, kind, ref}` as in the [graph export](graph-export.md#mapping-keys), with `ref` as `<contract>::<function, modifier or state variable>`. Each state variable lists in `key_kinds` the kinds of key the functions the contract runs index it with. Each function carries its `signature` and the `key` to use as `{func}` in the routes below: the bare name when it is unique on this contract, otherwise the signature.
 
 Signatures are `name(type,...)`:
 
@@ -220,7 +220,7 @@ Returns the contract's neighbourhood in the dependency graph: the contract itsel
 
 ### GET /api/contract/{name}/{func}/cfg
 
-Returns the control flow graph for a function in Cytoscape-compatible JSON format. Nodes represent basic blocks (entry, normal, return, revert, assembly, loop) with their `statements` and, when known, the `span` of source lines they run (`file_index`, `start_line`, `start_col`, `end_line`, `end_col`) and the `file` path it points into: the function's own lines, or the modifier's for a block of inlined modifier code; a revert or return block cites the statement that ends there. Edges represent control flow transitions.
+Returns the control flow graph for a function in Cytoscape-compatible JSON format. Nodes represent basic blocks (entry, normal, return, revert, assembly, loop) with their `statements` and, when known, the `span` of source lines they run (`file_index`, `start_line`, `start_col`, `end_line`, `end_col`) and the `file` path it points into: the function's own lines, or the modifier's for a block of inlined modifier code; a revert or return block cites the statement that ends there. A block's `accesses` lists the reads and writes it makes, with their keys, as in [`GET /api/contract/{name}`](#get-apicontractname). Edges represent control flow transitions.
 
 ### GET /api/contract/{name}/{func}/source
 
