@@ -1,0 +1,133 @@
+{
+  "edges": [
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e0",
+        "kind": "InternalLibrary",
+        "kind_label": "library internal",
+        "source": "Vault::depositVia",
+        "target": "SafeMath::safeAdd"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e1",
+        "kind": "External",
+        "kind_label": "external",
+        "source": "Vault::depositVia",
+        "target": "IPool::supply"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e2",
+        "kind": "InternalLibrary",
+        "kind_label": "library internal",
+        "source": "Vault::record",
+        "target": "SafeMath::safeAdd"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e3",
+        "kind": "External",
+        "kind_label": "external",
+        "source": "Vault::depositCast",
+        "target": "IPool::supply"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e4",
+        "kind": "External",
+        "kind_label": "external",
+        "source": "Vault::pushVia",
+        "target": "IPool::push"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "data": {
+        "contract": "Vault",
+        "id": "Vault::constructor",
+        "is_external": false,
+        "key": "constructor",
+        "label": "constructor",
+        "node_type": "internal"
+      }
+    },
+    {
+      "data": {
+        "contract": "Vault",
+        "id": "Vault::depositVia",
+        "is_external": false,
+        "key": "depositVia",
+        "label": "depositVia",
+        "node_type": "internal"
+      }
+    },
+    {
+      "data": {
+        "contract": "Vault",
+        "id": "Vault::record",
+        "is_external": false,
+        "key": "record",
+        "label": "record",
+        "node_type": "internal"
+      }
+    },
+    {
+      "data": {
+        "contract": "Vault",
+        "id": "Vault::depositCast",
+        "is_external": false,
+        "key": "depositCast",
+        "label": "depositCast",
+        "node_type": "internal"
+      }
+    },
+    {
+      "data": {
+        "contract": "Vault",
+        "id": "Vault::pushVia",
+        "is_external": false,
+        "key": "pushVia",
+        "label": "pushVia",
+        "node_type": "internal"
+      }
+    },
+    {
+      "data": {
+        "contract": "SafeMath",
+        "id": "SafeMath::safeAdd",
+        "is_external": true,
+        "label": "safeAdd",
+        "node_type": "external"
+      }
+    },
+    {
+      "data": {
+        "contract": "IPool",
+        "id": "IPool::supply",
+        "is_external": true,
+        "label": "supply",
+        "node_type": "external"
+      }
+    },
+    {
+      "data": {
+        "contract": "IPool",
+        "id": "IPool::push",
+        "is_external": true,
+        "label": "push",
+        "node_type": "external"
+      }
+    }
+  ]
+}

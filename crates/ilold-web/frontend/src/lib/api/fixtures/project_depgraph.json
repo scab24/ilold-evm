@@ -1,0 +1,115 @@
+{
+  "edges": [
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e0",
+        "kind": "inherits",
+        "kinds": [
+          "inherits"
+        ],
+        "source": "LendingPool",
+        "target": "BasePool"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e1",
+        "kind": "inherits",
+        "kinds": [
+          "inherits"
+        ],
+        "source": "LendingPool",
+        "target": "IPool"
+      }
+    },
+    {
+      "data": {
+        "call_count": 3,
+        "id": "e2",
+        "kind": "calls",
+        "kinds": [
+          "calls",
+          "holds"
+        ],
+        "source": "Vault",
+        "target": "IPool"
+      }
+    },
+    {
+      "data": {
+        "call_count": 2,
+        "id": "e3",
+        "kind": "calls",
+        "kinds": [
+          "calls"
+        ],
+        "source": "Vault",
+        "target": "SafeMath"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "BasePool",
+        "is_dependency": false,
+        "kind": "abstract",
+        "label": "BasePool",
+        "layer": 0,
+        "qualified_id": "src/BasePool.sol:BasePool"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "IPool",
+        "is_dependency": false,
+        "kind": "interface",
+        "label": "IPool",
+        "layer": 0,
+        "qualified_id": "src/IPool.sol:IPool"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "LendingPool",
+        "is_dependency": false,
+        "kind": "contract",
+        "label": "LendingPool",
+        "layer": 1,
+        "qualified_id": "src/LendingPool.sol:LendingPool"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "SafeMath",
+        "is_dependency": false,
+        "kind": "library",
+        "label": "SafeMath",
+        "layer": 0,
+        "qualified_id": "src/SafeMath.sol:SafeMath"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "Vault",
+        "is_dependency": false,
+        "kind": "contract",
+        "label": "Vault",
+        "layer": 1,
+        "qualified_id": "src/Vault.sol:Vault"
+      }
+    }
+  ]
+}

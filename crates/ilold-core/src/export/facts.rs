@@ -29,6 +29,23 @@ const TYPE_RESOLVED: &str = "TYPE_RESOLVED";
 const INFERRED: &str = "INFERRED";
 const AMBIGUOUS: &str = "AMBIGUOUS";
 
+/// Fields added to a kind after schema 1.0, as JSON pointers; ids leave them out so they stay what 1.0 gave.
+const ADDED_FIELDS: &[(&str, &[&str])] =
+    &[("calls", &["/dispatch_candidates", "/unresolved_reason", "/target_source/assigned_at"])];
+
+/// The record as schema 1.0 wrote its kind.
+pub fn as_1_0(record: &Value) -> Value {
+    let mut v1_0 = record.clone();
+    let kind = record["kind"].as_str().unwrap_or_default();
+    for pointer in ADDED_FIELDS.iter().filter(|(k, _)| *k == kind).flat_map(|(_, fields)| fields.iter()) {
+        let (parent, field) = pointer.rsplit_once('/').unwrap_or_default();
+        if let Some(object) = v1_0.pointer_mut(parent).and_then(Value::as_object_mut) {
+            object.remove(field);
+        }
+    }
+    v1_0
+}
+
 /// A serde variant name in snake case: `LowLevelCall` is `low_level_call`.
 fn snake(value: impl Serialize) -> String {
     let name = serde_json::to_value(value).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
@@ -163,10 +180,10 @@ impl<'p> Builder<'p> {
         Graph { nodes, edges, truncation: self.truncation }
     }
 
-    /// The hash leaves out the position, so moving other code keeps the id; equal facts collapse.
+    /// The hash leaves out the position and later fields, so moving other code or extending a kind keeps the id; equal facts collapse.
     fn edge(&mut self, kind: &str, from: &str, mut record: Value, span: Option<SourceSpan>, tag: &str, rule: &str) {
         record["kind"] = Value::from(kind);
-        let hash = digest(record.to_string().as_bytes());
+        let hash = digest(as_1_0(&record).to_string().as_bytes());
         record["span"] = span.map_or(Value::Null, |s| self.ids.span(s));
         record["tag"] = Value::from(tag);
         record["rule"] = Value::from(rule);
@@ -672,7 +689,8 @@ fn collect_ids(value: &Value, out: &mut BTreeSet<String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::snake;
+    use super::{as_1_0, snake};
+    use serde_json::json;
     use crate::classify::guards::GuardKind;
     use crate::model::expression::CallKind;
     use crate::model::function::Mutability;
@@ -683,5 +701,17 @@ mod tests {
         assert_eq!(snake(CallKind::Internal), "internal");
         assert_eq!(snake(GuardKind::TxOrigin), "tx_origin");
         assert_eq!(snake(Mutability::NonPayable), "non_payable");
+    }
+
+    #[test]
+    fn fields_added_after_1_0_stay_out_of_the_identity() {
+        let v1 = json!({"kind": "calls", "to": "t", "target_source": {"kind": "state_var", "name": "x"}});
+        let mut v1_1 = v1.clone();
+        v1_1["dispatch_candidates"] = json!([]);
+        v1_1["unresolved_reason"] = json!("no_implementation");
+        v1_1["target_source"]["assigned_at"] = json!([]);
+        assert_eq!(as_1_0(&v1_1), v1);
+        v1_1["kind"] = json!("reads");
+        assert_eq!(as_1_0(&v1_1), v1_1, "other kinds keep every field");
     }
 }

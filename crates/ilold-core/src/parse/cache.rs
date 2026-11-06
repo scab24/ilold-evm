@@ -29,7 +29,7 @@ const MAX_COMPILER: u64 = 128 * 1024 * 1024;
 const MAX_SNAPSHOT: u64 = 64 * 1024 * 1024;
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
+pub fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 
 fn read_bounded(path: &Path, max: u64) -> Result<String, String> {
     if fs::symlink_metadata(path).map_err(|e| e.to_string())?.file_type().is_symlink() {

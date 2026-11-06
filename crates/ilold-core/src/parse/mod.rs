@@ -3,6 +3,8 @@ pub mod error;
 pub mod solc_frontend;
 pub mod span;
 
+pub use cache::digest;
+
 use std::path::PathBuf;
 
 use crate::model::project::Project;

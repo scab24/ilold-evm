@@ -1,0 +1,252 @@
+{
+  "contracts": [
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "_accrue",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "Internal"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Abstract",
+      "name": "BasePool",
+      "state_vars": [
+        {
+          "is_constant": false,
+          "name": "totalSupplied",
+          "type_name": "uint256"
+        }
+      ]
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 0,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "supply",
+          "path_count": 0,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 0,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "withdraw",
+          "path_count": 0,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 0,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "push",
+          "path_count": 0,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Interface",
+      "name": "IPool",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "supply",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "withdraw",
+          "path_count": 2,
+          "paths_truncated": false,
+          "revert_paths": 1,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "push",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [
+        "BasePool",
+        "IPool"
+      ],
+      "inherits": [
+        "BasePool",
+        "IPool"
+      ],
+      "kind": "Contract",
+      "name": "LendingPool",
+      "state_vars": [
+        {
+          "is_constant": false,
+          "name": "balances",
+          "type_name": "mapping(address => uint256)"
+        }
+      ]
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "Pure",
+          "name": "safeAdd",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "Internal"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Library",
+      "name": "SafeMath",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "constructor",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "Public"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": true,
+          "mutability": "NonPayable",
+          "name": "depositVia",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "View",
+          "name": "record",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": true,
+          "mutability": "NonPayable",
+          "name": "depositCast",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": true,
+          "mutability": "NonPayable",
+          "name": "pushVia",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Contract",
+      "name": "Vault",
+      "state_vars": [
+        {
+          "is_constant": false,
+          "name": "pool",
+          "type_name": "contract IPool"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from_contract": "LendingPool",
+      "from_function": "supply",
+      "kind": "Internal",
+      "to_contract": "BasePool",
+      "to_function": "_accrue"
+    },
+    {
+      "from_contract": "Vault",
+      "from_function": "depositVia",
+      "kind": "InternalLibrary",
+      "to_contract": "SafeMath",
+      "to_function": "safeAdd"
+    },
+    {
+      "from_contract": "Vault",
+      "from_function": "depositVia",
+      "kind": "External",
+      "to_contract": "IPool",
+      "to_function": "supply"
+    },
+    {
+      "from_contract": "Vault",
+      "from_function": "record",
+      "kind": "InternalLibrary",
+      "to_contract": "SafeMath",
+      "to_function": "safeAdd"
+    },
+    {
+      "from_contract": "Vault",
+      "from_function": "depositCast",
+      "kind": "External",
+      "to_contract": "IPool",
+      "to_function": "supply"
+    },
+    {
+      "from_contract": "Vault",
+      "from_function": "pushVia",
+      "kind": "External",
+      "to_contract": "IPool",
+      "to_function": "push"
+    }
+  ]
+}

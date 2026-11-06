@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ilold_core::export::as_1_0;
+use ilold_core::parse::digest;
 use serde_json::Value;
 
 fn repo() -> PathBuf {
@@ -582,4 +584,68 @@ fn exit_4_on_a_compile_error_inside_the_sources_still_writes_the_inventory() {
         assert_eq!(entry["status"], "excluded", "{entry}");
         assert!(entry["reason"].as_str().is_some_and(|r| r.contains("compile error")), "{entry}");
     }
+}
+
+/// Every fixture's export as schema 1.0 wrote it: exit code, record count, then sha256 of the sorted ids and of the sorted records.
+const V1_0_EXPORTS: &[(&str, i32, usize, &str, &str)] = &[
+    ("tests/fixtures/erc20", 0, 47, "c7e8c077ae99b3a1d125c6b319735235a3e11edc18dafb20ca581caf5025c7d2", "dc3d2fb7a0b32e0b9ccfa097179d7eb0e35998386d250213a9952ed59c80be8b"),
+    ("tests/fixtures/foundry_config", 0, 6, "63ba4cc3c6aeea2266cbc1ed41955550558e30c6fdbefd0bad160d58cad5503a", "0e2476236a2dac7e03154ff366671654cba5b6482d1eb2ed3b3ce7518f36a5d2"),
+    ("tests/fixtures/governor", 0, 124, "c9311c0188d17de8ed88ac3afdb974ff9666fe1f07938304695ca9042c2c1c6b", "607fc903649afca3e18232b8a0b5d90e658a5961d863528e6f37f83ddeed2524"),
+    ("tests/fixtures/multi", 0, 36, "4e1f1aa4eb3e7849adfabc18cd0863bdfcc22a1295a181548f58e799211bd401", "b22d8f0a991108291ec87a1271b77accf111f2b23630fe7cf4e290655fb0801c"),
+    ("tests/fixtures/nested_remappings", 0, 10, "843106a87f89e4b5000713ced26a12335be0b356001b0c7c7a229ae5b2b007f0", "77c5cc162a2662d4faa6de0de996488f315aef7713c8275afcc4a81817aea089"),
+    ("tests/fixtures/simple_storage", 0, 11, "0336d194a3163368d68f884f34d15a305fb94db267d6ddbc5f56f58681a24e3e", "127237628110adcbe7071c8d4a96081546dbd676847b8e5c5ba84ddc37f92e33"),
+    ("tests/fixtures/solc/access", 0, 431, "ca4858fa061a26a2b12ba2d645efe4c6a47f3277175162c221380bb51a532abb", "377d0b71aacf60edd22d6bad31b236eefd4f746907646e0203d052bd33262260"),
+    ("tests/fixtures/solc/call_resolution", 0, 293, "f191c8d67672e9d4b2a2b8f4a3a564e4df32fc0168382a1e98821b7c18e94977", "15c3a15355b5dc2d3f97fcef860ba2442eab9c31acafe98659b5b21a92e00ad4"),
+    ("tests/fixtures/solc/control_flow", 0, 88, "f7d4cc63341e350901d97df09f1c9994fb00d712c10b42a88c6dee1b5d8a8a23", "4634a56f31ed4c057a0cf248443b6326aa47ef0e87226e4eb25cb36b621fe68e"),
+    ("tests/fixtures/solc/cross", 0, 53, "807f9738667b52787b28fd4fadf456a3719c3bb01e19b4b9c1f1125cf6a3cb53", "de1eac0fb22dbaca65a590493c4b7ac3e06c336c0cb0a243ee473127c83e7060"),
+    ("tests/fixtures/solc/entry_overload", 0, 9, "af2e7f7ca8d654aa03a84c86902dc368a5ecfe1512fab2f8f162e83a3c753d10", "653ac4dff401f433a38a26ddf067daf3924f868b36a1549e0753a94fa6e01558"),
+    ("tests/fixtures/solc/export/broken_src", 4, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/export/kinds", 0, 101, "8200e1699b9ae79fe2e39d11fb8d8a0aab8b4874e5f89c60248ecf19e1958b76", "e5d397a7efbbffb2c6d8cba4286476a65bf88dc689f531fbbbe51facd0c111ba"),
+    ("tests/fixtures/solc/facts", 0, 396, "bbcae12fb9fb620f04725eaa91a6dd0cf80734fe30f6022b31a1553c07337197", "b5c66e862a125ab4bbfd31f2db1d9cb914b15cc02dc3732e0729f1d9a9dcd868"),
+    ("tests/fixtures/solc/model/broken_src", 4, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/model/default_pick", 0, 37, "f9b2952fcff6065faaaedf1182fbf2714a47eed886201a30ef3ecafe59253f33", "72c696bb0a85c1b1cc043c43a590ae12f32f24ec369161b9bf819b24c59a8181"),
+    ("tests/fixtures/solc/model/partial", 3, 6, "1bf3bf79ce027773629813f7595c57b7416e1d73be8e8ec0dfb560d4a1361ff0", "cec36848b99703ec24d737bc3fb3fa00fa5c99e2bc1233a205a8a4f969cf4bd4"),
+    ("tests/fixtures/solc/model/project", 0, 104, "a0f99e8b32d58d12fb5cfe52f457bba44118b36b75e3c19770167944031b5055", "aed5d0f76e4d4ee4f54409ca32442b034f5330f83052d85f9e5bd5cdaf4f7fa6"),
+    ("tests/fixtures/solc/state_flow", 0, 563, "208e782982e11ebe338df45dd055a970c0f6ebf80b1c0e1b7f5dfc1142793002", "8d6977759a3dc532a464ccc33912f678c4f39d7dd4b5005a6fed937bd35fe2c6"),
+    ("tests/fixtures/solc/statements", 0, 103, "4ba83adf508204b39855d53ced1a6665df1095019a06ce52710790ba73bdea5c", "8dd0e17a6f0bb82784da827c79a8f71fcc7437e8f9e0a14bc87ad180fd1677c2"),
+    ("tests/fixtures/staking", 0, 150, "88609695351a21d671ca11eb955edfbb9146d9d8ad8cd5cba388445ab5ade90e", "c33e0d83b21da75250a7dc73fb4b35ac17e230014c207662908b271d23dd3953"),
+    ("tests/fixtures/uniswap_v2_pair", 0, 134, "9167b918bbd14a795ee09edd4cb8e89fb5f902106905944e6dae07a802d7f596", "413a461bc6751ebaede45e48323f6e2a1f0a60a5d1a8fc2af769772061221b6a"),
+];
+
+const V1_0_KINDS: &[&str] = &[
+    "contract", "function", "state_var", "event", "error", "modifier", "calls", "reads", "writes", "emits", "reverts",
+    "guards", "builtin_use", "unchecked_block", "uses_modifier", "opaque_assembly", "inherits", "exposes",
+];
+
+#[test]
+fn existing_fixtures_keep_every_1_0_record() {
+    let found: Vec<(&str, i32, usize, String, String)> = std::thread::scope(|scope| {
+        let runs: Vec<_> = V1_0_EXPORTS
+            .iter()
+            .enumerate()
+            .map(|(i, (path, code, ..))| {
+                scope.spawn(move || {
+                    let records: Vec<Value> = export(&repo().join(path), &format!("baseline-{i}"), *code)
+                        .into_iter()
+                        .skip(1)
+                        .filter(|r| V1_0_KINDS.contains(&r["kind"].as_str().unwrap_or_default()))
+                        .map(|r| as_1_0(&r))
+                        .collect();
+                    let mut ids: Vec<String> = records.iter().map(|r| r["id"].as_str().unwrap().to_string()).collect();
+                    let mut lines: Vec<String> = records.iter().map(Value::to_string).collect();
+                    ids.sort();
+                    lines.sort();
+                    (*path, *code, records.len(), digest(ids.join("\n").as_bytes()), digest(lines.join("\n").as_bytes()))
+                })
+            })
+            .collect();
+        runs.into_iter().map(|run| run.join().unwrap()).collect()
+    });
+    let changed: Vec<String> = found
+        .iter()
+        .zip(V1_0_EXPORTS)
+        .filter(|((p, c, n, i, r), e)| (*p, *c, *n, i.as_str(), r.as_str()) != **e)
+        .map(|(f, _)| format!("{f:?}"))
+        .collect();
+    assert!(changed.is_empty(), "exports differ from schema 1.0:\n{}", changed.join("\n"));
 }

@@ -15,6 +15,7 @@ use crate::parse::error::ParseError;
 use crate::parse::solc_frontend::{project_layout, ProjectLayout, SolcFrontend};
 use crate::sequence::effects::MAX_ROUNDS;
 
+pub use facts::as_1_0;
 use ids::{Ids, Paths};
 use inventory::Repo;
 
