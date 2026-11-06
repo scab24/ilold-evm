@@ -18,7 +18,7 @@ use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
 use crate::pathtree::walker::normalize_path;
-use crate::relations::{call_target, state_var_ref, ContractLink};
+use crate::relations::{call_target, state_var_ref, storage_accesses, AccessKey, AccessKind, ContractLink, KeySite, RecordKeys};
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
 use crate::sequence::effects::{reachable, resolve_call, summarize, CallSite, EffectEngine};
 use crate::util::target_base_name;
@@ -31,8 +31,12 @@ const INFERRED: &str = "INFERRED";
 const AMBIGUOUS: &str = "AMBIGUOUS";
 
 /// Fields added to a kind after schema 1.0, as JSON pointers; ids leave them out so they stay what 1.0 gave.
-const ADDED_FIELDS: &[(&str, &[&str])] =
-    &[("calls", &["/dispatch_candidates", "/unresolved_reason", "/target_source/assigned_at"])];
+const ADDED_FIELDS: &[(&str, &[&str])] = &[
+    ("calls", &["/dispatch_candidates", "/unresolved_reason", "/target_source/assigned_at"]),
+    ("reads", KEY_FIELDS),
+    ("writes", KEY_FIELDS),
+];
+const KEY_FIELDS: &[&str] = &["/keys", "/keys_reason", "/key_sites"];
 
 /// The record as schema 1.0 wrote its kind.
 pub fn as_1_0(record: &Value) -> Value {
@@ -87,7 +91,7 @@ pub(super) struct Builder<'p> {
     analysis: &'p ProjectAnalysis,
     ids: Ids<'p>,
     /// Distinct facts by id without its occurrence index.
-    edges: BTreeMap<String, Vec<Value>>,
+    edges: BTreeMap<String, Vec<Pending>>,
     /// Per function id, its flags in each context.
     flags: BTreeMap<String, BTreeMap<String, Value>>,
     truncation: Truncation,
@@ -99,6 +103,12 @@ struct Site<'u> {
     owner: &'u ContractDef,
     context: &'u ContractDef,
     context_id: Option<&'u str>,
+}
+
+/// A fact before numbering; a direct read or write also collects the key sets it occurs with.
+struct Pending {
+    record: Value,
+    key_sites: Option<Vec<KeySite>>,
 }
 
 /// Where a fact is, the chain that reaches it and the pass that found it.
@@ -187,24 +197,29 @@ impl<'p> Builder<'p> {
     }
 
     /// The hash leaves out the position and later fields, so moving other code or extending a kind keeps the id; equal facts collapse.
-    fn edge(&mut self, kind: &str, from: &str, mut record: Value, span: Option<SourceSpan>, tag: &str, rule: &str) {
+    fn edge(&mut self, kind: &str, from: &str, mut record: Value, span: Option<SourceSpan>, tag: &str, rule: &str) -> &mut Pending {
         record["kind"] = Value::from(kind);
         let hash = digest(as_1_0(&record).to_string().as_bytes());
         record["span"] = span.map_or(Value::Null, |s| self.ids.span(s));
         record["tag"] = Value::from(tag);
         record["rule"] = Value::from(rule);
         let same = self.edges.entry(format!("{kind}:{from}#{}", &hash[..16])).or_default();
-        if !same.contains(&record) {
-            same.push(record);
-        }
+        let at = same.iter().position(|p| p.record == record).unwrap_or_else(|| {
+            same.push(Pending { record, key_sites: None });
+            same.len() - 1
+        });
+        &mut same[at]
     }
 
     /// Facts differing only in position are numbered from 0 in source order.
     fn numbered(&mut self) -> BTreeMap<String, Value> {
         let mut edges = BTreeMap::new();
         for (prefix, mut same) in std::mem::take(&mut self.edges) {
-            same.sort_by_cached_key(|record| (position(&record["span"]), record.to_string()));
-            for (n, mut record) in same.into_iter().enumerate() {
+            same.sort_by_cached_key(|p| (position(&p.record["span"]), p.record.to_string()));
+            for (n, Pending { mut record, key_sites }) in same.into_iter().enumerate() {
+                if let Some(sites) = key_sites {
+                    self.keys(&mut record, &RecordKeys::direct(sites));
+                }
                 let id = format!("{prefix}.{n}");
                 record["id"] = Value::from(id.as_str());
                 edges.insert(id, record);
@@ -213,10 +228,10 @@ impl<'p> Builder<'p> {
         edges
     }
 
-    fn fact(&mut self, site: &Site, kind: &str, mut record: Value, span: SourceSpan, tag: &str, rule: &str) {
+    fn fact(&mut self, site: &Site, kind: &str, mut record: Value, span: SourceSpan, tag: &str, rule: &str) -> &mut Pending {
         record["function"] = Value::from(site.function);
         record["in_context"] = site.context_id.map_or(Value::Null, Value::from);
-        self.edge(kind, site.function, record, Some(span), tag, rule);
+        self.edge(kind, site.function, record, Some(span), tag, rule)
     }
 
     fn unit(&mut self, unit: &Unit<'p>) {
@@ -240,12 +255,12 @@ impl<'p> Builder<'p> {
             let span = trace.via.iter().find_map(|label| call_spans.get(label)).copied().unwrap_or(func.span);
             let origin = Origin { span, via: self.via(context, &trace.via), rule: "effects" };
             match trace.kind {
-                EffectKind::StateWrite => self.access(&site, "writes", &trace.item, None, origin),
-                EffectKind::StateRead => self.access(&site, "reads", &trace.item, None, origin),
+                EffectKind::StateWrite => self.access(&site, "writes", &trace.item, None, origin, None),
+                EffectKind::StateRead => self.access(&site, "reads", &trace.item, None, origin, None),
                 EffectKind::StorageParamWrite | EffectKind::StorageParamRead => {
                     let kind = if trace.kind == EffectKind::StorageParamWrite { "writes" } else { "reads" };
                     let param = target_base_name(&trace.item).to_string();
-                    self.access(&site, kind, &trace.item, Some(param), origin);
+                    self.access(&site, kind, &trace.item, Some(param), origin, None);
                 }
                 EffectKind::Event => {
                     let callee = trace.via.last().and_then(|label| label.split_once("::"));
@@ -293,13 +308,15 @@ impl<'p> Builder<'p> {
     /// What the function's own code and modifiers do, from every reachable block.
     fn direct(&mut self, site: &Site, func: &FunctionDef, cfg: &CfgGraph, call_spans: &mut HashMap<String, SourceSpan>) {
         let param_name = |index: Option<usize>| index.map(|i| func.params.get(i).map_or_else(|| i.to_string(), |p| p.name.clone()));
+        for access in storage_accesses(self.project, site.context, site.owner, func, cfg) {
+            let origin = Origin { span: access.span, via: self.in_modifier(site, access.modifier.as_deref()), rule: "cfg" };
+            let kind = if access.kind == AccessKind::Read { "reads" } else { "writes" };
+            let key_site = KeySite { keys: access.keys, span: access.span };
+            self.access(site, kind, &access.path, param_name(access.param), origin, Some(key_site));
+        }
         for n in reachable(cfg) {
             let block = &cfg[n];
             let block_span = block.span.unwrap_or(func.span);
-            for read in &block.reads {
-                let origin = Origin { span: block_span, via: self.in_modifier(site, read.from_modifier.as_deref()), rule: "cfg" };
-                self.access(site, "reads", &read.place.path, param_name(read.place.param), origin);
-            }
             if let Some(reason) = &block.revert_reason {
                 let via = self.in_modifier(site, block.revert_modifier.as_deref());
                 self.reverts(site, reason, Origin { span: block_span, via, rule: "cfg" });
@@ -308,12 +325,6 @@ impl<'p> Builder<'p> {
                 let (span, modifier) = stmt.origin();
                 let origin = Origin { span: span.unwrap_or(func.span), via: self.in_modifier(site, modifier), rule: "cfg" };
                 match stmt {
-                    CfgStatement::Assignment { storage: Some(place), .. } => {
-                        self.access(site, "writes", &place.path, param_name(place.param), origin);
-                    }
-                    CfgStatement::StateWrite { variable, param, .. } => {
-                        self.access(site, "writes", variable, param_name(*param), origin);
-                    }
                     CfgStatement::ExternalCall { .. } | CfgStatement::InternalCall { .. } => {
                         self.call(site, stmt, origin, call_spans);
                     }
@@ -446,15 +457,30 @@ impl<'p> Builder<'p> {
         self.edge("contract_link", &from_id, record, link.calls.first().map(|c| c.span), tag.as_str().unwrap_or_default(), "dispatch");
     }
 
-    fn access(&mut self, site: &Site, kind: &str, path: &str, param: Option<String>, origin: Origin) {
+    /// Without a key site the access happens in a callee.
+    fn access(&mut self, site: &Site, kind: &str, path: &str, param: Option<String>, origin: Origin, key_site: Option<KeySite>) {
         let state_var = if param.is_some() { None } else { self.state_var(site.context, path) };
         let tag = match (&param, &state_var) {
             (Some(_), _) => EXTRACTED,
             (None, Some(_)) => TYPE_RESOLVED,
             (None, None) => AMBIGUOUS,
         };
-        let record = json!({"state_var": state_var, "path": normalize_path(path), "param": param, "via": origin.via});
-        self.fact(site, kind, record, origin.span, tag, origin.rule);
+        let mut record = json!({"state_var": state_var, "path": normalize_path(path), "param": param, "via": origin.via});
+        if key_site.is_none() {
+            self.keys(&mut record, &RecordKeys::transitive());
+        }
+        let pending = self.fact(site, kind, record, origin.span, tag, origin.rule);
+        if let Some(key_site) = key_site {
+            pending.key_sites.get_or_insert_with(Vec::new).push(key_site);
+        }
+    }
+
+    fn keys(&self, record: &mut Value, keys: &RecordKeys) {
+        let key = |k: &AccessKey| json!({"text": k.text, "kind": k.kind, "ref": k.reference.as_deref().and_then(|r| self.reference(r))});
+        let set = |keys: &[AccessKey]| Value::from(keys.iter().map(key).collect::<Vec<_>>());
+        record["keys"] = keys.keys.as_deref().map_or(Value::Null, set);
+        record["keys_reason"] = json!(keys.keys_reason);
+        record["key_sites"] = keys.key_sites.iter().map(|s| json!({"keys": set(&s.keys), "span": self.ids.span(s.span)})).collect();
     }
 
     /// The declarations `name` resolves to where the function keyed `func` in `contract` emits it; `None` stands for an emit without an id.
@@ -777,5 +803,12 @@ mod tests {
         assert_eq!(as_1_0(&v1_1), v1);
         v1_1["kind"] = json!("reads");
         assert_eq!(as_1_0(&v1_1), v1_1, "other kinds keep every field");
+
+        let read = json!({"kind": "writes", "path": "m[]"});
+        let mut keyed = read.clone();
+        keyed["keys"] = json!(null);
+        keyed["keys_reason"] = json!("transitive");
+        keyed["key_sites"] = json!([]);
+        assert_eq!(as_1_0(&keyed), read);
     }
 }

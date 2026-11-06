@@ -711,3 +711,57 @@ fn external_calls_carry_their_candidates_and_add_up_to_contract_links() {
     assert_eq!(to_vault["span"], vault["span"]);
     assert!(to_vault["id"].as_str().unwrap().starts_with(&format!("contract_link:{router}#")), "{to_vault}");
 }
+
+const KEYS: &str = "tests/fixtures/solc/keys/src/Keys.sol";
+
+fn keys_id(member: &str) -> String {
+    format!("evm:{KEYS}:Keys.{member}")
+}
+
+#[test]
+fn reads_and_writes_carry_the_keys_they_index_with() {
+    let records = export(&fixture("keys"), "keys", 0);
+    let access = |kind: &str, function: &str, path: &str| {
+        find(&records, kind, |r| r["function"] == keys_id(function) && r["path"] == path && r["via"] == serde_json::json!([]))
+    };
+    let key = |text: &str, kind: &str, reference: Value| serde_json::json!({"text": text, "kind": kind, "ref": reference});
+
+    let credit = access("writes", "credit(address,uint256)", "balances[]");
+    let keys = serde_json::json!([key("account", "parameter", Value::from(keys_id("credit(address,uint256)")))]);
+    assert_eq!(credit["keys"], keys);
+    assert_eq!(credit["keys_reason"], Value::Null);
+    assert_eq!(credit["key_sites"], serde_json::json!([{"keys": keys, "span": credit["span"]}]));
+    assert_eq!(credit["path"], "balances[]", "path keeps its 1.0 value");
+
+    let single = |kind: &str, function: &str, path: &str| access(kind, function, path)["keys"].clone();
+    assert_eq!(single("writes", "deposit()", "balances[]"), serde_json::json!([key("msg.sender", "msg_sender", Value::Null)]));
+    assert_eq!(single("writes", "fundTreasury(uint256)", "balances[]"), serde_json::json!([key("treasury", "state_var", Value::from(keys_id("treasury")))]));
+    assert_eq!(single("writes", "selfCredit(uint256)", "balances[]"), serde_json::json!([key("address(this)", "this", Value::Null)]));
+    assert_eq!(single("writes", "setFirst(uint256)", "slots[]"), serde_json::json!([key("0", "literal", Value::Null)]));
+    assert_eq!(single("writes", "setNext(uint256)", "slots[]"), serde_json::json!([key("next", "local", Value::Null)]));
+    assert_eq!(single("writes", "store(uint256,uint256)", "slots[]"), serde_json::json!([key("slotOf(seed)", "expression", Value::Null)]));
+    let approve = Value::from(keys_id("approve(address,address,uint256)"));
+    assert_eq!(
+        single("writes", "approve(address,address,uint256)", "allowance[][]"),
+        serde_json::json!([key("owner", "parameter", approve.clone()), key("spender", "parameter", approve)])
+    );
+    assert_eq!(single("writes", "grow(uint256,uint256)", "positions[].amount"), serde_json::json!([key("id", "parameter", Value::from(keys_id("_position(uint256)")))]));
+    assert_eq!(single("writes", "creditLater(address,uint256)", "total"), serde_json::json!([]));
+
+    let funded = find(&records, "reads", |r| r["function"] == keys_id("withdraw(address,uint256)") && r["via"] == serde_json::json!([keys_id("funded")]));
+    assert_eq!(funded["keys"], serde_json::json!([key("who", "parameter", Value::from(keys_id("funded")))]), "a modifier's parameter refers to the modifier");
+
+    let moved = access("reads", "move(address,address,uint256)", "balances[]");
+    assert_eq!(moved["keys"], Value::Null);
+    assert_eq!(moved["keys_reason"], "several");
+    let texts: Vec<&str> = moved["key_sites"].as_array().unwrap().iter().map(|s| s["keys"][0]["text"].as_str().unwrap()).collect();
+    assert_eq!(texts, ["from", "to"]);
+
+    let later = find(&records, "writes", |r| r["function"] == keys_id("creditLater(address,uint256)") && r["path"] == "balances[]");
+    assert_eq!(later["via"], serde_json::json!([keys_id("_credit(address,uint256)")]));
+    assert_eq!((&later["keys"], &later["keys_reason"], &later["key_sites"]), (&Value::Null, &Value::from("transitive"), &serde_json::json!([])));
+
+    for record in of_kind(&records, "reads").into_iter().chain(of_kind(&records, "writes")) {
+        assert!(record.get("keys").is_some() && record.get("keys_reason").is_some() && record["key_sites"].is_array(), "{record}");
+    }
+}
