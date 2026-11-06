@@ -10,7 +10,7 @@ use crate::cfg::builder::{modifier_code, CfgBuilder};
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::classify::guards::{GuardFact, GuardScope, GuardTerm};
 use crate::model::common::{Param, SourceSpan};
-use crate::model::contract::{ContractDef, ContractKind};
+use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclKind};
 use crate::model::expression::CallKind;
 use crate::model::function::{FunctionDef, FunctionKind, Visibility};
@@ -57,10 +57,6 @@ fn snake(value: impl Serialize) -> String {
         out.extend(ch.to_lowercase());
     }
     out
-}
-
-fn deployable(c: &ContractDef) -> bool {
-    c.kind == ContractKind::Contract && !c.is_free_functions()
 }
 
 /// `context` runs `func`, declared in `owner`.
@@ -126,7 +122,7 @@ impl<'p> Builder<'p> {
         let (project, analysis) = (self.project, self.analysis);
         let mut units = Vec::new();
         let mut covered = BTreeSet::new();
-        for context in project.project_contracts().filter(|c| deployable(c)) {
+        for context in project.project_contracts().filter(|c| c.is_deployable()) {
             let Some(sequence) = analysis.sequence_analyses.get(context.key()) else { continue };
             for behavior in &sequence.functions {
                 let Some(owner) = self.contract(&behavior.owner) else { continue };
@@ -171,7 +167,7 @@ impl<'p> Builder<'p> {
         }
         for c in self.project.contracts.iter().filter(|c| !c.is_free_functions()) {
             self.inherits(c);
-            if !c.is_dependency && deployable(c) {
+            if !c.is_dependency && c.is_deployable() {
                 self.exposes(c);
             }
         }
@@ -482,13 +478,9 @@ impl<'p> Builder<'p> {
         Some(self.ids.member(owner, name))
     }
 
-    // state variables cannot be shadowed, so the name selects one declaration in the linearization
     fn state_var(&self, context: &ContractDef, path: &str) -> Option<String> {
         let name = target_base_name(path);
-        self.project
-            .linearization(context)
-            .into_iter()
-            .find_map(|c| c.state_vars.iter().any(|v| v.name == name).then(|| self.ids.member(c, name)))
+        self.project.state_var_owner(context, name).map(|c| self.ids.member(c, name))
     }
 
     /// Only a name: an overloaded event stays unresolved.
@@ -599,7 +591,7 @@ impl<'p> Builder<'p> {
                     "contract_kind": snake(c.kind),
                     "bases": project.linearization(c).iter().skip(1).filter_map(|b| self.ids.contract(b)).collect::<Vec<_>>(),
                     "is_dependency": c.is_dependency,
-                    "deployable": deployable(c),
+                    "deployable": c.is_deployable(),
                     "reachable_from_project": full || !members.is_empty(),
                 });
                 let (id, record) = self.node("contract", id, record, c.span);

@@ -131,6 +131,7 @@ impl ProjectAnalysis {
         }
 
         let dep_graph = ContractDeps::from_call_graphs(project, &call_graphs);
+        let relations = Relations::build(project, &cfgs);
 
         Self {
             cfgs,
@@ -140,7 +141,7 @@ impl ProjectAnalysis {
             sequence_trees,
             sequence_analyses,
             classifications,
-            relations: Relations::default(),
+            relations,
         }
     }
 

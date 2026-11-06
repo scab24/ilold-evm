@@ -394,6 +394,11 @@ impl Project {
             .collect()
     }
 
+    /// State variables cannot be shadowed, so the name selects one declaration in the linearization.
+    pub fn state_var_owner<'a>(&'a self, context: &'a ContractDef, name: &str) -> Option<&'a ContractDef> {
+        self.linearization(context).into_iter().find(|c| c.state_vars.iter().any(|v| v.name == name))
+    }
+
     pub fn resolve_modifier<'a>(
         &'a self,
         contract: &'a ContractDef,
