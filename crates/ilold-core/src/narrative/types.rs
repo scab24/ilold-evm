@@ -42,6 +42,9 @@ pub struct FunctionNarrative {
     pub revert_sources: Vec<TransitiveEffect>,
     #[serde(default)]
     pub guards: Vec<crate::classify::guards::GuardFact>,
+    /// Reads and writes of its own code and modifiers, with their keys; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accesses: Vec<crate::relations::StorageAccess>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

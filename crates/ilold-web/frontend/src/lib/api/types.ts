@@ -1,3 +1,4 @@
+import type { StorageAccess } from './rest';
 export type AccessLevel =
   | "Public"
   | "Internal"
@@ -301,4 +302,6 @@ export interface FunctionNarrative {
   transitive_external_calls?: TransitiveEffect[];
   transitive_events?: TransitiveEffect[];
   guards?: GuardFact[];
+  /** Reads and writes of its own code, with their keys; absent when there are none. */
+  accesses?: StorageAccess[];
 }

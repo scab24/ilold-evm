@@ -42,7 +42,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_function_analysis",
-            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations.",
+            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations. accesses lists the reads and writes of its own code with the mapping keys of each index level (text, kind: msg_sender|parameter|state_var|local|literal|this|expression, ref).",
             contract_function_schema(),
         ),
         tool(
@@ -72,7 +72,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_who_touches",
-            "Functions that read and write a state variable, with their access level.",
+            "Functions that read and write a state variable, with their access level. accesses gives, per function and read/write, the mapping keys of each site (key_sites; keys when all sites share one key set, else keys_reason several), or keys_reason transitive when the access happens in a callee.",
             contract_variable_schema(),
         ),
         tool(

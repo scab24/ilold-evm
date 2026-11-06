@@ -1776,7 +1776,7 @@ fn print_result(result: &CommandResult, steps: &[String]) {
             println!("  Findings: {}", findings_count);
             println!();
         }
-        CommandResult::VariableInfo { variable, writers, readers, .. } => {
+        CommandResult::VariableInfo { variable, writers, readers, accesses } => {
             println!();
             println!("  {} {}", c_bright("who:"), c_accent(variable));
             if !writers.is_empty() {
@@ -1790,6 +1790,10 @@ fn print_result(result: &CommandResult, steps: &[String]) {
                 for (name, access) in readers {
                     println!("      {} {}", access_colored(access), c_muted(name));
                 }
+            }
+            if !accesses.is_empty() {
+                println!("    {}:", c_muted("Keys"));
+                print!("{}", fmt::render_variable_keys(accesses));
             }
             if !writers.is_empty() {
                 let slice_hints: Vec<String> = writers.iter()
@@ -1881,7 +1885,9 @@ fn print_vars(val: &serde_json::Value) {
         };
 
         let padded_name = fmt::pad_right(name, max_name);
-        println!("  {} {}  {}", tag, c_accent(&padded_name), c_muted(type_name));
+        let kinds: Vec<&str> = v.get("key_kinds").and_then(|k| k.as_array()).into_iter().flatten().filter_map(|k| k.as_str()).collect();
+        let keys = if kinds.is_empty() { String::new() } else { format!("  keys: {}", kinds.join(", ")) };
+        println!("  {} {}  {}{}", tag, c_accent(&padded_name), c_muted(type_name), c_muted(&keys));
     }
     println!();
 }

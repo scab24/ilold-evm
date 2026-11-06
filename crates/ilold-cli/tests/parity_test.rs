@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use ilold_core::pathtree::walker::normalize_path;
 use ilold_evm_mcp::{dispatch, IloldClient};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -196,4 +197,86 @@ async fn dispatch_candidates_are_the_same_in_every_surface() {
     assert_eq!(web, exported, "/callgraph");
     let mcp: Candidates = callgraph_candidates(&s.mcp("ilold_callgraph", serde_json::json!({"contract": "Router"})).await).into_iter().filter(|(k, _)| exported.contains_key(k)).collect();
     assert_eq!(mcp, exported, "ilold_callgraph");
+}
+
+/// `(text, kind, <Contract>.<member>)` of each index level; parameters name their function or modifier.
+type Keys = Vec<(String, String, Option<String>)>;
+/// A direct access site: function, read or write, path without keys, line and keys.
+type KeySite = (String, String, String, u64, Keys);
+
+fn keys(keys: &Value, reference: impl Fn(&str) -> String) -> Keys {
+    keys.as_array().unwrap().iter().map(|k| (text(&k["text"]), text(&k["kind"]), k["ref"].as_str().map(&reference))).collect()
+}
+
+fn line(span: &Value) -> u64 {
+    span["start_line"].as_u64().unwrap()
+}
+
+fn api_sites(function: &str, accesses: &Value) -> BTreeSet<KeySite> {
+    let reference = |r: &str| r.replace("::", ".");
+    accesses
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            let kind = if a["kind"] == "read" { "reads" } else { "writes" };
+            (function.to_string(), kind.to_string(), normalize_path(&text(&a["path"])), line(&a["span"]), keys(&a["keys"], reference))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn mapping_keys_are_the_same_in_every_surface() {
+    let s = Surfaces::of("keys").await;
+    // `evm:<file>:<Contract>.<name>(<types>)` as `<Contract>.<name>`
+    let member = |id: &str| id.rsplit_once(':').unwrap().1.split('(').next().unwrap().to_string();
+    let function = |id: &str| member(id).split_once('.').unwrap().1.to_string();
+    let accesses = || s.records("reads").chain(s.records("writes"));
+    let exported: BTreeSet<KeySite> = accesses()
+        .flat_map(|r| {
+            r["key_sites"].as_array().unwrap().iter().map(move |site| {
+                (function(&text(&r["function"])), text(&r["kind"]), text(&r["path"]), line(&site["span"]), keys(&site["keys"], member))
+            })
+        })
+        .collect();
+    assert!(exported.iter().any(|(_, _, _, _, k)| k.iter().any(|(_, kind, _)| kind == "msg_sender")), "{exported:#?}");
+
+    let detail = s.web("/api/contract/Keys").await;
+    let functions = detail["functions"].as_array().unwrap();
+    let web: BTreeSet<KeySite> = functions.iter().flat_map(|f| api_sites(&text(&f["name"]), &f["accesses"])).collect();
+    assert_eq!(web, exported, "/contract/Keys");
+
+    let mut mcp = BTreeSet::new();
+    for f in functions {
+        let name = text(&f["name"]);
+        let narrative = s.mcp("ilold_function_analysis", serde_json::json!({"contract": "Keys", "function": name})).await;
+        mcp.extend(api_sites(&name, narrative.get("accesses").unwrap_or(&serde_json::json!([]))));
+    }
+    assert_eq!(mcp, exported, "ilold_function_analysis");
+
+    for var in ["balances", "allowance", "slots", "positions", "total"] {
+        let exported_var: BTreeSet<(String, String, u64, Keys)> = exported
+            .iter()
+            .filter(|(_, _, path, ..)| path.split(['[', '.']).next() == Some(var))
+            .map(|(f, kind, _, line, keys)| (f.clone(), kind.clone(), *line, keys.clone()))
+            .collect();
+        let transitive: BTreeSet<(String, String)> = accesses()
+            .filter(|r| r["keys_reason"] == "transitive" && text(&r["path"]).split(['[', '.']).next() == Some(var))
+            .map(|r| (function(&text(&r["function"])), text(&r["kind"])))
+            .collect();
+        let who = &s.mcp("ilold_who_touches", serde_json::json!({"contract": "Keys", "variable": var})).await["VariableInfo"]["accesses"];
+        let mut who_sites = BTreeSet::new();
+        let mut who_transitive = BTreeSet::new();
+        for a in who.as_array().unwrap() {
+            let kind = if a["kind"] == "read" { "reads" } else { "writes" };
+            if a["keys_reason"] == "transitive" {
+                who_transitive.insert((text(&a["function"]), kind.to_string()));
+            }
+            for site in a["key_sites"].as_array().unwrap() {
+                who_sites.insert((text(&a["function"]), kind.to_string(), line(&site["span"]), keys(&site["keys"], |r| r.replace("::", "."))));
+            }
+        }
+        assert_eq!(who_sites, exported_var, "ilold_who_touches {var}");
+        assert_eq!(who_transitive, transitive, "ilold_who_touches {var}: transitive");
+    }
 }

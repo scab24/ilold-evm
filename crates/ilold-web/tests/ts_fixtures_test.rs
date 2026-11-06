@@ -14,7 +14,10 @@ const RESPONSES: &[(&str, &[(&str, &str)])] = &[
             ("contract_detail", "/contract/Router"),
         ],
     ),
-    ("keys", &[("keys_contract_detail", "/contract/Keys"), ("keys_cfg", "/contract/Keys/move/cfg")]),
+    (
+        "keys",
+        &[("keys_contract_detail", "/contract/Keys"), ("keys_cfg", "/contract/Keys/move/cfg"), ("keys_function", "/session/function/Keys/move")],
+    ),
 ];
 
 fn write(root: &Path, name: &str, body: &Value) {

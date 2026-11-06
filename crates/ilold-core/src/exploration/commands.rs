@@ -735,7 +735,9 @@ pub fn get_function_info(
 
     let behaviors = behaviors_for(data, owning, func);
 
-    Ok(build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths))
+    let mut narrative = build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths);
+    narrative.accesses = storage_accesses(data.project, owning, owning, func, cfg);
+    Ok(narrative)
 }
 
 pub fn get_flow_tree(

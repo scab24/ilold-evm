@@ -173,6 +173,7 @@ pub fn build_function_narrative_capped(
         can_revert: root_behavior.map_or(path_tree.stats.revert_paths > 0, |b| b.can_revert),
         revert_sources,
         guards,
+        accesses: Vec::new(),
     }
 }
 

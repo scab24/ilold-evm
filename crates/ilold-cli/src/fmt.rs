@@ -1,9 +1,10 @@
 use colored::Colorize;
 
-use ilold_core::exploration::commands::ScenarioInfo;
+use ilold_core::exploration::commands::{ScenarioInfo, VariableAccess};
 use ilold_core::exploration::session::MutationScope;
 use ilold_core::exploration::timeline::{TimelineEntry, VariableTimeline};
 use ilold_core::narrative::trace::{FlowKind, FlowNode, FlowTree};
+use ilold_core::relations::{AccessKind, KeyKind, KeysReason};
 use ilold_core::slicing::{SliceDirection, SliceEntry, SliceResult, StatementOrigin};
 
 use crate::colors::{c_accent, c_bright, c_danger, c_muted, c_ok, c_warn};
@@ -459,6 +460,31 @@ fn render_slice_side(label: &str, entries: &[SliceEntry], var: &str, out: &mut S
 }
 
 
+/// The kind as the API spells it.
+fn key_kind_name(kind: KeyKind) -> String {
+    serde_json::to_value(kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+}
+
+/// One line per key site of `who`; an access in a callee has no keys to show.
+pub fn render_variable_keys(accesses: &[VariableAccess]) -> String {
+    let width = accesses.iter().map(|a| a.function.chars().count()).max().unwrap_or(0);
+    let mut out = String::new();
+    for access in accesses {
+        let kind = if access.kind == AccessKind::Write { c_warn("W") } else { c_muted("R") };
+        let name = pad_right(&access.function, width);
+        if access.keys.keys_reason == Some(KeysReason::Transitive) {
+            out.push_str(&format!("      {kind} {name}  {}\n", c_muted("in a callee: keys not tracked")));
+        }
+        for site in &access.keys.key_sites {
+            let texts: String = site.keys.iter().map(|k| format!("[{}]", k.text)).collect();
+            let kinds = site.keys.iter().map(|k| key_kind_name(k.kind)).collect::<Vec<_>>().join(" › ");
+            let keys = if site.keys.is_empty() { c_muted("no index").to_string() } else { format!("{} {}", c_accent(&texts), c_muted(&kinds)) };
+            out.push_str(&format!("      {kind} {name}  {keys}  {}\n", c_muted(&format!("line {}", site.span.start_line))));
+        }
+    }
+    out
+}
+
 pub fn render_scenario_list(items: &[ScenarioInfo]) -> String {
     if items.is_empty() {
         return format!("  {}\n", c_muted("(no scenarios)"));
@@ -598,6 +624,29 @@ mod tests {
             "rendered output must not contain backslash-escaped quotes.\nrendered:\n{}",
             rendered,
         );
+    }
+
+    #[test]
+    fn variable_keys_show_each_site_and_accesses_in_callees() {
+        use ilold_core::exploration::commands::VariableAccess;
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::relations::{AccessKey, AccessKind, KeyKind, KeySite, RecordKeys};
+        let span = |line| SourceSpan { file_index: 0, start_line: line, start_col: 1, end_line: line, end_col: 9 };
+        let key = |text: &str, kind| AccessKey { text: text.into(), kind, reference: None };
+        let site = |keys, line| KeySite { keys, span: span(line) };
+        let accesses = [
+            VariableAccess { function: "deposit".into(), kind: AccessKind::Write, keys: RecordKeys::direct(vec![site(vec![key("msg.sender", KeyKind::MsgSender)], 22)]) },
+            VariableAccess { function: "creditLater".into(), kind: AccessKind::Write, keys: RecordKeys::transitive() },
+            VariableAccess {
+                function: "approve".into(),
+                kind: AccessKind::Read,
+                keys: RecordKeys::direct(vec![site(vec![key("owner", KeyKind::Parameter), key("spender", KeyKind::Parameter)], 34)]),
+            },
+        ];
+        let rendered = strip_ansi(&render_variable_keys(&accesses));
+        assert!(rendered.contains("W deposit      [msg.sender] msg_sender  line 22"), "{rendered}");
+        assert!(rendered.contains("W creditLater  in a callee: keys not tracked"), "{rendered}");
+        assert!(rendered.contains("R approve      [owner][spender] parameter › parameter  line 34"), "{rendered}");
     }
 
     #[test]
