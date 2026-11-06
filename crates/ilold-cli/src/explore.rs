@@ -1989,6 +1989,12 @@ fn print_narrative(val: &serde_json::Value) {
     if !tries.is_empty() {
         sections.push(Section::StringList { label: "Try/catch", label_color: SectionColor::Warn, items: fmt::render_try_catches(&tries) });
     }
+    let listed = |key: &str| val.get(key).cloned().unwrap_or_default();
+    let transfers: Vec<ilold_core::relations::ValueTransfer> = serde_json::from_value(listed("value_transfers")).unwrap_or_default();
+    let balance_reads: Vec<ilold_core::relations::BalanceRead> = serde_json::from_value(listed("balance_reads")).unwrap_or_default();
+    if !transfers.is_empty() || !balance_reads.is_empty() {
+        sections.push(Section::StringList { label: "Value", label_color: SectionColor::Danger, items: fmt::render_value_facts(&transfers, &balance_reads) });
+    }
 
     let collect_transitive = |key: &str| -> Vec<(Vec<String>, String)> {
         val.get(key)

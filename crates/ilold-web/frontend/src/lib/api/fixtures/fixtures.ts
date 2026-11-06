@@ -13,6 +13,8 @@ import trycatchContractDetail from './trycatch_contract_detail.json';
 import trycatchCfg from './trycatch_cfg.json';
 import trycatchFunction from './trycatch_function.json';
 import valueContractDetail from './value_contract_detail.json';
+import valueFunction from './value_function.json';
+import valueBalancesFunction from './value_balances_function.json';
 
 // imported JSON widens string literals, so unions of literals are compared as strings
 type Json<T> = T extends string ? string : T extends (infer U)[] ? Json<U>[] : T extends object ? { [K in keyof T]: Json<T[K]> } : T;
@@ -29,3 +31,5 @@ trycatchContractDetail satisfies Json<ContractDetail>;
 trycatchCfg satisfies Json<CytoscapeGraph>;
 trycatchFunction satisfies Json<FunctionNarrative>;
 valueContractDetail satisfies Json<ContractDetail>;
+valueFunction satisfies Json<FunctionNarrative>;
+valueBalancesFunction satisfies Json<FunctionNarrative>;

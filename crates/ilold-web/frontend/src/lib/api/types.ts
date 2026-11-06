@@ -1,4 +1,4 @@
-import type { StorageAccess, TryCatchFact } from './rest';
+import type { BalanceRead, StorageAccess, TryCatchFact, ValueTransfer } from './rest';
 export type AccessLevel =
   | "Public"
   | "Internal"
@@ -306,4 +306,6 @@ export interface FunctionNarrative {
   accesses?: StorageAccess[];
   /** Its try statements; absent when there are none. */
   try_catches?: TryCatchFact[];
+  value_transfers?: ValueTransfer[];
+  balance_reads?: BalanceRead[];
 }

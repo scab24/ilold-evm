@@ -4,7 +4,7 @@ use ilold_core::exploration::commands::{ScenarioInfo, VariableAccess};
 use ilold_core::exploration::session::MutationScope;
 use ilold_core::exploration::timeline::{TimelineEntry, VariableTimeline};
 use ilold_core::narrative::trace::{FlowKind, FlowNode, FlowTree};
-use ilold_core::relations::{AccessKind, CatchKind, KeyKind, KeysReason, TryCatchFact};
+use ilold_core::relations::{AccessKind, AssetKind, BalanceRead, CatchKind, KeysReason, Tag, TryCatchFact, ValueReason, ValueTransfer};
 use ilold_core::slicing::{SliceDirection, SliceEntry, SliceResult, StatementOrigin};
 
 use crate::colors::{c_accent, c_bright, c_danger, c_muted, c_ok, c_warn};
@@ -460,9 +460,9 @@ fn render_slice_side(label: &str, entries: &[SliceEntry], var: &str, out: &mut S
 }
 
 
-/// The kind as the API spells it.
-fn key_kind_name(kind: KeyKind) -> String {
-    serde_json::to_value(kind).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+/// A variant as the API spells it, from `serde_json::to_value`.
+fn api_name(value: serde_json::Result<serde_json::Value>) -> String {
+    value.ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
 
 /// One line per key site of `who`; an access in a callee has no keys to show.
@@ -477,12 +477,51 @@ pub fn render_variable_keys(accesses: &[VariableAccess]) -> String {
         }
         for site in &access.keys.key_sites {
             let texts: String = site.keys.iter().map(|k| format!("[{}]", k.text)).collect();
-            let kinds = site.keys.iter().map(|k| key_kind_name(k.kind)).collect::<Vec<_>>().join(" › ");
+            let kinds = site.keys.iter().map(|k| api_name(serde_json::to_value(k.kind))).collect::<Vec<_>>().join(" › ");
             let keys = if site.keys.is_empty() { c_muted("no index").to_string() } else { format!("{} {}", c_accent(&texts), c_muted(&kinds)) };
             out.push_str(&format!("      {kind} {name}  {keys}  {}\n", c_muted(&format!("line {}", site.span.start_line))));
         }
     }
     out
+}
+
+/// One line per value transfer, then per balance read, for `info`.
+pub fn render_value_facts(transfers: &[ValueTransfer], reads: &[BalanceRead]) -> Vec<String> {
+    let asset = |kind: AssetKind, candidates: &[AssetKind], token: &Option<String>| {
+        let kind = if candidates.is_empty() { api_name(serde_json::to_value(kind)) } else { candidates.iter().map(|c| api_name(serde_json::to_value(c))).collect::<Vec<_>>().join("|") };
+        token.as_ref().map_or(kind.clone(), |t| format!("{kind} {t}"))
+    };
+    let id = |id: &Option<String>| id.as_ref().map(|i| format!(" #{i}")).unwrap_or_default();
+    let tail = |line: u32, modifier: &Option<String>, via: &Option<String>, reason: Option<String>| {
+        let mut out = format!(" (line {line})");
+        out.extend(modifier.as_ref().map(|m| format!(" in {m}")));
+        out.extend(via.as_ref().map(|v| format!(" via {v}")));
+        out.extend(reason.map(|r| format!(", ambiguous: {r}")));
+        out
+    };
+    let ambiguous = |tag: Tag, reason: Option<ValueReason>| (tag == Tag::Ambiguous).then(|| reason.map_or(String::new(), |r| api_name(serde_json::to_value(r))));
+    let moved = transfers.iter().map(|t| {
+        let amount = t.amount_expr.as_ref().map(|a| format!(" {a}")).unwrap_or_default();
+        format!(
+            "{} {}: {} → {}{amount}{}{}",
+            api_name(serde_json::to_value(t.operation)),
+            asset(t.asset_kind, &t.asset_candidates, &t.token_expr),
+            t.from_expr.as_deref().unwrap_or("this"),
+            t.to_expr.as_deref().unwrap_or("∅"),
+            id(&t.id_expr),
+            tail(t.span.start_line, &t.modifier, &t.via_library, ambiguous(t.tag, t.reason)),
+        )
+    });
+    let read = reads.iter().map(|r| {
+        format!(
+            "balance {} of {}{}{}",
+            asset(r.asset_kind, &r.asset_candidates, &r.token_expr),
+            r.owner_expr.as_deref().unwrap_or("this"),
+            id(&r.id_expr),
+            tail(r.span.start_line, &r.modifier, &r.via_library, ambiguous(r.tag, r.reason)),
+        )
+    });
+    moved.chain(read).collect()
 }
 
 /// One line per try statement for `info`: the guarded call, then what each clause does with the failure.
@@ -715,6 +754,69 @@ mod tests {
         assert_eq!(
             render_try_catches(&[fact]),
             ["try pinger.quote (line 4) → catch Error: writes failures, calls pinger.ping, emits Rejected; catch (all): failure swallowed; catch (bytes): reverts; catch ?: no writes, calls or events"]
+        );
+    }
+
+    #[test]
+    fn value_lines_say_who_pays_whom_and_through_which_library() {
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::relations::{Direction, Operation, Tag, ValueReason};
+        let span = SourceSpan { file_index: 0, start_line: 88, start_col: 9, end_line: 88, end_col: 40 };
+        let sent = ValueTransfer {
+            id: "Payments::sendEth#0".into(),
+            function: "Payments::sendEth".into(),
+            in_context: "Payments".into(),
+            modifier: None,
+            span,
+            asset_kind: AssetKind::Native,
+            asset_candidates: Vec::new(),
+            operation: Operation::Call,
+            direction: Direction::Out,
+            token_expr: None,
+            from_expr: None,
+            to_expr: Some("to".into()),
+            amount_expr: Some("amount".into()),
+            id_expr: None,
+            call: "Address.sendValue".into(),
+            via_library: Some("Address::sendValue".into()),
+            tag: Tag::TypeResolved,
+            reason: None,
+        };
+        let burned = ValueTransfer {
+            asset_kind: AssetKind::Unknown,
+            asset_candidates: vec![AssetKind::Erc20, AssetKind::Erc721],
+            operation: Operation::Burn,
+            token_expr: Some("burnable".into()),
+            to_expr: None,
+            amount_expr: None,
+            modifier: Some("refund".into()),
+            via_library: None,
+            tag: Tag::Ambiguous,
+            reason: Some(ValueReason::NoStandard),
+            ..sent.clone()
+        };
+        let read = BalanceRead {
+            id: "Payments::balances#1".into(),
+            function: "Payments::balances".into(),
+            in_context: "Payments".into(),
+            modifier: None,
+            span,
+            asset_kind: AssetKind::Erc1155,
+            asset_candidates: Vec::new(),
+            token_expr: Some("multi".into()),
+            owner_expr: Some("who".into()),
+            id_expr: Some("id".into()),
+            via_library: None,
+            tag: Tag::TypeResolved,
+            reason: None,
+        };
+        assert_eq!(
+            render_value_facts(&[sent, burned], &[read]),
+            [
+                "call native: this → to amount (line 88) via Address::sendValue",
+                "burn erc20|erc721 burnable: this → ∅ (line 88) in refund, ambiguous: no_standard",
+                "balance erc1155 multi of who #id (line 88)",
+            ]
         );
     }
 

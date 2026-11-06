@@ -1,0 +1,132 @@
+{
+  "access": "Public",
+  "accesses": [
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "share",
+      "span": {
+        "end_col": 38,
+        "end_line": 48,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 48
+      }
+    }
+  ],
+  "can_revert": false,
+  "contract": "Payments",
+  "events": [],
+  "external_calls": [
+    "payable(msg.sender).transfer",
+    "share.mint"
+  ],
+  "guards": [],
+  "happy_paths": 1,
+  "internal_calls": [],
+  "modifiers": [
+    "refundExcess"
+  ],
+  "name": "buy",
+  "observations": [],
+  "path_stats": {
+    "cap_reached": false,
+    "depth_cutoff": 0,
+    "happy_paths": 1,
+    "loop_cutoff": 0,
+    "max_depth_reached": 1,
+    "paths_dropped": 0,
+    "revert_paths": 0,
+    "total_paths": 1,
+    "truncated": false
+  },
+  "paths": [
+    {
+      "id": 0,
+      "steps": [
+        {
+          "branch": null,
+          "description": "buy()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": null,
+          "description": "return",
+          "detail": null,
+          "step_type": "Return"
+        }
+      ],
+      "terminal": "Return"
+    }
+  ],
+  "paths_omitted": 0,
+  "revert_paths": 0,
+  "revert_sources": [],
+  "state_reads": [
+    "share"
+  ],
+  "state_writes": [],
+  "total_paths": 1,
+  "transitive_events": [],
+  "transitive_external_calls": [],
+  "transitive_state_reads": [],
+  "transitive_state_writes": [],
+  "value_transfers": [
+    {
+      "amount_expr": "msg.value - price",
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "call": "payable(msg.sender).transfer",
+      "direction": "out",
+      "from_expr": null,
+      "function": "Payments::buy",
+      "id": "Payments::buy#0",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": "refundExcess",
+      "operation": "transfer",
+      "reason": null,
+      "span": {
+        "end_col": 56,
+        "end_line": 31,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 31
+      },
+      "tag": "EXTRACTED",
+      "to_expr": "payable(msg.sender)",
+      "token_expr": null,
+      "via_library": null
+    },
+    {
+      "amount_expr": "price",
+      "asset_candidates": [],
+      "asset_kind": "erc20",
+      "call": "share.mint",
+      "direction": "out",
+      "from_expr": null,
+      "function": "Payments::buy",
+      "id": "Payments::buy#1",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": null,
+      "operation": "mint",
+      "reason": null,
+      "span": {
+        "end_col": 38,
+        "end_line": 48,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 48
+      },
+      "tag": "TYPE_RESOLVED",
+      "to_expr": "msg.sender",
+      "token_expr": "share",
+      "via_library": null
+    }
+  ]
+}

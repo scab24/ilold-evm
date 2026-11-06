@@ -337,3 +337,79 @@ async fn try_catches_are_the_same_in_every_surface() {
     assert_eq!(cfg, exported, "ilold_cfg");
     assert_eq!(narrative, exported, "ilold_function_analysis");
 }
+
+/// A value transfer as every surface shows it: function, line, asset, operation, token, from, to, amount, id, library function, tag.
+type Transfer = (String, u64, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String);
+/// A balance read: function, line, asset, token, owner, id, library function, tag.
+type Read = (String, u64, String, Option<String>, Option<String>, Option<String>, Option<String>, String);
+
+fn opt(value: &Value) -> Option<String> {
+    value.as_str().map(str::to_string)
+}
+
+/// The facts a surface lists under one field, none when it leaves the field out.
+fn listed(facts: Option<&Value>) -> impl Iterator<Item = &Value> {
+    facts.and_then(Value::as_array).into_iter().flatten()
+}
+
+/// `library` turns the surface's library reference into `<library>::<function>`.
+fn transfers<'a>(function: &str, facts: impl Iterator<Item = &'a Value>, library: &dyn Fn(&Value) -> Option<String>) -> BTreeSet<Transfer> {
+    let fields = |t: &Value| [&t["token_expr"], &t["from_expr"], &t["to_expr"], &t["amount_expr"], &t["id_expr"]].map(opt);
+    facts
+        .map(|t| {
+            let [token, from, to, amount, id] = fields(t);
+            (function.to_string(), line(&t["span"]), text(&t["asset_kind"]), text(&t["operation"]), token, from, to, amount, id, library(&t["via_library"]), text(&t["tag"]))
+        })
+        .collect()
+}
+
+fn reads<'a>(function: &str, facts: impl Iterator<Item = &'a Value>, library: &dyn Fn(&Value) -> Option<String>) -> BTreeSet<Read> {
+    facts
+        .map(|r| {
+            let [token, owner, id] = [&r["token_expr"], &r["owner_expr"], &r["id_expr"]].map(opt);
+            (function.to_string(), line(&r["span"]), text(&r["asset_kind"]), token, owner, id, library(&r["via_library"]), text(&r["tag"]))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn value_transfers_and_balance_reads_are_the_same_in_every_surface() {
+    let s = Surfaces::of("value").await;
+    let payments = "evm:tests/fixtures/solc/value/src/Value.sol:Payments.";
+    let member = |id: &str| id.rsplit_once(':').unwrap().1.split('(').next().unwrap().to_string();
+    let exported_library = |v: &Value| v.as_str().map(|id| member(id).replacen('.', "::", 1));
+    let api_library = |v: &Value| opt(v);
+    let mut exported = (BTreeSet::new(), BTreeSet::new());
+    for record in s.records("value_transfer").chain(s.records("balance_read")) {
+        let Some(function) = text(&record["function"]).strip_prefix(payments).map(|f| f.split('(').next().unwrap().to_string()) else { continue };
+        if record["kind"] == "value_transfer" {
+            exported.0.extend(transfers(&function, std::iter::once(record), &exported_library));
+        } else {
+            exported.1.extend(reads(&function, std::iter::once(record), &exported_library));
+        }
+    }
+    assert_eq!((exported.0.len(), exported.1.len()), (29, 8), "{exported:#?}");
+
+    let summaries = |detail: &Value| {
+        let mut found = (BTreeSet::new(), BTreeSet::new());
+        for f in detail["functions"].as_array().unwrap() {
+            found.0.extend(transfers(&text(&f["name"]), listed(f.get("value_transfers")), &api_library));
+            found.1.extend(reads(&text(&f["name"]), listed(f.get("balance_reads")), &api_library));
+        }
+        found
+    };
+    let detail = s.web("/api/contract/Payments").await;
+    assert_eq!(summaries(&detail), exported, "/contract/Payments");
+    let mcp_detail = s.mcp("ilold_contract_detail", serde_json::json!({"contract": "Payments"})).await;
+    assert_eq!(summaries(&mcp_detail), exported, "ilold_contract_detail");
+    assert_eq!(mcp_detail["value_flows"], detail["value_flows"], "ilold_contract_detail value_flows");
+
+    let mut narrative = (BTreeSet::new(), BTreeSet::new());
+    for f in detail["functions"].as_array().unwrap() {
+        let name = text(&f["name"]);
+        let analysis = s.mcp("ilold_function_analysis", serde_json::json!({"contract": "Payments", "function": name})).await;
+        narrative.0.extend(transfers(&name, listed(analysis.get("value_transfers")), &api_library));
+        narrative.1.extend(reads(&name, listed(analysis.get("balance_reads")), &api_library));
+    }
+    assert_eq!(narrative, exported, "ilold_function_analysis");
+}

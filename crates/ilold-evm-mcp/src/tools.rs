@@ -27,7 +27,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_contract_detail",
-            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, inherited members, and outgoing_links / incoming_links: the contracts it calls through interfaces and the ones that call it.",
+            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, inherited members, and outgoing_links / incoming_links: the contracts it calls through interfaces and the ones that call it. Each function lists value_transfers (asset_kind native|erc20|erc721|erc1155|erc6909|unknown with asset_candidates, operation, direction in|out|other, token/from/to/amount/id expressions where a null from is the contract itself, via_library for a library helper called at that site, tag, reason) and balance_reads; value_flows sums the transfers by direction, asset, token and counterparty.",
             contract_schema(),
         ),
         tool(
@@ -42,7 +42,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_function_analysis",
-            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations. accesses lists the reads and writes of its own code with the mapping keys of each index level (text, kind: msg_sender|parameter|state_var|local|literal|this|expression, ref). try_catches lists its try statements as ilold_cfg does.",
+            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations. accesses lists the reads and writes of its own code with the mapping keys of each index level (text, kind: msg_sender|parameter|state_var|local|literal|this|expression, ref). try_catches lists its try statements as ilold_cfg does. value_transfers and balance_reads list the value its code moves and the balances it reads, as ilold_contract_detail does.",
             contract_function_schema(),
         ),
         tool(

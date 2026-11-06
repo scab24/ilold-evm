@@ -26,7 +26,14 @@ const RESPONSES: &[(&str, &[(&str, &str)])] = &[
             ("trycatch_function", "/session/function/TryCatch/clauses"),
         ],
     ),
-    ("value", &[("value_contract_detail", "/contract/Payments")]),
+    (
+        "value",
+        &[
+            ("value_contract_detail", "/contract/Payments"),
+            ("value_function", "/session/function/Payments/buy"),
+            ("value_balances_function", "/session/function/Payments/balances"),
+        ],
+    ),
 ];
 
 fn write(root: &Path, name: &str, body: &Value) {
