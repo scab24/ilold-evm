@@ -1776,7 +1776,7 @@ fn print_result(result: &CommandResult, steps: &[String]) {
             println!("  Findings: {}", findings_count);
             println!();
         }
-        CommandResult::VariableInfo { variable, writers, readers } => {
+        CommandResult::VariableInfo { variable, writers, readers, .. } => {
             println!();
             println!("  {} {}", c_bright("who:"), c_accent(variable));
             if !writers.is_empty() {

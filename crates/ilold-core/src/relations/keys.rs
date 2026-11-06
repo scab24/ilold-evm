@@ -1,6 +1,6 @@
 //! The keys of each storage access: for every index level of the raw path, its text and where its value comes from.
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +15,7 @@ use crate::model::project::Project;
 use crate::model::source::{uncast, value_source, ValueSource};
 use crate::model::statement::{walk_all, Statement, StatementKind};
 use crate::sequence::effects::reachable;
+use crate::util::target_base_name;
 
 use super::{param_source, state_var_ref};
 
@@ -101,6 +102,27 @@ pub struct StorageAccess {
     pub span: SourceSpan,
     pub block: usize,
     pub keys: Vec<AccessKey>,
+}
+
+impl StorageAccess {
+    /// The state variable the path starts at; none for a path rooted at a `storage` parameter.
+    pub fn state_var(&self) -> Option<&str> {
+        self.param.is_none().then(|| target_base_name(&self.path))
+    }
+}
+
+/// Per state variable name, the kinds of key every function `contract` runs indexes it with.
+pub fn key_kinds(project: &Project, contract: &ContractDef, cfgs: &HashMap<(String, String), CfgGraph>) -> BTreeMap<String, BTreeSet<KeyKind>> {
+    let mut kinds: BTreeMap<String, BTreeSet<KeyKind>> = BTreeMap::new();
+    for af in project.accessible_functions(contract) {
+        let Some(cfg) = cfgs.get(&(af.owner.key().to_string(), af.function.key.clone())) else { continue };
+        for access in storage_accesses(project, af.owner, af.owner, af.function, cfg) {
+            if let Some(var) = access.state_var() {
+                kinds.entry(var.to_string()).or_default().extend(access.keys.iter().map(|k| k.kind));
+            }
+        }
+    }
+    kinds
 }
 
 /// Every storage access of `func`'s reachable code, as `context` runs it.

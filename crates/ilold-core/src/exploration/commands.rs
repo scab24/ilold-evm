@@ -13,6 +13,8 @@ use crate::narrative::sequence::{build_sequence_narrative, compute_flow_summary}
 use crate::narrative::trace::{build_flow_tree, FlowConfig, FlowTree};
 use crate::narrative::types::{FunctionNarrative, MutationRef, SequenceNarrative};
 use crate::pathtree::types::PathTree;
+use crate::pathtree::walker::normalize_path;
+use crate::relations::{storage_accesses, AccessKind, KeySite, RecordKeys};
 use crate::journal::export::export_markdown;
 use crate::model::expression::AssignOperator;
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior, SequenceAnalysis};
@@ -42,6 +44,16 @@ pub struct AccessibleFunctionEntry {
     pub writes_state: bool,
     pub has_external_calls: bool,
     pub is_read_only: bool,
+}
+
+/// A function's reads or writes of one variable: the keys of its own code, or a record for what its callees do.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariableAccess {
+    /// As `writers` and `readers` name it.
+    pub function: String,
+    pub kind: AccessKind,
+    #[serde(flatten)]
+    pub keys: RecordKeys,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +157,8 @@ pub enum CommandResult {
         variable: String,
         writers: Vec<(String, AccessLevel)>,
         readers: Vec<(String, AccessLevel)>,
+        #[serde(default)]
+        accesses: Vec<VariableAccess>,
     },
     Exported {
         markdown: String,
@@ -617,8 +631,11 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
         base == var_lower
     };
 
+    let names_var = |names: &[String]| names.iter().any(|n| target_base_name(n).to_lowercase() == var_lower);
+
     let mut writers: Vec<(String, AccessLevel)> = Vec::new();
     let mut readers: Vec<(String, AccessLevel)> = Vec::new();
+    let mut accesses: Vec<VariableAccess> = Vec::new();
     let mut seen_writers: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     let mut seen_readers: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
 
@@ -633,33 +650,39 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
             // only functions this contract runs (a base function it overrides is not one)
             let Some(af) = function_of(owner, &b.name) else { continue };
 
-            let eff_write_paths = b.effective_state_write_paths();
-            let eff_read_paths = b.effective_state_read_paths();
-            let eff_writes = b.effective_state_writes();
-            let eff_reads = b.effective_state_reads();
-
-            let writes = eff_write_paths.iter().any(|p| path_matches(p))
-                || eff_writes.iter().any(|w| {
-                    let base = w
-                        .split(|c| c == '[' || c == '.')
-                        .next()
-                        .unwrap_or(w)
-                        .to_lowercase();
-                    base == var_lower
-                });
-            let reads = eff_read_paths.iter().any(|p| path_matches(p))
-                || eff_reads.iter().any(|r| {
-                    let base = r
-                        .split(|c| c == '[' || c == '.')
-                        .next()
-                        .unwrap_or(r)
-                        .to_lowercase();
-                    base == var_lower
-                });
+            let touches = |paths: Vec<String>, names: Vec<String>| paths.iter().any(|p| path_matches(p)) || names_var(&names);
+            let writes = touches(b.effective_state_write_paths(), b.effective_state_writes());
+            let reads = touches(b.effective_state_read_paths(), b.effective_state_reads());
 
             let id = (owner.to_string(), b.name.clone());
             let label = || if shared_key(&b.name) { format!("{owner}::{}", b.name) } else { b.name.clone() };
             let access = || classify_in(data.project, data.contract, af.owner, af.function).0;
+            if (writes || reads) && !seen_writers.contains(&id) && !seen_readers.contains(&id) {
+                let direct = data.cfgs.get(&(af.owner.key().to_string(), af.function.key.clone())).map(|cfg| {
+                    storage_accesses(data.project, af.owner, af.owner, af.function, cfg)
+                        .into_iter()
+                        .filter(|a| a.state_var().is_some() && path_matches(&normalize_path(&a.path)))
+                        .collect::<Vec<_>>()
+                });
+                let transitive = [
+                    (AccessKind::Write, touches(b.transitive_state_write_paths.clone(), b.transitive_state_writes.clone())),
+                    (AccessKind::Read, touches(b.transitive_state_read_paths.clone(), b.transitive_state_reads.clone())),
+                ];
+                for (kind, in_callees) in transitive {
+                    let sites: Vec<KeySite> = direct
+                        .iter()
+                        .flatten()
+                        .filter(|a| a.kind == kind)
+                        .map(|a| KeySite { keys: a.keys.clone(), span: a.span })
+                        .collect();
+                    if !sites.is_empty() {
+                        accesses.push(VariableAccess { function: label(), kind, keys: RecordKeys::direct(sites) });
+                    }
+                    if in_callees {
+                        accesses.push(VariableAccess { function: label(), kind, keys: RecordKeys::transitive() });
+                    }
+                }
+            }
             if writes && seen_writers.insert(id.clone()) {
                 writers.push((label(), access()));
             }
@@ -675,7 +698,7 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
         };
     }
 
-    CommandResult::VariableInfo { variable: variable.to_string(), writers, readers }
+    CommandResult::VariableInfo { variable: variable.to_string(), writers, readers, accesses }
 }
 
 /// The contract's own analysis lists inherited functions too; the defining contract's is a fallback.

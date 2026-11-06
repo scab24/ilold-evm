@@ -1,0 +1,416 @@
+{
+  "VariableInfo": {
+    "accesses": [
+      {
+        "function": "_credit",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::_credit",
+                "text": "account"
+              }
+            ],
+            "span": {
+              "end_col": 36,
+              "end_line": 85,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 85
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "parameter",
+            "ref": "Keys::_credit",
+            "text": "account"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "write"
+      },
+      {
+        "function": "_credit",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::_credit",
+                "text": "account"
+              }
+            ],
+            "span": {
+              "end_col": 36,
+              "end_line": 85,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 85
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "parameter",
+            "ref": "Keys::_credit",
+            "text": "account"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "read"
+      },
+      {
+        "function": "credit",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::credit",
+                "text": "account"
+              }
+            ],
+            "span": {
+              "end_col": 35,
+              "end_line": 26,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 26
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "parameter",
+            "ref": "Keys::credit",
+            "text": "account"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "write"
+      },
+      {
+        "function": "creditLater",
+        "key_sites": [],
+        "keys": null,
+        "keys_reason": "transitive",
+        "kind": "write"
+      },
+      {
+        "function": "creditLater",
+        "key_sites": [],
+        "keys": null,
+        "keys_reason": "transitive",
+        "kind": "read"
+      },
+      {
+        "function": "deposit",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "msg_sender",
+                "ref": null,
+                "text": "msg.sender"
+              }
+            ],
+            "span": {
+              "end_col": 42,
+              "end_line": 22,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 22
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "msg_sender",
+            "ref": null,
+            "text": "msg.sender"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "write"
+      },
+      {
+        "function": "deposit",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "msg_sender",
+                "ref": null,
+                "text": "msg.sender"
+              }
+            ],
+            "span": {
+              "end_col": 42,
+              "end_line": 22,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 22
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "msg_sender",
+            "ref": null,
+            "text": "msg.sender"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "read"
+      },
+      {
+        "function": "fundTreasury",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "state_var",
+                "ref": "Keys::treasury",
+                "text": "treasury"
+              }
+            ],
+            "span": {
+              "end_col": 36,
+              "end_line": 30,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 30
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "state_var",
+            "ref": "Keys::treasury",
+            "text": "treasury"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "write"
+      },
+      {
+        "function": "move",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "from"
+              }
+            ],
+            "span": {
+              "end_col": 33,
+              "end_line": 55,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 55
+            }
+          },
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "to"
+              }
+            ],
+            "span": {
+              "end_col": 31,
+              "end_line": 56,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 56
+            }
+          }
+        ],
+        "keys": null,
+        "keys_reason": "several",
+        "kind": "write"
+      },
+      {
+        "function": "move",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "from"
+              }
+            ],
+            "span": {
+              "end_col": 31,
+              "end_line": 56,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 55
+            }
+          },
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "to"
+              }
+            ],
+            "span": {
+              "end_col": 31,
+              "end_line": 56,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 55
+            }
+          }
+        ],
+        "keys": null,
+        "keys_reason": "several",
+        "kind": "read"
+      },
+      {
+        "function": "selfCredit",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "this",
+                "ref": null,
+                "text": "address(this)"
+              }
+            ],
+            "span": {
+              "end_col": 41,
+              "end_line": 42,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 42
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "this",
+            "ref": null,
+            "text": "address(this)"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "write"
+      },
+      {
+        "function": "withdraw",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::withdraw",
+                "text": "account"
+              }
+            ],
+            "span": {
+              "end_col": 36,
+              "end_line": 65,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 65
+            }
+          }
+        ],
+        "keys": [
+          {
+            "kind": "parameter",
+            "ref": "Keys::withdraw",
+            "text": "account"
+          }
+        ],
+        "keys_reason": null,
+        "kind": "write"
+      },
+      {
+        "function": "withdraw",
+        "key_sites": [
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::funded",
+                "text": "who"
+              }
+            ],
+            "span": {
+              "end_col": 44,
+              "end_line": 17,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 17
+            }
+          },
+          {
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::withdraw",
+                "text": "account"
+              }
+            ],
+            "span": {
+              "end_col": 36,
+              "end_line": 65,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 65
+            }
+          }
+        ],
+        "keys": null,
+        "keys_reason": "several",
+        "kind": "read"
+      }
+    ],
+    "readers": [],
+    "variable": "balances",
+    "writers": [
+      [
+        "_credit",
+        "Internal"
+      ],
+      [
+        "credit",
+        "Public"
+      ],
+      [
+        "creditLater",
+        "Public"
+      ],
+      [
+        "deposit",
+        "Public"
+      ],
+      [
+        "fundTreasury",
+        "Public"
+      ],
+      [
+        "move",
+        "Public"
+      ],
+      [
+        "selfCredit",
+        "Public"
+      ],
+      [
+        "withdraw",
+        "Public"
+      ]
+    ]
+  }
+}

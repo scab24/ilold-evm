@@ -986,6 +986,7 @@
         statements: n.data.statements,
         span: n.data.span,
         file: n.data.file,
+        accesses: n.data.accesses,
       },
     }));
 

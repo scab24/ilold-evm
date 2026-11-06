@@ -16,7 +16,7 @@ use crate::model::project::Project;
 use crate::model::source::ValueSource;
 
 pub use dispatch::{call_target, external_calls, ExternalCallSite};
-pub use keys::{storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
+pub use keys::{key_kinds, storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

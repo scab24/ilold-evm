@@ -7,6 +7,53 @@
           "kind": "constructor"
         }
       },
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "hook",
+          "span": {
+            "end_col": 17,
+            "end_line": 16,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 16
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "oracle",
+          "span": {
+            "end_col": 19,
+            "end_line": 17,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 17
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "orphan",
+          "span": {
+            "end_col": 37,
+            "end_line": 18,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 18
+          }
+        }
+      ],
       "guards": [],
       "happy_paths": 1,
       "key": "constructor",
@@ -36,6 +83,23 @@
     },
     {
       "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "orphan",
+          "span": {
+            "end_col": 19,
+            "end_line": 22,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 22
+          }
+        }
+      ],
       "guards": [],
       "happy_paths": 1,
       "key": "initialize",
@@ -57,6 +121,23 @@
     },
     {
       "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "hook",
+          "span": {
+            "end_col": 17,
+            "end_line": 26,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 26
+          }
+        }
+      ],
       "guards": [],
       "happy_paths": 1,
       "key": "setHook",
@@ -78,6 +159,68 @@
     },
     {
       "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "hook",
+          "span": {
+            "end_col": 53,
+            "end_line": 34,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 30
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "orphan",
+          "span": {
+            "end_col": 53,
+            "end_line": 34,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 30
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "registry",
+          "span": {
+            "end_col": 53,
+            "end_line": 34,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 30
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "oracle",
+          "span": {
+            "end_col": 53,
+            "end_line": 34,
+            "file_index": 3,
+            "start_col": 9,
+            "start_line": 30
+          }
+        }
+      ],
       "guards": [],
       "happy_paths": 1,
       "key": "run",
@@ -99,6 +242,7 @@
     },
     {
       "access": "Public",
+      "accesses": [],
       "guards": [],
       "happy_paths": 1,
       "key": "selfValue",
@@ -115,6 +259,7 @@
     },
     {
       "access": "Public",
+      "accesses": [],
       "guards": [],
       "happy_paths": 1,
       "key": "viaPointer",
@@ -273,6 +418,7 @@
     {
       "is_constant": false,
       "is_immutable": true,
+      "key_kinds": [],
       "name": "vault",
       "type_name": "contract IVault",
       "visibility": "Public"
@@ -280,6 +426,7 @@
     {
       "is_constant": false,
       "is_immutable": false,
+      "key_kinds": [],
       "name": "hook",
       "type_name": "contract IHook",
       "visibility": "Public"
@@ -287,6 +434,7 @@
     {
       "is_constant": false,
       "is_immutable": false,
+      "key_kinds": [],
       "name": "oracle",
       "type_name": "contract IOracle",
       "visibility": "Public"
@@ -294,6 +442,7 @@
     {
       "is_constant": false,
       "is_immutable": false,
+      "key_kinds": [],
       "name": "orphan",
       "type_name": "contract IOrphan",
       "visibility": "Public"
@@ -301,6 +450,7 @@
     {
       "is_constant": false,
       "is_immutable": false,
+      "key_kinds": [],
       "name": "registry",
       "type_name": "contract IRegistry",
       "visibility": "Public"

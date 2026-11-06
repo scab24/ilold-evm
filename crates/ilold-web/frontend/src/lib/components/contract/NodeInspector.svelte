@@ -5,6 +5,8 @@
   import { formatAccess, isConditional } from '$lib/utils/access';
   import type { CytoscapeGraph, FunctionSummary } from '$lib/api/rest';
   import { BASIS_LABEL, splitRef, tagColor } from '$lib/utils/links';
+  import AccessList from './AccessList.svelte';
+  import WhoTouches from './WhoTouches.svelte';
 
   interface Props {
     selectedNode: any;
@@ -61,6 +63,13 @@
     return callgraph.edges.filter((e) => e.data.source === node.data.id && e.data.dispatch_candidates !== undefined).map((e) => e.data);
   });
 
+  // the variable whose readers and writers are shown, cleared with each new selection
+  let whoVar = $state<string | null>(null);
+  $effect(() => {
+    selectedNode;
+    whoVar = null;
+  });
+
   const inspectorTitle = $derived(
     selectedNode ? (selectedNode._funcName || selectedNode.label || 'Node') : '',
   );
@@ -98,6 +107,14 @@
                 </div>
               {/each}
             </Collapsible>
+          {/if}
+          {#if summary.accesses.length > 0}
+            <Collapsible title="Storage" count={summary.accesses.length} open={true}>
+              <AccessList accesses={summary.accesses} onvariable={(v) => (whoVar = v)} />
+            </Collapsible>
+          {/if}
+          {#if whoVar}
+            <WhoTouches contract={contract.name} variable={whoVar} onclose={() => (whoVar = null)} />
           {/if}
         {/if}
         {#if selectedNode.is_external}
@@ -318,6 +335,11 @@
         <div class="d-row"><span class="d-label">Function</span><span>{parentFunc}</span></div>
         {#if selectedNode.span}
           <div class="d-row"><span class="d-label">Lines</span><span>{selectedNode.file ? `${selectedNode.file.split('/').pop()}:` : ''}{selectedNode.span.start_line === selectedNode.span.end_line ? selectedNode.span.start_line : `${selectedNode.span.start_line}–${selectedNode.span.end_line}`}</span></div>
+        {/if}
+        {#if selectedNode.accesses?.length > 0}
+          <Collapsible title="Storage" count={selectedNode.accesses.length} open={true}>
+            <AccessList accesses={selectedNode.accesses} />
+          </Collapsible>
         {/if}
         <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length}{ownEntry(funcPaths, parentFunc)?.page?.truncated ? ' loaded' : ''} paths</span></div>
 

@@ -82,6 +82,8 @@ export interface FunctionSummary {
   modifiers: string[];
   access: AccessLevel;
   guards: GuardFact[];
+  /** Reads and writes of its own code and modifiers. */
+  accesses: StorageAccess[];
 }
 
 export interface StateVarSummary {
@@ -90,6 +92,53 @@ export interface StateVarSummary {
   visibility: string;
   is_constant: boolean;
   is_immutable: boolean;
+  key_kinds: KeyKind[];
+}
+
+export type KeyKind = 'msg_sender' | 'parameter' | 'state_var' | 'local' | 'literal' | 'this' | 'expression';
+
+/** One index level of a storage path; `ref` is `<contract>::<function or modifier>` for a parameter, `<contract>::<name>` for a state variable. */
+export interface AccessKey {
+  text: string;
+  kind: KeyKind;
+  ref: string | null;
+}
+
+export interface KeySite {
+  keys: AccessKey[];
+  span: SourceSpan;
+}
+
+export type AccessKind = 'read' | 'write';
+
+export interface StorageAccess {
+  kind: AccessKind;
+  /** Raw path, keys included. */
+  path: string;
+  param: number | null;
+  modifier: string | null;
+  span: SourceSpan;
+  block: number;
+  keys: AccessKey[];
+}
+
+/** `keys` is set when every site shares one key set; otherwise `keys_reason` says why not. */
+export interface RecordKeys {
+  keys: AccessKey[] | null;
+  keys_reason: 'transitive' | 'several' | null;
+  key_sites: KeySite[];
+}
+
+export interface VariableAccess extends RecordKeys {
+  function: string;
+  kind: AccessKind;
+}
+
+export interface VariableInfo {
+  variable: string;
+  writers: [string, AccessLevel][];
+  readers: [string, AccessLevel][];
+  accesses: VariableAccess[];
 }
 
 export interface CytoscapeGraph {
@@ -116,6 +165,8 @@ export interface CytoscapeNodeData {
   statements?: string[];
   span?: SourceSpan;
   file?: string;
+  /** CFG blocks only. */
+  accesses?: StorageAccess[];
 }
 
 export interface CytoscapeEdgeData {

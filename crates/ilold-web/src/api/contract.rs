@@ -14,7 +14,10 @@ use ilold_core::model::contract::ContractDef;
 use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
-use ilold_core::relations::{declared_target, external_calls, AssignmentSite, ContractLink, Dispatch, DispatchCandidate, UnresolvedReason};
+use ilold_core::relations::{
+    declared_target, external_calls, key_kinds, storage_accesses, AssignmentSite, ContractLink, Dispatch, DispatchCandidate, KeyKind,
+    StorageAccess, UnresolvedReason,
+};
 use ilold_core::sequence::types::SequencePage;
 use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
 
@@ -59,6 +62,8 @@ pub struct FunctionSummary {
     pub access: AccessLevel,
     /// As this contract runs the function.
     pub guards: Vec<GuardFact>,
+    /// The reads and writes of its own code and modifiers, with their keys.
+    pub accesses: Vec<StorageAccess>,
 }
 
 #[derive(Serialize)]
@@ -74,6 +79,8 @@ pub struct StateVarSummary {
     pub visibility: String,
     pub is_constant: bool,
     pub is_immutable: bool,
+    /// The kinds of key the functions the contract runs index it with.
+    pub key_kinds: Vec<KeyKind>,
 }
 
 /// A key, a qualified id or an unambiguous bare name; an ambiguous name is a 409 with candidates.
@@ -102,6 +109,7 @@ pub async fn get_contract(
     let summary = |owner: &ContractDef, f: &FunctionDef| -> FunctionSummary {
         let pt = state.path_trees.get(&(owner.key().to_string(), f.key.clone()));
         let (access, guards) = classify_in(&state.project, contract, owner, f);
+        let cfg = state.cfgs.get(&(owner.key().to_string(), f.key.clone()));
         FunctionSummary {
             name: f.name.clone(),
             key: state.project.route_key(contract, f),
@@ -120,14 +128,17 @@ pub async fn get_contract(
             modifiers: f.modifiers.iter().map(|m| m.name.clone()).collect(),
             access,
             guards,
+            accesses: cfg.map(|cfg| storage_accesses(&state.project, owner, owner, f, cfg)).unwrap_or_default(),
         }
     };
+    let kinds = key_kinds(&state.project, contract, &state.cfgs);
     let var_summary = |sv: &StateVar| StateVarSummary {
         name: sv.name.clone(),
         type_name: sv.type_name.clone(),
         visibility: format!("{:?}", sv.visibility),
         is_constant: sv.is_constant,
         is_immutable: sv.is_immutable,
+        key_kinds: kinds.get(&sv.name).map(|k| k.iter().copied().collect()).unwrap_or_default(),
     };
 
     let functions = contract.functions.iter().map(|f| summary(contract, f)).collect();
@@ -191,6 +202,9 @@ pub struct CytoscapeNodeData {
     pub span: Option<SourceSpan>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    /// CFG blocks: the reads and writes they make, with their keys.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub accesses: Vec<StorageAccess>,
 }
 
 #[derive(Serialize)]
@@ -275,6 +289,7 @@ pub async fn get_callgraph(
                     statements: Vec::new(),
                     span: None,
                     file: None,
+                    accesses: Vec::new(),
                 },
             }
         })
@@ -336,6 +351,7 @@ pub async fn get_cfg(
 
     let key = (owning.key().to_string(), func.key.clone());
     let cfg = state.cfgs.get(&key).ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))?;
+    let mut accesses = storage_accesses(&state.project, owning, owning, func, cfg);
 
     let nodes: Vec<CytoscapeNode> = cfg
         .node_indices()
@@ -356,6 +372,7 @@ pub async fn get_cfg(
                     file: block.span
                         .and_then(|span| state.project.source_files.get(span.file_index))
                         .map(|f| f.path.clone()),
+                    accesses: accesses.extract_if(.., |a| a.block == block.id).collect(),
                 },
             }
         })

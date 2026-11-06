@@ -1,0 +1,972 @@
+{
+  "display_name": "Keys",
+  "functions": [
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "msg_sender",
+              "ref": null,
+              "text": "msg.sender"
+            }
+          ],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "balances[msg.sender]",
+          "span": {
+            "end_col": 42,
+            "end_line": 22,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 22
+          }
+        },
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "msg_sender",
+              "ref": null,
+              "text": "msg.sender"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[msg.sender]",
+          "span": {
+            "end_col": 42,
+            "end_line": 22,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 22
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "deposit",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "Payable",
+      "name": "deposit",
+      "params": [],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "deposit()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::credit",
+              "text": "account"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[account]",
+          "span": {
+            "end_col": 35,
+            "end_line": 26,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 26
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "credit",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "credit",
+      "params": [
+        {
+          "name": "account",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "credit(address,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "treasury",
+          "span": {
+            "end_col": 36,
+            "end_line": 30,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 30
+          }
+        },
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "state_var",
+              "ref": "Keys::treasury",
+              "text": "treasury"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[treasury]",
+          "span": {
+            "end_col": 36,
+            "end_line": 30,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 30
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "fundTreasury",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "fundTreasury",
+      "params": [
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "fundTreasury(uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::approve",
+              "text": "owner"
+            },
+            {
+              "kind": "parameter",
+              "ref": "Keys::approve",
+              "text": "spender"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "allowance[owner][spender]",
+          "span": {
+            "end_col": 43,
+            "end_line": 34,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 34
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "approve",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "approve",
+      "params": [
+        {
+          "name": "owner",
+          "type_name": "address"
+        },
+        {
+          "name": "spender",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "approve(address,address,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "expression",
+              "ref": null,
+              "text": "slotOf(seed)"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "slots[slotOf(seed)]",
+          "span": {
+            "end_col": 36,
+            "end_line": 38,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 38
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "store",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "store",
+      "params": [
+        {
+          "name": "seed",
+          "type_name": "uint256"
+        },
+        {
+          "name": "value",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "store(uint256,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "this",
+              "ref": null,
+              "text": "address(this)"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[address(this)]",
+          "span": {
+            "end_col": 41,
+            "end_line": 42,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 42
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "selfCredit",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "selfCredit",
+      "params": [
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "selfCredit(uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "literal",
+              "ref": null,
+              "text": "0"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "slots[0]",
+          "span": {
+            "end_col": 25,
+            "end_line": 46,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 46
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "setFirst",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "setFirst",
+      "params": [
+        {
+          "name": "value",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "setFirst(uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "local",
+              "ref": null,
+              "text": "next"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "slots[next]",
+          "span": {
+            "end_col": 28,
+            "end_line": 51,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 51
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "setNext",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "setNext",
+      "params": [
+        {
+          "name": "value",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "setNext(uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::move",
+              "text": "from"
+            }
+          ],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "balances[from]",
+          "span": {
+            "end_col": 31,
+            "end_line": 56,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 55
+          }
+        },
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::move",
+              "text": "to"
+            }
+          ],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "balances[to]",
+          "span": {
+            "end_col": 31,
+            "end_line": 56,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 55
+          }
+        },
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::move",
+              "text": "from"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[from]",
+          "span": {
+            "end_col": 33,
+            "end_line": 55,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 55
+          }
+        },
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::move",
+              "text": "to"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[to]",
+          "span": {
+            "end_col": 31,
+            "end_line": 56,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 56
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "move",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "move",
+      "params": [
+        {
+          "name": "from",
+          "type_name": "address"
+        },
+        {
+          "name": "to",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "move(address,address,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "total",
+          "span": {
+            "end_col": 24,
+            "end_line": 61,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 60
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "total",
+          "span": {
+            "end_col": 24,
+            "end_line": 61,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 61
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "creditLater",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "creditLater",
+      "params": [
+        {
+          "name": "account",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "creditLater(address,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::funded",
+              "text": "who"
+            }
+          ],
+          "kind": "read",
+          "modifier": "funded",
+          "param": null,
+          "path": "balances[who]",
+          "span": {
+            "end_col": 44,
+            "end_line": 17,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 17
+          }
+        },
+        {
+          "block": 1,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::withdraw",
+              "text": "account"
+            }
+          ],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "balances[account]",
+          "span": {
+            "end_col": 36,
+            "end_line": 65,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 65
+          }
+        },
+        {
+          "block": 1,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::withdraw",
+              "text": "account"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[account]",
+          "span": {
+            "end_col": 36,
+            "end_line": 65,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 65
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "withdraw",
+      "kind": "Function",
+      "modifiers": [
+        "funded"
+      ],
+      "mutability": "NonPayable",
+      "name": "withdraw",
+      "params": [
+        {
+          "name": "account",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "withdraw(address,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::_position",
+              "text": "id"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "positions[id].amount",
+          "span": {
+            "end_col": 40,
+            "end_line": 69,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 69
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "grow",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "grow",
+      "params": [
+        {
+          "name": "key",
+          "type_name": "uint256"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "grow(uint256,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "expression",
+              "ref": null,
+              "text": "i"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "slots[i]",
+          "span": {
+            "end_col": 21,
+            "end_line": 73,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 73
+          }
+        },
+        {
+          "block": 3,
+          "keys": [
+            {
+              "kind": "expression",
+              "ref": null,
+              "text": "i"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "slots[i]",
+          "span": {
+            "end_col": 25,
+            "end_line": 76,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 76
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 3,
+      "key": "shadowed",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "shadowed",
+      "params": [
+        {
+          "name": "i",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 4,
+      "paths_truncated": true,
+      "revert_paths": 0,
+      "signature": "shadowed(uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Internal",
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "_position",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "View",
+      "name": "_position",
+      "params": [
+        {
+          "name": "id",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "_position(uint256)",
+      "visibility": "Internal"
+    },
+    {
+      "access": "Internal",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::_credit",
+              "text": "account"
+            }
+          ],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "balances[account]",
+          "span": {
+            "end_col": 36,
+            "end_line": 85,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 85
+          }
+        },
+        {
+          "block": 0,
+          "keys": [
+            {
+              "kind": "parameter",
+              "ref": "Keys::_credit",
+              "text": "account"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "balances[account]",
+          "span": {
+            "end_col": 36,
+            "end_line": 85,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 85
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "_credit",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "_credit",
+      "params": [
+        {
+          "name": "account",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "_credit(address,uint256)",
+      "visibility": "Internal"
+    },
+    {
+      "access": "Internal",
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "slotOf",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "Pure",
+      "name": "slotOf",
+      "params": [
+        {
+          "name": "seed",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "slotOf(uint256)",
+      "visibility": "Internal"
+    }
+  ],
+  "incoming_links": [],
+  "inherit_keys": [],
+  "inherited_functions": [],
+  "inherited_state_vars": [],
+  "inherits": [],
+  "is_dependency": false,
+  "kind": "Contract",
+  "name": "Keys",
+  "outgoing_links": [],
+  "qualified_id": "src/Keys.sol:Keys",
+  "state_vars": [
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [
+        "msg_sender",
+        "parameter",
+        "state_var",
+        "this"
+      ],
+      "name": "balances",
+      "type_name": "mapping(address => uint256)",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [
+        "parameter"
+      ],
+      "name": "allowance",
+      "type_name": "mapping(address => mapping(address => uint256))",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [
+        "local",
+        "literal",
+        "expression"
+      ],
+      "name": "slots",
+      "type_name": "mapping(uint256 => uint256)",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [
+        "parameter"
+      ],
+      "name": "positions",
+      "type_name": "mapping(uint256 => struct Keys.Position)",
+      "visibility": "Internal"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "treasury",
+      "type_name": "address",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "total",
+      "type_name": "uint256",
+      "visibility": "Public"
+    }
+  ]
+}
