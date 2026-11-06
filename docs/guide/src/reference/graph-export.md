@@ -84,7 +84,7 @@ Counts of where the analysis stopped, and the limits it used. Exported facts nev
 
 `<path>` is the declaring file relative to the git root. A function signature is its name and parameter types: `deposit(uint256)`. Contract types appear by name (`setFeed(IFeed)`). Internal and private functions keep data locations, because overloads may differ only by them: `_sum(uint256[] storage)` and `_sum(uint256[] memory)`. `receive()`, `fallback()` and `constructor(...)` follow the same form. The `selector` field carries the ABI selector where one exists.
 
-Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason`, `target_source.assigned_at` and `in_try`; on `reads` and `writes`: `keys`, `keys_reason` and `key_sites`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. A `try_catch` hashes only `function`, `in_context`, `guarded_call` and `via`, so editing a catch clause keeps its id. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
+Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason`, `target_source.assigned_at` and `in_try`; on `reads` and `writes`: `keys`, `keys_reason` and `key_sites`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. A `try_catch` hashes only `function`, `in_context`, `guarded_call` and `via`, so editing a catch clause keeps its id. A `value_transfer` hashes `function`, `in_context`, `asset_kind`, `operation`, its five expressions, `via_library` and `via`; a `balance_read` the same without `operation`, `from_expr`, `to_expr` and `amount_expr` and with `owner_expr`. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
 
 ## Common fields
 
@@ -102,10 +102,10 @@ Every node and edge has:
 
 | Tag | Meaning |
 | --- | --- |
-| `EXTRACTED` | Read from the syntax: declarations, reverts, code facts, guards found in code on every path, storage-parameter accesses, try statements. |
-| `TYPE_RESOLVED` | Resolved through solc declaration ids and types: call targets, emitted events, state variables of reads and writes, linearization. |
+| `EXTRACTED` | Read from the syntax: declarations, reverts, code facts, guards found in code on every path, storage-parameter accesses, try statements, ether sent by `.transfer`, `.send` or `{value: ...}`, `.balance` reads. |
+| `TYPE_RESOLVED` | Resolved through solc declaration ids and types: call targets, emitted events, state variables of reads and writes, linearization, token and library value transfers and balance reads. |
 | `INFERRED` | A heuristic: guards from a modifier name, guards on some paths only (`scope: conditional`), events matched by name where solc gave no id, calls resolved by name, linearization without solc data, an external call with exactly one in-scope implementation. |
-| `AMBIGUOUS` | Unresolved: the edge keeps its text and `to`, `event` or `state_var` is `null`. A modifier without code is `AMBIGUOUS` too, and so are dispatch candidates and contract links when several in-scope contracts may answer one call, and a try statement whose clauses cannot be told apart (`reason`). |
+| `AMBIGUOUS` | Unresolved: the edge keeps its text and `to`, `event` or `state_var` is `null`. A modifier without code is `AMBIGUOUS` too, and so are dispatch candidates and contract links when several in-scope contracts may answer one call, and a try statement whose clauses cannot be told apart (`reason`), and a value transfer or balance read whose asset is not decided (`asset_candidates`, `reason`). |
 
 ### Rules
 
@@ -118,6 +118,7 @@ Every node and edge has:
 | `guards` | The guard walk over the function, its modifiers and helpers. |
 | `code_facts` | Builtins and unchecked blocks, modifiers included. |
 | `dispatch` | Which in-scope contracts may answer external calls: `contract_link`. |
+| `value` | The recognizer table over the function's calls and `.balance` reads, modifiers included: `value_transfer`, `balance_read`. |
 
 ## Contexts
 
@@ -153,6 +154,8 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 | `exposes` | `contract`, `function` (a function, or a state variable for a getter), `via_base` (the declaring base when inherited, else `null`), `selector`, `getter`. One per externally callable function of each deployable project contract. |
 | `calls` | `from`, `to` (`dispatch_target`, else `static_target`, else `null`), `target_text`, `call_kind`, `static_target` (the declaration the code names), `dispatch_target` (what runs in this context: the virtual override, the `super` target), `options` (`{value, gas, salt}` as written), `target_source`, `result_used` (low-level calls and `send` only), `via`. External calls to a contract (`external`, `external_self`) also carry `dispatch_candidates` and, when that list is empty, `unresolved_reason`. See [Dispatch candidates](#dispatch-candidates). The call a try statement guards carries `in_try`, the id of its `try_catch`. |
 | `try_catch` | `function`, `in_context`, `guarded_call` (the id of the `calls` record it guards, `null` when unknown), `success_span`, `catch_clauses`, `reason`, `via`. See [Try statements](#try-statements). |
+| `value_transfer` | `function`, `in_context`, `asset_kind`, `asset_candidates`, `operation`, `direction`, `token_expr`, `from_expr`, `to_expr`, `amount_expr`, `id_expr`, `call_id` (the `calls` record that makes it), `via_library`, `reason`, `via`. See [Value transfers and balance reads](#value-transfers-and-balance-reads). |
+| `balance_read` | `function`, `in_context`, `asset_kind`, `asset_candidates`, `token_expr`, `owner_expr`, `id_expr`, `via_library`, `reason`, `via`. |
 | `contract_link` | `from_contract`, `to_contract`, `via_state_vars` (ids of the state variables holding the called address), `call_ids` (the `calls` records it aggregates), `basis`. See [Contract links](#contract-links). |
 | `reads`, `writes` | `state_var`, `path` (`balances[]`, `s.x`), `param` (the storage parameter it goes through, then `state_var` is `null`), `via`, `keys`, `keys_reason`, `key_sites`. See [Mapping keys](#mapping-keys). |
 | `emits` | `event` (the declaration solc resolved; without an id, the one event with that name, else `null`), `event_text`, `via`. An emit reached through a call yields one edge per event declaration the callee emits under that name. |
@@ -292,6 +295,72 @@ A try statement whose guarded call or clauses the model cannot read is `AMBIGUOU
  "...": "..."}
 ```
 
+### Value transfers and balance reads
+
+One `value_transfer` per call that moves ether or tokens, one `balance_read` per balance the code reads, from a single recognizer table (`crates/ilold-core/src/relations/value.rs`). A call or member access the table does not list yields no record: a call named `transfer` whose declaration has another signature, a low-level call without `{value: ...}`, a transfer written in assembly.
+
+| Form | Recognized by | `asset_kind` | `operation` | Fields |
+| --- | --- | --- | --- | --- |
+| `to.transfer(x)`, `to.send(x)` | call kind | `native` | `transfer`, `send` | `to`, `amount` |
+| `to.call{value: x}(...)`, `c.f{value: x}(...)` | a `value` option on a low-level or external call | `native` | `call` | `to`, `amount` |
+| `new C{value: x}(...)` | a `value` option on a creation | `native` | `create` | `amount` |
+| `a.balance` | the `balance` builtin | `native` | (read) | `owner` |
+| `transfer(address,uint256)` | selector `a9059cbb` | `erc20` | `transfer` | `token`, `to`, `amount` |
+| `transferFrom(address,address,uint256)` | `23b872dd` | `erc20` or `erc721` | `transfer_from` | `token`, `from`, `to`, `amount` (ERC-20) or `id` (ERC-721) |
+| `safeTransferFrom(address,address,uint256)`, `(…,bytes)` | `42842e0e`, `b88d4fde` | `erc721` | `safe_transfer_from` | `token`, `from`, `to`, `id` |
+| `safeTransferFrom(address,address,uint256,uint256,bytes)`, `safeBatchTransferFrom(…)` | `f242432a`, `2eb2c2d6` | `erc1155` | `safe_transfer_from` | `token`, `from`, `to`, `id`, `amount` |
+| `transfer(address,uint256,uint256)`, `transferFrom(address,address,uint256,uint256)` | `095bcdb6`, `fe99049a` | `erc6909` | `transfer`, `transfer_from` | `token`, `from`, `to`, `id`, `amount` |
+| `mint(address,uint256)` | `40c10f19` | `erc20` or `erc721` | `mint` | `token`, `to`, `amount` or `id` |
+| `mint(address,uint256,uint256,bytes)`, `mint(address,uint256,uint256)` | `731133e9`, `156e29f6` | `erc1155`, `erc6909` | `mint` | `token`, `to`, `id`, `amount` |
+| `burn(uint256)`, `burn(address,uint256)`, `burnFrom(address,uint256)` | `42966c68`, `9dc29fac`, `79cc6790` | `erc20` (`burn(uint256)` also `erc721`) | `burn` | `token`, `from`, `amount` or `id` |
+| `burn(address,uint256,uint256)` | `f5298aca` | `erc1155` or `erc6909` | `burn` | `token`, `from`, `id`, `amount` |
+| `balanceOf(address)`, `balanceOf(address,uint256)` | `70a08231`, `00fdd58e` | `erc20`/`erc721`, `erc1155`/`erc6909` | (read) | `token`, `owner`, `id` |
+| OpenZeppelin `SafeERC20.safeTransfer`, `safeTransferFrom`, `trySafeTransfer`, `trySafeTransferFrom` | the library function the call resolves to | `erc20` | `transfer`, `transfer_from` | `token`, `from`, `to`, `amount` |
+| OpenZeppelin `Address.sendValue`, `functionCallWithValue` | library function | `native` | `call` | `to`, `amount` |
+| Solady/Solmate `SafeTransferLib.safeTransferETH`, `forceSafeTransferETH`, `trySafeTransferETH` | library function | `native` | `call` | `to`, `amount` |
+| `SafeTransferLib.safeTransfer`, `safeTransferFrom`, `balanceOf` | library function | `erc20` | `transfer`, `transfer_from`, (read) | `token`, `from`, `to`, `amount`, `owner` |
+| Uniswap v4 `CurrencyLibrary.transfer`, `balanceOf`, `balanceOfSelf` | library function | `unknown`: `native` or `erc20` | `transfer`, (read) | `token`, `to`, `amount`, `owner` |
+| `CurrencySettler.settle(currency, manager, payer, amount, burn)`, `take(currency, manager, recipient, amount, claims)` | library function | `erc6909` when the flag is literally `true`; otherwise `unknown` | `settle`, `take` | `token`, `from`, `to`, `amount` |
+
+A token call is matched by the selector of the declaration solc resolves, then by the standard its declaring interface follows, itself or through what it inherits: `erc20` exposes `transfer(address,uint256)` or `allowance(address,address)`, `erc721` exposes `ownerOf(uint256)`, `erc1155` exposes `safeTransferFrom(address,address,uint256,uint256,bytes)` or `safeBatchTransferFrom`, `erc6909` exposes `transfer(address,uint256,uint256)` or `transferFrom(address,address,uint256,uint256)`. When that does not decide, the record is `AMBIGUOUS`, `asset_kind` is `unknown`, `asset_candidates` lists the kinds it may be, and a field the candidates read from different arguments is `null`. `reason` says why:
+
+| `reason` | |
+| --- | --- |
+| `no_standard` | The declaring interface follows none of the standards, as `interface IBurnable { function burn(uint256) external; }`. |
+| `several_standards` | It follows several. |
+| `unresolved_declaration` | The call names no declaration; only its name and argument count match. |
+| `currency` | A `Currency` is ether or an ERC-20 token at run time. |
+| `claims_flag` | `settle` and `take` move ERC-6909 claims when their last argument is `true`, and it is not a literal. |
+
+The `*_expr` fields are the source text of the argument. A `null` `from_expr` is the contract running the code (the sender of a `transfer`, a `send`, a `transfer(to, x)`); for a mint, nobody. A `null` `to_expr` is a burn's sink or a contract being created. `direction` is `in` when `to_expr` names the running contract (`this`, `address(this)`), `out` when the sender is the running contract, `other` when the value moves between two other accounts (`transferFrom(a, b, x)`, `take` to a third party). Literal units are lost: `1 ether` reads `1`.
+
+A library helper is recorded at the call site in the function that calls it, `via_library` naming the library function, since the library's own code is out of scope and often moves the value in assembly. The library function's own code is analysed too and yields its own records, with the library function as `function`. A transfer inside modifier code names the modifier in `via`.
+
+```json
+{"kind": "value_transfer", "id": "value_transfer:evm:src/Value.sol:Payments.sendEth(address,uint256)#1fc41cabda8eb951.0",
+ "function": "evm:src/Value.sol:Payments.sendEth(address,uint256)", "in_context": "evm:src/Value.sol:Payments",
+ "asset_kind": "native", "asset_candidates": [], "operation": "call", "direction": "out",
+ "token_expr": null, "from_expr": null, "to_expr": "to", "amount_expr": "amount", "id_expr": null,
+ "call_id": "calls:evm:src/Value.sol:Payments.sendEth(address,uint256)#036146ab7f8650e7.0",
+ "via_library": "evm:lib/vendor/Libraries.sol:Address.sendValue(address,uint256)", "reason": null, "via": [],
+ "tag": "TYPE_RESOLVED", "rule": "value",
+ "span": {"file": "src/Value.sol", "start_line": 88, "start_col": 9, "end_line": 88, "end_col": 38}}
+{"kind": "value_transfer", "function": "evm:src/Value.sol:Payments.buy(uint256)", "asset_kind": "native", "operation": "transfer",
+ "to_expr": "payable(msg.sender)", "amount_expr": "msg.value - price", "via_library": null,
+ "via": ["evm:src/Value.sol:Payments.refundExcess"], "tag": "EXTRACTED", "...": "..."}
+{"kind": "value_transfer", "function": "evm:src/Value.sol:Payments.burnShares(uint256)", "asset_kind": "unknown",
+ "asset_candidates": ["erc20", "erc721"], "operation": "burn", "direction": "out", "token_expr": "burnable",
+ "amount_expr": null, "id_expr": null, "reason": "no_standard", "tag": "AMBIGUOUS", "...": "..."}
+{"kind": "value_transfer", "function": "evm:src/Value.sol:Payments.settleQuote(uint256,bool)", "asset_kind": "unknown",
+ "asset_candidates": ["native", "erc20", "erc6909"], "operation": "take", "direction": "other",
+ "token_expr": "quote", "from_expr": "manager", "to_expr": "msg.sender", "amount_expr": "amount",
+ "via_library": "evm:lib/vendor/Libraries.sol:CurrencySettler.take(Currency,IPoolManager,address,uint256,bool)",
+ "reason": "claims_flag", "tag": "AMBIGUOUS", "...": "..."}
+{"kind": "balance_read", "function": "evm:src/Value.sol:Payments.balances(address,uint256)", "asset_kind": "erc6909",
+ "asset_candidates": [], "token_expr": "manager", "owner_expr": "who", "id_expr": "id", "via_library": null,
+ "reason": null, "via": [], "tag": "TYPE_RESOLVED", "rule": "value", "...": "..."}
+```
+
 ### Spans
 
 A direct fact points at its statement; a read or revert, which the control-flow graph records per block, at its block. A fact with `via` points at the call in the function that leads to it. A guard found only by a modifier name points at the function.
@@ -304,6 +373,9 @@ A direct fact points at its statement; a read or revert, which the control-flow 
 - Keys are read from the index's text in the code making the access, its modifiers and the callees returning a storage pointer it calls; a key that reaches the path another way, or a text naming two declarations there, is an `expression`. So is a local declared in a tuple, `(address a, uint256 b) = ...`: the model keeps no declaration ids for its parts.
 - An access made in a callee carries no keys (`keys_reason: "transitive"`); its keys are on the callee's own record.
 - Catch clause effects list the clause's own code only, and name calls and events by their text, not by record id.
+- Value is recognized only from the table above. A transfer made in a function the code calls is that function's record, reached through the `calls` record; it is not repeated on the caller.
+- `direction` reads the source text: an address that equals the running contract only at run time reads as another account.
+- The model drops a literal's unit, so `1 ether` and `1 days` read `1`.
 
 ## Out of v1
 

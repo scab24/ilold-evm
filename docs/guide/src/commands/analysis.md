@@ -73,6 +73,14 @@ A function with try statements lists each under `Try/catch`: the guarded call an
   │      └── try pinger.quote (line 69) → catch Error: emits Rejected; catch Panic: writes panics[code]; catch (bytes): writes lastData, calls pinger.ping
 ```
 
+A function that moves value or reads a balance lists each under `Value`: the operation, the asset and token, sender → receiver and amount (`this` is the contract itself), the line, the modifier holding it and the library helper behind it, and `ambiguous` with the reason when the asset is not decided:
+
+```
+  ├── Value:
+  │      ├── transfer native: this → payable(msg.sender) msg.value - price (line 31) in refundExcess
+  │      └── mint erc20 share: this → msg.sender price (line 48)
+```
+
 The `info` command does not require the function to be in the session. It analyzes the function in isolation.
 
 ## trace
