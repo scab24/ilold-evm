@@ -26,6 +26,7 @@ const RESPONSES: &[(&str, &[(&str, &str)])] = &[
             ("trycatch_function", "/session/function/TryCatch/clauses"),
         ],
     ),
+    ("value", &[("value_contract_detail", "/contract/Payments")]),
 ];
 
 fn write(root: &Path, name: &str, body: &Value) {

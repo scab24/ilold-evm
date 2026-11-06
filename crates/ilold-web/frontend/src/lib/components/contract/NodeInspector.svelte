@@ -8,6 +8,7 @@
   import AccessList from './AccessList.svelte';
   import CatchClauseView from './CatchClauseView.svelte';
   import TryCatchList from './TryCatchList.svelte';
+  import ValueTransferList from './ValueTransferList.svelte';
   import WhoTouches from './WhoTouches.svelte';
 
   interface Props {
@@ -118,6 +119,11 @@
           {#if summary.try_catches?.length}
             <Collapsible title="Try / catch" count={summary.try_catches.length} open={true}>
               <TryCatchList facts={summary.try_catches} />
+            </Collapsible>
+          {/if}
+          {#if summary.value_transfers?.length || summary.balance_reads?.length}
+            <Collapsible title="Value" count={(summary.value_transfers?.length ?? 0) + (summary.balance_reads?.length ?? 0)} open={true}>
+              <ValueTransferList transfers={summary.value_transfers} reads={summary.balance_reads} />
             </Collapsible>
           {/if}
           {#if whoVar}

@@ -15,8 +15,8 @@ use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
 use ilold_core::relations::{
-    declared_target, external_calls, key_kinds, storage_accesses, try_catches, AssignmentSite, ContractLink, Dispatch, DispatchCandidate,
-    KeyKind, StorageAccess, TryCatchFact, UnresolvedReason,
+    declared_target, external_calls, key_kinds, storage_accesses, try_catches, value_facts, value_flows, AssignmentSite, BalanceRead,
+    ContractLink, Dispatch, DispatchCandidate, KeyKind, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow, ValueTransfer,
 };
 use ilold_core::sequence::types::SequencePage;
 use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
@@ -41,6 +41,8 @@ pub struct ContractDetail {
     pub inherited_state_vars: Vec<StateVarSummary>,
     pub outgoing_links: Vec<ContractLink>,
     pub incoming_links: Vec<ContractLink>,
+    /// The transfers of its own and inherited functions, summed by direction, asset and counterparty.
+    pub value_flows: Vec<ValueFlow>,
 }
 
 #[derive(Serialize)]
@@ -66,6 +68,10 @@ pub struct FunctionSummary {
     pub accesses: Vec<StorageAccess>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub try_catches: Vec<TryCatchFact>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub value_transfers: Vec<ValueTransfer>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub balance_reads: Vec<BalanceRead>,
 }
 
 #[derive(Serialize)]
@@ -112,6 +118,7 @@ pub async fn get_contract(
         let pt = state.path_trees.get(&(owner.key().to_string(), f.key.clone()));
         let (access, guards) = classify_in(&state.project, contract, owner, f);
         let cfg = state.cfgs.get(&(owner.key().to_string(), f.key.clone()));
+        let values = cfg.map(|cfg| value_facts(&state.project, owner, owner, f, cfg)).unwrap_or_default();
         FunctionSummary {
             name: f.name.clone(),
             key: state.project.route_key(contract, f),
@@ -132,6 +139,8 @@ pub async fn get_contract(
             guards,
             accesses: cfg.map(|cfg| storage_accesses(&state.project, owner, owner, f, cfg)).unwrap_or_default(),
             try_catches: cfg.map(|cfg| try_catches(&state.project, owner, owner, f, cfg)).unwrap_or_default(),
+            value_transfers: values.transfers,
+            balance_reads: values.balance_reads,
         }
     };
     let kinds = key_kinds(&state.project, contract, &state.cfgs);
@@ -144,14 +153,15 @@ pub async fn get_contract(
         key_kinds: kinds.get(&sv.name).map(|k| k.iter().copied().collect()).unwrap_or_default(),
     };
 
-    let functions = contract.functions.iter().map(|f| summary(contract, f)).collect();
+    let functions: Vec<FunctionSummary> = contract.functions.iter().map(|f| summary(contract, f)).collect();
     let state_vars = contract.state_vars.iter().map(var_summary).collect();
-    let inherited_functions = state.project
+    let inherited_functions: Vec<FunctionSummary> = state.project
         .accessible_functions(contract)
         .into_iter()
         .filter(|af| af.is_inherited)
         .map(|af| summary(af.owner, af.function))
         .collect();
+    let transfers: Vec<ValueTransfer> = functions.iter().chain(&inherited_functions).flat_map(|f| f.value_transfers.iter().cloned()).collect();
     // storage order, most base contract first
     let inherited_state_vars = state.project
         .accessible_state_vars(contract)
@@ -174,6 +184,7 @@ pub async fn get_contract(
         inherited_state_vars,
         outgoing_links: state.relations.outgoing(contract.key()).cloned().collect(),
         incoming_links: state.relations.incoming(contract.key()).cloned().collect(),
+        value_flows: value_flows(&transfers),
     }))
 }
 

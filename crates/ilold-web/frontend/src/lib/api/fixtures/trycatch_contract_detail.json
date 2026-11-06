@@ -1474,5 +1474,6 @@
       "type_name": "mapping(address => uint256)",
       "visibility": "Public"
     }
-  ]
+  ],
+  "value_flows": []
 }

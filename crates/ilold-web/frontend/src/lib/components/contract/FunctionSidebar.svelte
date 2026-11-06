@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
   import LinksPanel from './LinksPanel.svelte';
+  import ValueFlowsPanel from './ValueFlowsPanel.svelte';
   import { visibilityLabel } from '$lib/utils/visibility';
   import { describeGuard, formatAccess, isAccessGuard, isConditional, restricts } from '$lib/utils/access';
   import { describeTries } from '$lib/utils/trycatch';
+  import { describeTransfers } from '$lib/utils/value';
 
   let {
     contract,
@@ -38,6 +40,8 @@
     /** Tooltip of its try statements. */
     tries: string | null;
     swallows: boolean;
+    /** Tooltip of its value transfers. */
+    transfers: string | null;
     source: 'own' | 'inherited';
   };
   function toRow(f: FunctionSummary, source: Row['source']): Row {
@@ -57,6 +61,7 @@
       stateGuarded: stateGuards.length > 0 ? stateGuards.map(describeGuard).join('\n') : null,
       tries: f.try_catches?.length ? describeTries(f.try_catches) : null,
       swallows: f.try_catches?.some((t) => t.catch_clauses.some((c) => c.empty)) ?? false,
+      transfers: f.value_transfers?.length ? describeTransfers(f.value_transfers) : null,
       source,
     };
   }
@@ -202,6 +207,7 @@
       {/if}
     </div>
     <LinksPanel name={contract.name} outgoing={contract.outgoing_links} incoming={contract.incoming_links} />
+    <ValueFlowsPanel flows={contract.value_flows} />
   {/if}
 </div>
 
@@ -234,6 +240,9 @@
       {/if}
       {#if row.tries}
         <span class="row-try" class:swallows={row.swallows} title={row.tries} data-testid="try-mark">try</span>
+      {/if}
+      {#if row.transfers}
+        <span class="row-value" title={row.transfers} data-testid="value-mark">⇄</span>
       {/if}
       <span class="row-paths">{row.path_count}p</span>
     </button>
@@ -457,6 +466,14 @@
     border-radius: 3px;
     color: var(--color-warning);
     background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+  }
+  .row-value {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 0 3px;
+    border-radius: 3px;
+    color: var(--color-success-light);
+    background: color-mix(in srgb, var(--color-success) 22%, transparent);
   }
   .row-try.swallows {
     color: var(--color-danger-light);

@@ -1,5 +1,5 @@
 import type { Node, Edge } from '@xyflow/svelte';
-import type { CatchClauseFact, SourceSpan, StorageAccess, TryCatchFact } from '$lib/api/rest';
+import type { CatchClauseFact, SourceSpan, StorageAccess, TryCatchFact, ValueTransfer } from '$lib/api/rest';
 
 
 export interface FunctionNodeData {
@@ -15,6 +15,7 @@ export interface FunctionNodeData {
   mutability?: string;
   path_count?: number;
   modifiers?: string[];
+  value_transfers?: ValueTransfer[];
   _sessionStep?: true;
   _scenario?: string;             // the scenario that owns this rendered node
   _scenariosPassingThrough?: string[]; // full set of scenarios whose path includes this node (inherited + own)

@@ -455,5 +455,6 @@
       "type_name": "contract IRegistry",
       "visibility": "Public"
     }
-  ]
+  ],
+  "value_flows": []
 }

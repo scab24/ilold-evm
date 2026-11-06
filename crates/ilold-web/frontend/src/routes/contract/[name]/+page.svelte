@@ -425,6 +425,7 @@
             mutability: funcDetail?.mutability,
             path_count: funcDetail?.path_count,
             modifiers: funcDetail?.modifiers,
+            value_transfers: funcDetail?.value_transfers,
           } as GraphNodeData,
         } as Node<GraphNodeData>;
       });
@@ -662,6 +663,7 @@
         mutability: funcDetail?.mutability,
         path_count: funcDetail?.path_count,
         modifiers: funcDetail?.modifiers,
+        value_transfers: funcDetail?.value_transfers,
       },
     } as Node<GraphNodeData>);
 

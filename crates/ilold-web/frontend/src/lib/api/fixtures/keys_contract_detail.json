@@ -968,5 +968,6 @@
       "type_name": "uint256",
       "visibility": "Public"
     }
-  ]
+  ],
+  "value_flows": []
 }

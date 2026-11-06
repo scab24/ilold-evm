@@ -35,10 +35,12 @@ export interface ContractDetail extends ContractIdentity, Bases {
   inherited_state_vars?: StateVarSummary[];
   outgoing_links: ContractLink[];
   incoming_links: ContractLink[];
+  /** Transfers of its own and inherited functions, summed by direction, asset and counterparty. */
+  value_flows: ValueFlow[];
 }
 
 export type Basis = 'self' | 'inherits_interface' | 'selector_match';
-export type RelationTag = 'INFERRED' | 'AMBIGUOUS' | 'EXTRACTED';
+export type RelationTag = 'INFERRED' | 'AMBIGUOUS' | 'EXTRACTED' | 'TYPE_RESOLVED';
 export type UnresolvedReason = 'out_of_scope_interface' | 'no_implementation' | 'dynamic_address';
 
 /** A deployable contract that may answer an external call; `function` is `<contract>::<function key>`. */
@@ -86,6 +88,64 @@ export interface FunctionSummary {
   accesses: StorageAccess[];
   /** Absent when the function has no try statement. */
   try_catches?: TryCatchFact[];
+  /** Absent when the function moves no value. */
+  value_transfers?: ValueTransfer[];
+  /** Absent when the function reads no balance. */
+  balance_reads?: BalanceRead[];
+}
+
+export type AssetKind = 'native' | 'erc20' | 'erc721' | 'erc1155' | 'erc6909' | 'unknown';
+export type ValueOperation = 'call' | 'create' | 'transfer' | 'send' | 'transfer_from' | 'safe_transfer_from' | 'mint' | 'burn' | 'settle' | 'take';
+export type ValueDirection = 'in' | 'out' | 'other';
+export type ValueReason = 'unresolved_declaration' | 'no_standard' | 'several_standards' | 'currency' | 'claims_flag';
+
+/** Value a call moves; a null `from_expr` is the running contract, `via_library` the library function that moves it. */
+export interface ValueTransfer {
+  id: string;
+  function: string;
+  in_context: string;
+  modifier: string | null;
+  span: SourceSpan;
+  asset_kind: AssetKind;
+  asset_candidates: AssetKind[];
+  operation: ValueOperation;
+  direction: ValueDirection;
+  token_expr: string | null;
+  from_expr: string | null;
+  to_expr: string | null;
+  amount_expr: string | null;
+  id_expr: string | null;
+  call: string;
+  via_library: string | null;
+  tag: RelationTag;
+  reason: ValueReason | null;
+}
+
+/** A balance the code reads; a null `owner_expr` is the running contract. */
+export interface BalanceRead {
+  id: string;
+  function: string;
+  in_context: string;
+  modifier: string | null;
+  span: SourceSpan;
+  asset_kind: AssetKind;
+  asset_candidates: AssetKind[];
+  token_expr: string | null;
+  owner_expr: string | null;
+  id_expr: string | null;
+  via_library: string | null;
+  tag: RelationTag;
+  reason: ValueReason | null;
+}
+
+/** The counterparty is the sender of what comes in, the receiver of the rest. */
+export interface ValueFlow {
+  direction: ValueDirection;
+  asset_kind: AssetKind;
+  token_expr: string | null;
+  counterparty_expr: string | null;
+  functions: string[];
+  transfers: string[];
 }
 
 export type CatchKind = 'Error' | 'Panic' | 'bytes' | 'all';
