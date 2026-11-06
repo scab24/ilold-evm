@@ -1172,6 +1172,7 @@ fn map_catch(node: &Node, index: &LineIndex) -> CatchClause {
             .attribute::<Node>("block")
             .map(|b| map_block(&b, index))
             .unwrap_or_default(),
+        span: span_of(node, index),
     }
 }
 

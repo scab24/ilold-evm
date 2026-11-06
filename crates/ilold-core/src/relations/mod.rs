@@ -1,6 +1,7 @@
 //! Facts that relate code across contracts, computed once from the analysis; every surface reads them from here.
 mod dispatch;
 mod keys;
+mod trycatch;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -17,12 +18,14 @@ use crate::model::source::ValueSource;
 
 pub use dispatch::{call_target, external_calls, ExternalCallSite};
 pub use keys::{key_kinds, storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
+pub use trycatch::{try_catches, CatchClauseFact, CatchEffects, CatchKind, EffectSite, GuardedCall, TryCatchFact, TryReason};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Tag {
     Inferred,
     Ambiguous,
+    Extracted,
 }
 
 /// Strongest first.
