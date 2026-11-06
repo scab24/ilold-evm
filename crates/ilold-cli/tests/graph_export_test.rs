@@ -809,3 +809,50 @@ fn try_statements_link_the_guarded_call_and_list_each_clause() {
     }
     assert_eq!(of_kind(&records, "try_catch").len(), 8);
 }
+
+const VALUE: &str = "tests/fixtures/solc/value/src/Value.sol";
+
+fn value_id(member: &str) -> String {
+    format!("evm:{VALUE}:Payments.{member}")
+}
+
+#[test]
+fn value_transfers_link_their_call_and_name_the_library_that_moves_the_value() {
+    let records = export(&fixture("value"), "value", 0);
+    let in_function = |kind: &str, member: &str| -> Vec<&Value> { of_kind(&records, kind).into_iter().filter(|r| r["function"] == value_id(member)).collect() };
+    let call = |id: &Value| find(&records, "calls", |r| r["id"] == *id);
+
+    let sent = in_function("value_transfer", "sendEth(address,uint256)");
+    assert_eq!(sent.len(), 1, "{sent:#?}");
+    let sent = sent[0];
+    assert!(sent["id"].as_str().unwrap().starts_with(&format!("value_transfer:{}#", value_id("sendEth(address,uint256)"))), "{sent}");
+    assert_eq!((&sent["asset_kind"], &sent["operation"], &sent["direction"]), (&Value::from("native"), &Value::from("call"), &Value::from("out")));
+    assert_eq!((&sent["to_expr"], &sent["amount_expr"], &sent["from_expr"]), (&Value::from("to"), &Value::from("amount"), &Value::Null));
+    assert_eq!((&sent["tag"], &sent["rule"], sent["span"]["start_line"].as_u64()), (&Value::from("TYPE_RESOLVED"), &Value::from("value"), Some(88)));
+    let library = find(&records, "function", |r| r["id"] == sent["via_library"]);
+    assert_eq!(library["name"], "sendValue");
+    assert_eq!(call(&sent["call_id"])["target_text"], "Address.sendValue");
+
+    let refund = in_function("value_transfer", "buy(uint256)").into_iter().find(|t| t["asset_kind"] == "native").unwrap().clone();
+    assert_eq!((&refund["operation"], &refund["via"]), (&Value::from("transfer"), &serde_json::json!([value_id("refundExcess")])));
+    let unknown = in_function("value_transfer", "burnShares(uint256)").into_iter().find(|t| t["tag"] == "AMBIGUOUS").unwrap().clone();
+    assert_eq!((&unknown["asset_candidates"], &unknown["reason"]), (&serde_json::json!(["erc20", "erc721"]), &Value::from("no_standard")));
+
+    let functions_body = of_kind(&records, "value_transfer").into_iter().filter(|r| r["function"].as_str().unwrap().ends_with(":Address.functionCallWithValue(address,bytes memory,uint256)")).count();
+    assert_eq!(functions_body, 1, "the library's own call is a transfer too");
+    assert!(in_function("value_transfer", "unrecognized(address,bytes,bytes32)").is_empty());
+    assert!(in_function("balance_read", "unrecognized(address,bytes,bytes32)").is_empty());
+
+    let reads = in_function("balance_read", "balances(address,uint256)");
+    assert_eq!(reads.len(), 8, "{reads:#?}");
+    let native: Vec<&Value> = reads.iter().copied().filter(|r| r["asset_kind"] == "native").collect();
+    assert_eq!((native.len(), &native[0]["owner_expr"], &native[0]["tag"]), (2, &Value::from("address(this)"), &Value::from("EXTRACTED")));
+
+    for record in of_kind(&records, "value_transfer") {
+        assert_eq!((&call(&record["call_id"])["from"], &call(&record["call_id"])["span"]), (&record["function"], &record["span"]), "{record}");
+        assert!(record["asset_candidates"].is_array() && record.get("token_expr").is_some() && record.get("id_expr").is_some(), "{record}");
+    }
+    for record in of_kind(&records, "balance_read") {
+        assert!(record["span"]["start_line"].is_u64() && record.get("owner_expr").is_some() && record.get("via_library").is_some(), "{record}");
+    }
+}

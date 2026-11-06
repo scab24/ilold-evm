@@ -18,7 +18,10 @@ use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
 use crate::pathtree::walker::normalize_path;
-use crate::relations::{call_target, state_var_ref, storage_accesses, try_catches, AccessKey, AccessKind, ContractLink, EffectSite, KeySite, RecordKeys, TryCatchFact};
+use crate::relations::{
+    call_target, state_var_ref, storage_accesses, try_catches, value_facts, AccessKey, AccessKind, ContractLink, EffectSite, KeySite, RecordKeys,
+    TryCatchFact, ValueTransfer,
+};
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
 use crate::sequence::effects::{reachable, resolve_call, summarize, CallSite, EffectEngine};
 use crate::util::target_base_name;
@@ -95,15 +98,17 @@ pub(super) struct Builder<'p> {
     /// Per function id, its flags in each context.
     flags: BTreeMap<String, BTreeMap<String, Value>>,
     /// Try statements wait for the ids of the calls they guard.
-    tries: Vec<PendingTry>,
+    tries: Vec<AwaitingCalls<TryCatchFact>>,
+    /// Value transfers wait for the ids of the calls that make them.
+    transfers: Vec<AwaitingCalls<ValueTransfer>>,
     truncation: Truncation,
 }
 
-struct PendingTry {
+struct AwaitingCalls<F> {
     function: String,
     context_id: Option<String>,
     via: Vec<Value>,
-    fact: TryCatchFact,
+    fact: F,
 }
 
 /// A fact about `function`, declared in `owner`, as `context` runs it.
@@ -130,7 +135,7 @@ struct Origin<'r> {
 
 impl<'p> Builder<'p> {
     pub fn new(project: &'p Project, analysis: &'p ProjectAnalysis, ids: Ids<'p>) -> Self {
-        Self { project, analysis, ids, edges: BTreeMap::new(), flags: BTreeMap::new(), tries: Vec::new(), truncation: Truncation::default() }
+        Self { project, analysis, ids, edges: BTreeMap::new(), flags: BTreeMap::new(), tries: Vec::new(), transfers: Vec::new(), truncation: Truncation::default() }
     }
 
     fn contract(&self, key: &str) -> Option<&'p ContractDef> {
@@ -207,6 +212,9 @@ impl<'p> Builder<'p> {
         }
         for pending in std::mem::take(&mut self.tries) {
             self.try_catch(pending, &call_ids);
+        }
+        for pending in std::mem::take(&mut self.transfers) {
+            self.value_transfer(pending, &call_ids);
         }
         edges.extend(self.numbered());
         let guarded: Vec<(String, Value)> = edges
@@ -365,13 +373,59 @@ impl<'p> Builder<'p> {
         }
         for fact in try_catches(self.project, site.context, site.owner, func, cfg) {
             let via = self.in_modifier(site, fact.modifier.as_deref());
-            self.tries.push(PendingTry { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });
+            self.tries.push(AwaitingCalls { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });
+        }
+        let values = value_facts(self.project, site.context, site.owner, func, cfg);
+        for fact in values.transfers {
+            let via = self.in_modifier(site, fact.modifier.as_deref());
+            self.transfers.push(AwaitingCalls { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });
+        }
+        for read in values.balance_reads {
+            let record = json!({
+                "asset_kind": read.asset_kind,
+                "token_expr": read.token_expr,
+                "owner_expr": read.owner_expr,
+                "id_expr": read.id_expr,
+                "via_library": read.via_library.as_deref().and_then(|f| self.reference(f)),
+                "via": self.in_modifier(site, read.modifier.as_deref()),
+            });
+            let tag = json!(read.tag);
+            let pending = self.fact(site, "balance_read", record, read.span, tag.as_str().unwrap_or_default(), "value");
+            pending.record["asset_candidates"] = json!(read.asset_candidates);
+            pending.record["reason"] = json!(read.reason);
         }
     }
 
+    /// The call is found by function, context and span, as try statements find theirs.
+    fn value_transfer(&mut self, pending: AwaitingCalls<ValueTransfer>, calls: &HashMap<(String, String, String), String>) {
+        let AwaitingCalls { function, context_id, via, fact } = pending;
+        let in_context = json!(context_id);
+        let key = (Value::from(function.as_str()).to_string(), in_context.to_string(), self.ids.span(fact.span).to_string());
+        let call_id = calls.get(&key).cloned();
+        let record = json!({
+            "function": function,
+            "in_context": in_context,
+            "asset_kind": fact.asset_kind,
+            "operation": fact.operation,
+            "token_expr": fact.token_expr,
+            "from_expr": fact.from_expr,
+            "to_expr": fact.to_expr,
+            "amount_expr": fact.amount_expr,
+            "id_expr": fact.id_expr,
+            "via_library": fact.via_library.as_deref().and_then(|f| self.reference(f)),
+            "via": via,
+        });
+        let tag = json!(fact.tag);
+        let pending = self.edge("value_transfer", &function, record, Some(fact.span), tag.as_str().unwrap_or_default(), "value");
+        pending.record["asset_candidates"] = json!(fact.asset_candidates);
+        pending.record["direction"] = json!(fact.direction);
+        pending.record["call_id"] = json!(call_id);
+        pending.record["reason"] = json!(fact.reason);
+    }
+
     /// Clauses and positions stay out of the id, so editing a catch keeps it.
-    fn try_catch(&mut self, pending: PendingTry, calls: &HashMap<(String, String, String), String>) {
-        let PendingTry { function, context_id, via, fact } = pending;
+    fn try_catch(&mut self, pending: AwaitingCalls<TryCatchFact>, calls: &HashMap<(String, String, String), String>) {
+        let AwaitingCalls { function, context_id, via, fact } = pending;
         let in_context = json!(context_id);
         let span = |s: SourceSpan| self.ids.span(s);
         let guarded = fact.guarded_call.as_ref().and_then(|call| {
