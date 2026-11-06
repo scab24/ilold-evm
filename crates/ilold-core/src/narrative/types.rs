@@ -45,6 +45,9 @@ pub struct FunctionNarrative {
     /// Reads and writes of its own code and modifiers, with their keys; filled where the project is at hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accesses: Vec<crate::relations::StorageAccess>,
+    /// Its try statements; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub try_catches: Vec<crate::relations::TryCatchFact>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

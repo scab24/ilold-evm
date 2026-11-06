@@ -174,6 +174,7 @@ pub fn build_function_narrative_capped(
         revert_sources,
         guards,
         accesses: Vec::new(),
+        try_catches: Vec::new(),
     }
 }
 

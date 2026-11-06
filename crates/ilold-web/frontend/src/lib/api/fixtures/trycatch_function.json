@@ -1,0 +1,373 @@
+{
+  "access": "Public",
+  "accesses": [
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "pinger",
+      "span": {
+        "end_col": 33,
+        "end_line": 69,
+        "file_index": 0,
+        "start_col": 13,
+        "start_line": 69
+      }
+    },
+    {
+      "block": 5,
+      "keys": [
+        {
+          "kind": "local",
+          "ref": null,
+          "text": "code"
+        }
+      ],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "panics[code]",
+      "span": {
+        "end_col": 30,
+        "end_line": 75,
+        "file_index": 0,
+        "start_col": 13,
+        "start_line": 75
+      }
+    },
+    {
+      "block": 5,
+      "keys": [
+        {
+          "kind": "local",
+          "ref": null,
+          "text": "code"
+        }
+      ],
+      "kind": "write",
+      "modifier": null,
+      "param": null,
+      "path": "panics[code]",
+      "span": {
+        "end_col": 30,
+        "end_line": 75,
+        "file_index": 0,
+        "start_col": 13,
+        "start_line": 75
+      }
+    },
+    {
+      "block": 6,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "pinger",
+      "span": {
+        "end_col": 26,
+        "end_line": 78,
+        "file_index": 0,
+        "start_col": 13,
+        "start_line": 77
+      }
+    },
+    {
+      "block": 6,
+      "keys": [],
+      "kind": "write",
+      "modifier": null,
+      "param": null,
+      "path": "lastData",
+      "span": {
+        "end_col": 28,
+        "end_line": 77,
+        "file_index": 0,
+        "start_col": 13,
+        "start_line": 77
+      }
+    }
+  ],
+  "can_revert": false,
+  "contract": "TryCatch",
+  "events": [
+    "Quoted",
+    "Rejected"
+  ],
+  "external_calls": [
+    "pinger.ping",
+    "pinger.quote"
+  ],
+  "guards": [],
+  "happy_paths": 4,
+  "internal_calls": [],
+  "modifiers": [],
+  "name": "clauses",
+  "observations": [
+    {
+      "description": "Path #2: external call pinger.quote then writes panics[code]",
+      "kind": "WriteAfterExternalCall"
+    },
+    {
+      "description": "Public function writes state (lastData, panics[code]) without access control",
+      "kind": "NoAccessControl"
+    }
+  ],
+  "path_stats": {
+    "cap_reached": false,
+    "depth_cutoff": 0,
+    "happy_paths": 4,
+    "loop_cutoff": 0,
+    "max_depth_reached": 3,
+    "paths_dropped": 0,
+    "revert_paths": 0,
+    "total_paths": 4,
+    "truncated": false
+  },
+  "paths": [
+    {
+      "id": 0,
+      "steps": [
+        {
+          "branch": null,
+          "description": "clauses()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": null,
+          "description": "emit Quoted",
+          "detail": null,
+          "step_type": "Event"
+        },
+        {
+          "branch": null,
+          "description": "return",
+          "detail": null,
+          "step_type": "Return"
+        }
+      ],
+      "terminal": "Return"
+    },
+    {
+      "id": 1,
+      "steps": [
+        {
+          "branch": null,
+          "description": "clauses()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": null,
+          "description": "emit Rejected",
+          "detail": null,
+          "step_type": "Event"
+        },
+        {
+          "branch": null,
+          "description": "return",
+          "detail": null,
+          "step_type": "Return"
+        }
+      ],
+      "terminal": "Return"
+    },
+    {
+      "id": 2,
+      "steps": [
+        {
+          "branch": null,
+          "description": "clauses()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": null,
+          "description": "return",
+          "detail": null,
+          "step_type": "Return"
+        }
+      ],
+      "terminal": "Return"
+    },
+    {
+      "id": 3,
+      "steps": [
+        {
+          "branch": null,
+          "description": "clauses()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": null,
+          "description": "pinger.ping()",
+          "detail": null,
+          "step_type": "ExternalCall"
+        },
+        {
+          "branch": null,
+          "description": "return",
+          "detail": null,
+          "step_type": "Return"
+        }
+      ],
+      "terminal": "Return"
+    }
+  ],
+  "paths_omitted": 0,
+  "revert_paths": 0,
+  "revert_sources": [],
+  "state_reads": [
+    "panics",
+    "pinger"
+  ],
+  "state_writes": [
+    "lastData",
+    "panics[code]"
+  ],
+  "total_paths": 4,
+  "transitive_events": [],
+  "transitive_external_calls": [],
+  "transitive_state_reads": [],
+  "transitive_state_writes": [],
+  "try_catches": [
+    {
+      "block": 0,
+      "catch_clauses": [
+        {
+          "block": 4,
+          "effects": {
+            "calls": [],
+            "emits": [
+              {
+                "span": {
+                  "end_col": 34,
+                  "end_line": 73,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 73
+                },
+                "text": "Rejected"
+              }
+            ],
+            "reverts": false,
+            "writes": []
+          },
+          "empty": false,
+          "kind": "Error",
+          "span": {
+            "end_col": 10,
+            "end_line": 74,
+            "file_index": 0,
+            "start_col": 11,
+            "start_line": 72
+          }
+        },
+        {
+          "block": 5,
+          "effects": {
+            "calls": [],
+            "emits": [],
+            "reverts": false,
+            "writes": [
+              {
+                "span": {
+                  "end_col": 30,
+                  "end_line": 75,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 75
+                },
+                "text": "panics[code]"
+              }
+            ]
+          },
+          "empty": false,
+          "kind": "Panic",
+          "span": {
+            "end_col": 10,
+            "end_line": 76,
+            "file_index": 0,
+            "start_col": 11,
+            "start_line": 74
+          }
+        },
+        {
+          "block": 6,
+          "effects": {
+            "calls": [
+              {
+                "span": {
+                  "end_col": 26,
+                  "end_line": 78,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 78
+                },
+                "text": "pinger.ping"
+              }
+            ],
+            "emits": [],
+            "reverts": false,
+            "writes": [
+              {
+                "span": {
+                  "end_col": 28,
+                  "end_line": 77,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 77
+                },
+                "text": "lastData"
+              }
+            ]
+          },
+          "empty": false,
+          "kind": "bytes",
+          "span": {
+            "end_col": 10,
+            "end_line": 79,
+            "file_index": 0,
+            "start_col": 11,
+            "start_line": 76
+          }
+        }
+      ],
+      "function": "TryCatch::clauses",
+      "guarded_call": {
+        "kind": "External",
+        "span": {
+          "end_col": 33,
+          "end_line": 69,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 69
+        },
+        "text": "pinger.quote"
+      },
+      "id": "TryCatch::clauses#0",
+      "in_context": "TryCatch",
+      "modifier": null,
+      "reason": null,
+      "span": {
+        "end_col": 10,
+        "end_line": 79,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 69
+      },
+      "success_block": 2,
+      "success_span": {
+        "end_col": 10,
+        "end_line": 72,
+        "file_index": 0,
+        "start_col": 34,
+        "start_line": 69
+      },
+      "tag": "EXTRACTED"
+    }
+  ]
+}

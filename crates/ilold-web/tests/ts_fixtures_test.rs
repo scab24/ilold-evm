@@ -18,7 +18,14 @@ const RESPONSES: &[(&str, &[(&str, &str)])] = &[
         "keys",
         &[("keys_contract_detail", "/contract/Keys"), ("keys_cfg", "/contract/Keys/move/cfg"), ("keys_function", "/session/function/Keys/move")],
     ),
-    ("trycatch", &[("trycatch_contract_detail", "/contract/TryCatch"), ("trycatch_cfg", "/contract/TryCatch/clauses/cfg")]),
+    (
+        "trycatch",
+        &[
+            ("trycatch_contract_detail", "/contract/TryCatch"),
+            ("trycatch_cfg", "/contract/TryCatch/clauses/cfg"),
+            ("trycatch_function", "/session/function/TryCatch/clauses"),
+        ],
+    ),
 ];
 
 fn write(root: &Path, name: &str, body: &Value) {

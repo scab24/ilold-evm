@@ -1983,6 +1983,12 @@ fn print_narrative(val: &serde_json::Value) {
     if !events.is_empty() {
         sections.push(Section::StringList { label: "Events", label_color: SectionColor::Accent, items: events });
     }
+    let tries = val.get("try_catches")
+        .and_then(|v| serde_json::from_value::<Vec<ilold_core::relations::TryCatchFact>>(v.clone()).ok())
+        .unwrap_or_default();
+    if !tries.is_empty() {
+        sections.push(Section::StringList { label: "Try/catch", label_color: SectionColor::Warn, items: fmt::render_try_catches(&tries) });
+    }
 
     let collect_transitive = |key: &str| -> Vec<(Vec<String>, String)> {
         val.get(key)

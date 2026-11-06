@@ -42,7 +42,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_function_analysis",
-            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations. accesses lists the reads and writes of its own code with the mapping keys of each index level (text, kind: msg_sender|parameter|state_var|local|literal|this|expression, ref).",
+            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations. accesses lists the reads and writes of its own code with the mapping keys of each index level (text, kind: msg_sender|parameter|state_var|local|literal|this|expression, ref). try_catches lists its try statements as ilold_cfg does.",
             contract_function_schema(),
         ),
         tool(
@@ -57,7 +57,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_cfg",
-            "Control flow graph of one function: basic blocks and branch edges.",
+            "Control flow graph of one function: basic blocks and branch edges. try_catches lists each try statement: the guarded call, the block ending in it (block) and the success branch (success_block), and every catch clause with its kind (Error|Panic|bytes|all), span, block, empty (the failure is swallowed) and effects of its own code (writes, calls, emits, reverts).",
             contract_function_schema(),
         ),
         tool(

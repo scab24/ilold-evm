@@ -1,4 +1,4 @@
-import type { StorageAccess } from './rest';
+import type { StorageAccess, TryCatchFact } from './rest';
 export type AccessLevel =
   | "Public"
   | "Internal"
@@ -304,4 +304,6 @@ export interface FunctionNarrative {
   guards?: GuardFact[];
   /** Reads and writes of its own code, with their keys; absent when there are none. */
   accesses?: StorageAccess[];
+  /** Its try statements; absent when there are none. */
+  try_catches?: TryCatchFact[];
 }

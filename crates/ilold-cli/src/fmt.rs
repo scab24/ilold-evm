@@ -4,7 +4,7 @@ use ilold_core::exploration::commands::{ScenarioInfo, VariableAccess};
 use ilold_core::exploration::session::MutationScope;
 use ilold_core::exploration::timeline::{TimelineEntry, VariableTimeline};
 use ilold_core::narrative::trace::{FlowKind, FlowNode, FlowTree};
-use ilold_core::relations::{AccessKind, KeyKind, KeysReason};
+use ilold_core::relations::{AccessKind, CatchKind, KeyKind, KeysReason, TryCatchFact};
 use ilold_core::slicing::{SliceDirection, SliceEntry, SliceResult, StatementOrigin};
 
 use crate::colors::{c_accent, c_bright, c_danger, c_muted, c_ok, c_warn};
@@ -485,6 +485,41 @@ pub fn render_variable_keys(accesses: &[VariableAccess]) -> String {
     out
 }
 
+/// One line per try statement for `info`: the guarded call, then what each clause does with the failure.
+pub fn render_try_catches(facts: &[TryCatchFact]) -> Vec<String> {
+    let texts = |sites: &[ilold_core::relations::EffectSite]| sites.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(", ");
+    facts
+        .iter()
+        .map(|fact| {
+            let clauses: Vec<String> = fact
+                .catch_clauses
+                .iter()
+                .map(|c| {
+                    let effects = &c.effects;
+                    let mut does = Vec::new();
+                    if c.empty {
+                        does.push("failure swallowed".to_string());
+                    }
+                    for (verb, sites) in [("writes", &effects.writes), ("calls", &effects.calls), ("emits", &effects.emits)] {
+                        if !sites.is_empty() {
+                            does.push(format!("{verb} {}", texts(sites)));
+                        }
+                    }
+                    if effects.reverts {
+                        does.push("reverts".to_string());
+                    }
+                    if does.is_empty() {
+                        does.push("no writes, calls or events".to_string());
+                    }
+                    format!("{}: {}", c.kind.map_or("catch ?", CatchKind::label), does.join(", "))
+                })
+                .collect();
+            let call = fact.guarded_call.as_ref().map_or("?", |c| c.text.as_str());
+            format!("try {call} (line {}) → {}", fact.span.start_line, clauses.join("; "))
+        })
+        .collect()
+}
+
 pub fn render_scenario_list(items: &[ScenarioInfo]) -> String {
     if items.is_empty() {
         return format!("  {}\n", c_muted("(no scenarios)"));
@@ -647,6 +682,40 @@ mod tests {
         assert!(rendered.contains("W deposit      [msg.sender] msg_sender  line 22"), "{rendered}");
         assert!(rendered.contains("W creditLater  in a callee: keys not tracked"), "{rendered}");
         assert!(rendered.contains("R approve      [owner][spender] parameter › parameter  line 34"), "{rendered}");
+    }
+
+    #[test]
+    fn try_lines_name_the_guarded_call_and_what_each_clause_does() {
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::model::expression::CallKind;
+        use ilold_core::relations::{CatchClauseFact, CatchEffects, EffectSite, GuardedCall, Tag};
+        let span = |line| SourceSpan { file_index: 0, start_line: line, start_col: 1, end_line: line, end_col: 9 };
+        let site = |text: &str, line| EffectSite { text: text.into(), span: span(line) };
+        let clause = |kind, empty, effects| CatchClauseFact { kind, span: span(5), empty, effects, block: 2 };
+        let effects = CatchEffects { writes: vec![site("failures", 6)], calls: vec![site("pinger.ping", 7)], emits: vec![site("Rejected", 8)], reverts: false };
+        let fact = TryCatchFact {
+            id: "C::f#0".into(),
+            function: "C::f".into(),
+            in_context: "C".into(),
+            modifier: None,
+            span: span(4),
+            guarded_call: Some(GuardedCall { text: "pinger.quote".into(), kind: CallKind::External, span: span(4) }),
+            success_span: Some(span(4)),
+            catch_clauses: vec![
+                clause(Some(CatchKind::Error), false, effects),
+                clause(Some(CatchKind::All), true, CatchEffects::default()),
+                clause(Some(CatchKind::Bytes), false, CatchEffects { reverts: true, ..Default::default() }),
+                clause(None, false, CatchEffects::default()),
+            ],
+            tag: Tag::Ambiguous,
+            reason: None,
+            block: 1,
+            success_block: 2,
+        };
+        assert_eq!(
+            render_try_catches(&[fact]),
+            ["try pinger.quote (line 4) → catch Error: writes failures, calls pinger.ping, emits Rejected; catch (all): failure swallowed; catch (bytes): reverts; catch ?: no writes, calls or events"]
+        );
     }
 
     #[test]

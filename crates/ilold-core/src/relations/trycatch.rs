@@ -34,6 +34,17 @@ pub enum CatchKind {
     All,
 }
 
+impl CatchKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            CatchKind::Error => "catch Error",
+            CatchKind::Panic => "catch Panic",
+            CatchKind::Bytes => "catch (bytes)",
+            CatchKind::All => "catch (all)",
+        }
+    }
+}
+
 /// Why a try fact is AMBIGUOUS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

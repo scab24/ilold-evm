@@ -280,3 +280,60 @@ async fn mapping_keys_are_the_same_in_every_surface() {
         assert_eq!(who_transitive, transitive, "ilold_who_touches {var}: transitive");
     }
 }
+
+/// A catch clause as every surface shows it: kind, first line, empty, written paths, call texts, events and whether it reverts.
+type Clause = (String, u64, bool, Vec<String>, Vec<String>, Vec<String>, bool);
+/// A try statement: function, line, guarded call text and clauses.
+type Try = (String, u64, String, Vec<Clause>);
+
+/// `fields` name the text of a write, a call and an event: the export says path and event, the API text.
+fn clauses(fact: &Value, fields: [&str; 3]) -> Vec<Clause> {
+    fact["catch_clauses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            let [writes, calls, emits] = [("writes", fields[0]), ("calls", fields[1]), ("emits", fields[2])]
+                .map(|(list, field)| c["effects"][list].as_array().unwrap().iter().map(|e| text(&e[field])).collect::<Vec<_>>());
+            (text(&c["kind"]), line(&c["span"]), c["empty"] == true, writes, calls, emits, c["effects"]["reverts"] == true)
+        })
+        .collect()
+}
+
+fn api_tries(function: &str, facts: Option<&Value>) -> BTreeSet<Try> {
+    facts
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|f| (function.to_string(), line(&f["span"]), text(&f["guarded_call"]["text"]), clauses(f, ["text"; 3])))
+        .collect()
+}
+
+#[tokio::test]
+async fn try_catches_are_the_same_in_every_surface() {
+    let s = Surfaces::of("trycatch").await;
+    let function = |id: &str| id.rsplit_once('.').unwrap().1.split('(').next().unwrap().to_string();
+    let calls: std::collections::BTreeMap<String, &Value> = s.records("calls").map(|c| (text(&c["id"]), c)).collect();
+    let exported: BTreeSet<Try> = s
+        .records("try_catch")
+        .map(|t| (function(&text(&t["function"])), line(&t["span"]), text(&calls[&text(&t["guarded_call"])]["target_text"]), clauses(t, ["path", "text", "event"])))
+        .collect();
+    assert_eq!(exported.len(), 8, "{exported:#?}");
+    assert!(exported.iter().any(|(_, _, _, c)| c.iter().any(|(kind, ..)| kind == "bytes")) && exported.iter().any(|(_, _, _, c)| c.iter().any(|(kind, ..)| kind == "all")));
+
+    let detail = s.web("/api/contract/TryCatch").await;
+    let functions: Vec<String> = detail["functions"].as_array().unwrap().iter().map(|f| text(&f["name"])).collect();
+    let summaries: BTreeSet<Try> = detail["functions"].as_array().unwrap().iter().flat_map(|f| api_tries(&text(&f["name"]), f.get("try_catches"))).collect();
+    assert_eq!(summaries, exported, "/contract/TryCatch");
+
+    let (mut web, mut cfg, mut narrative) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+    for name in &functions {
+        web.extend(api_tries(name, s.web(&format!("/api/contract/TryCatch/{name}/cfg")).await.get("try_catches")));
+        let args = serde_json::json!({"contract": "TryCatch", "function": name});
+        cfg.extend(api_tries(name, s.mcp("ilold_cfg", args.clone()).await.get("try_catches")));
+        narrative.extend(api_tries(name, s.mcp("ilold_function_analysis", args).await.get("try_catches")));
+    }
+    assert_eq!(web, exported, "/cfg");
+    assert_eq!(cfg, exported, "ilold_cfg");
+    assert_eq!(narrative, exported, "ilold_function_analysis");
+}

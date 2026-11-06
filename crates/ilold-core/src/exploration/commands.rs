@@ -14,7 +14,7 @@ use crate::narrative::trace::{build_flow_tree, FlowConfig, FlowTree};
 use crate::narrative::types::{FunctionNarrative, MutationRef, SequenceNarrative};
 use crate::pathtree::types::PathTree;
 use crate::pathtree::walker::normalize_path;
-use crate::relations::{storage_accesses, AccessKind, KeySite, RecordKeys};
+use crate::relations::{storage_accesses, try_catches, AccessKind, KeySite, RecordKeys};
 use crate::journal::export::export_markdown;
 use crate::model::expression::AssignOperator;
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior, SequenceAnalysis};
@@ -737,6 +737,7 @@ pub fn get_function_info(
 
     let mut narrative = build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths);
     narrative.accesses = storage_accesses(data.project, owning, owning, func, cfg);
+    narrative.try_catches = try_catches(data.project, owning, owning, func, cfg);
     Ok(narrative)
 }
 
