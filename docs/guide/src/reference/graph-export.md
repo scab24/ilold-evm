@@ -84,7 +84,7 @@ Counts of where the analysis stopped, and the limits it used. Exported facts nev
 
 `<path>` is the declaring file relative to the git root. A function signature is its name and parameter types: `deposit(uint256)`. Contract types appear by name (`setFeed(IFeed)`). Internal and private functions keep data locations, because overloads may differ only by them: `_sum(uint256[] storage)` and `_sum(uint256[] memory)`. `receive()`, `fallback()` and `constructor(...)` follow the same form. The `selector` field carries the ABI selector where one exists.
 
-Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
+Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason` and `target_source.assigned_at`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
 
 ## Common fields
 
@@ -104,8 +104,8 @@ Every node and edge has:
 | --- | --- |
 | `EXTRACTED` | Read from the syntax: declarations, reverts, code facts, guards found in code on every path, storage-parameter accesses. |
 | `TYPE_RESOLVED` | Resolved through solc declaration ids and types: call targets, emitted events, state variables of reads and writes, linearization. |
-| `INFERRED` | A heuristic: guards from a modifier name, guards on some paths only (`scope: conditional`), events matched by name where solc gave no id, calls resolved by name, linearization without solc data. |
-| `AMBIGUOUS` | Unresolved: the edge keeps its text and `to`, `event` or `state_var` is `null`. A modifier without code is `AMBIGUOUS` too. |
+| `INFERRED` | A heuristic: guards from a modifier name, guards on some paths only (`scope: conditional`), events matched by name where solc gave no id, calls resolved by name, linearization without solc data, an external call with exactly one in-scope implementation. |
+| `AMBIGUOUS` | Unresolved: the edge keeps its text and `to`, `event` or `state_var` is `null`. A modifier without code is `AMBIGUOUS` too, and so are dispatch candidates and contract links when several in-scope contracts may answer one call. |
 
 ### Rules
 
@@ -117,6 +117,7 @@ Every node and edge has:
 | `effects` | Effects of the functions it calls, which run on its storage: facts with a non-empty `via`. |
 | `guards` | The guard walk over the function, its modifiers and helpers. |
 | `code_facts` | Builtins and unchecked blocks, modifiers included. |
+| `dispatch` | Which in-scope contracts may answer external calls: `contract_link`. |
 
 ## Contexts
 
@@ -150,7 +151,8 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 | --- | --- |
 | `inherits` | `child`, `base`, `order` (1-based position in the child's linearization), `direct` (declared in `is`). |
 | `exposes` | `contract`, `function` (a function, or a state variable for a getter), `via_base` (the declaring base when inherited, else `null`), `selector`, `getter`. One per externally callable function of each deployable project contract. |
-| `calls` | `from`, `to` (`dispatch_target`, else `static_target`, else `null`), `target_text`, `call_kind`, `static_target` (the declaration the code names), `dispatch_target` (what runs in this context: the virtual override, the `super` target), `options` (`{value, gas, salt}` as written), `target_source`, `result_used` (low-level calls and `send` only), `via`. |
+| `calls` | `from`, `to` (`dispatch_target`, else `static_target`, else `null`), `target_text`, `call_kind`, `static_target` (the declaration the code names), `dispatch_target` (what runs in this context: the virtual override, the `super` target), `options` (`{value, gas, salt}` as written), `target_source`, `result_used` (low-level calls and `send` only), `via`. External calls to a contract (`external`, `external_self`) also carry `dispatch_candidates` and, when that list is empty, `unresolved_reason`. See [Dispatch candidates](#dispatch-candidates). |
+| `contract_link` | `from_contract`, `to_contract`, `via_state_vars` (ids of the state variables holding the called address), `call_ids` (the `calls` records it aggregates), `basis`. See [Contract links](#contract-links). |
 | `reads`, `writes` | `state_var`, `path` (`balances[]`, `s.x`), `param` (the storage parameter it goes through, then `state_var` is `null`), `via`. |
 | `emits` | `event` (the declaration solc resolved; without an id, the one event with that name, else `null`), `event_text`, `via`. An emit reached through a call yields one edge per event declaration the callee emits under that name. |
 | `reverts` | `reason` (`require(cond)`, `revert Err(args)`, ...), `via`. |
@@ -172,6 +174,8 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 | `msg_sender`, `tx_origin` | — |
 | `expression` | `text` |
 
+On `target_source`, a `state_var`, `immutable` or `constant` also carries `assigned_at`: every place the variable gets its value, `{function, span, expr_text, kind}`, sorted by position. `function` is `null` for the declaration's initial value; `kind` is `constructor_param` (a constructor parameter), `initializer` (a function named `initialize` or with an `initializer`/`reinitializer` modifier), `setter` (any other function), `literal` (a constant expression, in a constructor or the declaration) or `other`. An empty list means the code never assigns it.
+
 So `require(msg.sender == owner)` compares against `{kind: "state_var", name: "owner", id: ...}` and `require(msg.sender == to)` against `{kind: "param", index: 0, name: "to"}`.
 
 ### Guard conditions
@@ -185,15 +189,51 @@ An access guard's condition is split into terms. A term is `{guard_kind, conditi
 - `restricts` is `true` when the guard holds on every path (`scope: unconditional`) and every way to pass needs a caller test that must hold. A disjunction one of whose branches lets any caller through, as `require(msg.sender == admin || open)`, is still exported, with `open` as an alternative of kind `condition`, and has `restricts: false`. A deny-list has `restricts: false` too.
 - A guard whose condition also tests the caller in a way the analysis does not read (a comparison of `uint160(msg.sender)`, a ternary) has tag `AMBIGUOUS` and empty `alternatives` and `conjuncts`: `condition_text` holds the whole condition. When the condition is compound, the guard's own `compared_against`, `checked_by`, `role`, `role_implied_by` and `account` are `null` too; `guard_kind`, `negated` and `restricts` still reflect what was read.
 
+### Dispatch candidates
+
+`dispatch_target` keeps its meaning: it is `null` for an external call. `dispatch_candidates` lists the deployable project contracts (`deployable: true`, not dependencies) that may answer the call, each `{function, contract, basis, tag}`:
+
+| `basis` | The candidate |
+| --- | --- |
+| `inherits_interface` | inherits the contract the call names, directly or transitively, and implements the function (or a getter with its selector). |
+| `selector_match` | exposes the selector without inheriting it. Only listed when no contract inherits the interface. |
+| `self` | `this.f()`: the calling contract, running the implementation it sees. |
+
+One candidate is `INFERRED`; several are all `AMBIGUOUS`. Nothing picks one of them. With none, `unresolved_reason` says why: `out_of_scope_interface` (the named contract is a dependency and nothing in the sources implements it), `no_implementation` (it is in the sources and nothing implements it) or `dynamic_address` (the call names no declaration, as a call through a function pointer).
+
+```json
+{"kind": "calls", "from": "evm:src/Router.sol:Router.run(uint256)", "target_text": "vault.deposit", "call_kind": "external",
+ "static_target": "evm:src/Interfaces.sol:IVault.deposit(uint256)", "dispatch_target": null,
+ "dispatch_candidates": [{"function": "evm:src/Impls.sol:Vault.deposit(uint256)", "contract": "evm:src/Impls.sol:Vault", "basis": "inherits_interface", "tag": "INFERRED"}],
+ "target_source": {"kind": "immutable", "name": "vault", "id": "evm:src/Router.sol:Router.vault",
+   "assigned_at": [{"function": "evm:src/Router.sol:Router.constructor(IVault,IHook,IOracle)", "expr_text": "v", "kind": "constructor_param", "span": {"file": "src/Router.sol", "start_line": 15, "start_col": 9, "end_line": 15, "end_col": 18}}]},
+ "tag": "TYPE_RESOLVED", "...": "..."}
+{"kind": "calls", "target_text": "orphan.ping", "dispatch_candidates": [], "unresolved_reason": "no_implementation", "...": "..."}
+```
+
+### Contract links
+
+One `contract_link` per ordered pair of contracts: code declared in `from_contract` makes external calls that `to_contract` may answer. It aggregates the candidates of those calls: `basis` is the strongest among them (`self`, then `inherits_interface`, then `selector_match`), and the tag is `INFERRED` when some call has `to_contract` as its only candidate, else `AMBIGUOUS`. A `this.f()` call links a contract to itself. The span is the first call's.
+
+```json
+{"kind": "contract_link", "id": "contract_link:evm:src/Router.sol:Router#70ab8c107d3eed65.0",
+ "from_contract": "evm:src/Router.sol:Router", "to_contract": "evm:src/Impls.sol:Vault",
+ "via_state_vars": ["evm:src/Router.sol:Router.vault"],
+ "call_ids": ["calls:evm:src/Router.sol:Router.run(uint256)#cfe0e483bcc9b7a1.0"],
+ "basis": "inherits_interface", "tag": "INFERRED", "rule": "dispatch",
+ "span": {"file": "src/Router.sol", "start_line": 30, "start_col": 9, "end_line": 30, "end_col": 25}}
+```
+
 ### Spans
 
 A direct fact points at its statement; a read or revert, which the control-flow graph records per block, at its block. A fact with `via` points at the call in the function that leads to it. A guard found only by a modifier name points at the function.
 
 ## Known gaps
 
-- `dispatch_target` is computed for internal calls only; an external call keeps the interface declaration.
+- `dispatch_target` is computed for internal calls only; an external call keeps the interface declaration and lists its in-scope implementations in `dispatch_candidates` instead.
+- Dispatch candidates do not follow the value of the address: a call through `hook` lists every implementation of `IHook`, whatever `assigned_at` sets it to.
 - A condition that tests the caller only in a way the analysis does not read yields no access guard.
 
 ## Out of v1
 
-Proxies, interface to implementation resolution, Yul semantics, branch-sensitive dominance, a partial compile of the sources that excludes failing files and their importers, control-flow blocks, transaction sequences, paths and storage slots.
+Proxies, interface to implementation resolution by the deployed address, Yul semantics, branch-sensitive dominance, a partial compile of the sources that excludes failing files and their importers, control-flow blocks, transaction sequences, paths and storage slots.

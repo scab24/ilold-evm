@@ -34,9 +34,9 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 | Tool | Parameters | Returns |
 | --- | --- | --- |
 | `ilold_project_overview` | — | Contracts with kind, source folder, function and state-variable counts, inheritance. |
-| `ilold_project_map` | — | Full topology: every contract, its functions and state variables, and the resolved cross-contract relationships. |
-| `ilold_dependency_graph` | — | Contract dependency graph (`inherits`, `calls`, `holds`) with topological layers and cycles. |
-| `ilold_contract_dependencies` | `contract` | Dependencies of one contract and its blast radius (what depends on it). |
+| `ilold_project_map` | — | Full topology: every contract, its functions and state variables, and the resolved cross-contract relationships, with dispatch candidates on external calls and the contract links (kind `ContractLink`). |
+| `ilold_dependency_graph` | — | Contract dependency graph (`inherits`, `calls`, `holds`, `dispatches` with its contract link) with topological layers and cycles. |
+| `ilold_contract_dependencies` | `contract` | Dependencies of one contract and its blast radius (what depends on it), contract links included. |
 
 ### Structure (contract level)
 
@@ -53,7 +53,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 | `ilold_function_analysis` | `contract`, `function` | Narrative: paths (happy/revert, `path_stats` with cutoffs and truncation; the first 100 narrated, `paths_omitted` counts the rest), state reads and writes, resolved external calls, require checks, events, transitive effects, and observations. |
 | `ilold_function_paths` | `contract`, `function`, `offset`, `limit` (optional) | One page of the execution paths with per-path annotations and terminal kind, plus the path stats (cutoffs, `cap_reached`, `truncated`); `page.truncated` means more paths follow. |
 | `ilold_trace` | `contract`, `function`, `depth` (optional), `reverts` (optional), `expand` (optional) | Execution tree with modifier bodies inlined and external calls resolved to their real target. |
-| `ilold_callgraph` | `contract` | Function call edges of the contract as the most derived contract (own and inherited functions, `super` and virtual dispatch resolved), with call kinds (internal, library internal/delegatecall, external, `this`, low-level, transfer/send, creation) and call counts. |
+| `ilold_callgraph` | `contract` | Function call edges of the contract as the most derived contract (own and inherited functions, `super` and virtual dispatch resolved), with call kinds (internal, library internal/delegatecall, external, `this`, low-level, transfer/send, creation) and call counts; external calls carry their dispatch candidates or unresolved reason and the address assignment sites. |
 | `ilold_cfg` | `contract`, `function` | Control flow graph: basic blocks and branch edges. |
 | `ilold_source` | `contract`, `function` | Source code of the function with its file path and line span. |
 
