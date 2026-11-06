@@ -1,5 +1,6 @@
 //! Facts that relate code across contracts, computed once from the analysis; every surface reads them from here.
 mod dispatch;
+mod keys;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -7,13 +8,15 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::types::CfgGraph;
-use crate::model::common::SourceSpan;
+use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::ContractDef;
+use crate::model::decl_id::DeclId;
 use crate::model::expression::CallKind;
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
 
 pub use dispatch::{call_target, external_calls, ExternalCallSite};
+pub use keys::{storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -163,4 +166,13 @@ pub fn state_var_ref(project: &Project, context: &ContractDef, source: &ValueSou
         return None;
     };
     Some(format!("{}::{name}", project.state_var_owner(context, name)?.key()))
+}
+
+/// The parameter an identifier names: by declaration id, or by name when the model has none.
+fn param_source(params: &[Param], name: &str, resolved: Option<DeclId>) -> Option<ValueSource> {
+    let index = params.iter().position(|p| match resolved {
+        Some(id) => p.id == Some(id),
+        None => p.name == name,
+    })?;
+    Some(ValueSource::Param { index, name: params[index].name.clone() })
 }

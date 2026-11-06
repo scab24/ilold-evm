@@ -14,7 +14,7 @@ use crate::model::statement::walk_all;
 use crate::sequence::effects::reachable;
 
 use super::{
-    state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractLink, Dispatch, DispatchCandidate, LinkCall, Relations, Tag,
+    param_source, state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractLink, Dispatch, DispatchCandidate, LinkCall, Relations, Tag,
     UnresolvedReason,
 };
 
@@ -238,13 +238,7 @@ fn assignment_kind(project: &Project, c: &ContractDef, f: &FunctionDef, value: &
     if f.kind != FunctionKind::Constructor {
         return if initializer { AssignmentKind::Initializer } else { AssignmentKind::Setter };
     }
-    let source = value_source(Some(project), &c.state_vars, value, |name, resolved| {
-        let index = f.params.iter().position(|p| match resolved {
-            Some(id) => p.id == Some(id),
-            None => p.name == name,
-        })?;
-        Some(ValueSource::Param { index, name: f.params[index].name.clone() })
-    });
+    let source = value_source(Some(project), &c.state_vars, value, |name, resolved| param_source(&f.params, name, resolved));
     match source {
         ValueSource::Param { .. } => AssignmentKind::ConstructorParam,
         ValueSource::Literal { .. } => AssignmentKind::Literal,
