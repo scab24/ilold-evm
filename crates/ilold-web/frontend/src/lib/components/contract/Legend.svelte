@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { AMBIGUOUS_COLOR, BASIS_DASH, BASIS_LABEL, LINK_COLOR } from '$lib/utils/links';
+  import type { Basis } from '$lib/api/rest';
+
   let { mode }: { mode: 'cfg' | 'sequences' | 'session' } = $props();
 </script>
 
@@ -27,4 +30,9 @@
     <span><span class="inline-block w-2 h-2 align-middle mr-1" style="border-radius: 4px; background: var(--color-warning); box-shadow: 0 0 6px color-mix(in srgb, var(--color-warning) 40%, transparent);"></span>Conditions affected</span>
     <span class="text-text-dim">Click → expand · Shift+click → add branch</span>
   {/if}
+  <span class="text-text-dim" data-testid="legend-links">Links:</span>
+  {#each Object.entries(BASIS_DASH) as [basis, dash]}
+    <span><svg class="inline-block align-middle mr-1" width="16" height="6" aria-hidden="true"><line x1="0" y1="3" x2="16" y2="3" stroke={LINK_COLOR} stroke-width="2" stroke-dasharray={dash} /></svg>{BASIS_LABEL[basis as Basis]}</span>
+  {/each}
+  <span><svg class="inline-block align-middle mr-1" width="16" height="6" aria-hidden="true"><line x1="0" y1="3" x2="16" y2="3" stroke={AMBIGUOUS_COLOR} stroke-width="3" /></svg>ambiguous</span>
 </div>

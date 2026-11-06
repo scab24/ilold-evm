@@ -7,7 +7,10 @@
     getProjectDepgraph,
     type ProjectMap,
     type ProjectDepGraph,
+    type Basis,
+    type ContractLink,
   } from '$lib/api/rest';
+  import { AMBIGUOUS_COLOR, BASIS_DASH, BASIS_LABEL, LINK_COLOR, describeLink, splitRef } from '$lib/utils/links';
   import { setSearchContext } from '$lib/stores/search.svelte';
   import { togglePalette, setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
@@ -23,16 +26,18 @@
     inherits: '#d2a8ff',
     calls: '#ffa657',
     holds: '#56d4dd',
+    dispatches: LINK_COLOR,
   };
   const NODE_KINDS = ['contract', 'abstract', 'interface', 'library'] as const;
-  const EDGE_KINDS = ['inherits', 'calls', 'holds'] as const;
+  const EDGE_KINDS = ['inherits', 'calls', 'holds', 'dispatches'] as const;
 
   let projectMap: ProjectMap | null = $state(null);
   let dep: ProjectDepGraph | null = $state(null);
   let error: string | null = $state(null);
   let legendFolders: { folder: string; color: string }[] = $state([]);
   let nodeFilter = $state<Record<string, boolean>>({ contract: true, abstract: true, interface: true, library: true });
-  let edgeFilter = $state<Record<string, boolean>>({ inherits: true, calls: true, holds: true });
+  let edgeFilter = $state<Record<string, boolean>>({ inherits: true, calls: true, holds: true, dispatches: true });
+  let edgeTip: { x: number; y: number; link: ContractLink } | null = $state(null);
   let hoveredId: string | null = null;
 
   onMount(async () => {
@@ -86,7 +91,7 @@
       target: e.data.target,
       sourceHandle: 'r',
       targetHandle: 'l',
-      data: { kind: e.data.kind, kinds: e.data.kinds, stroke: EDGE_COLOR[e.data.kind] ?? ROOT_COLOR },
+      data: { kind: e.data.kind, kinds: e.data.kinds, stroke: edgeStroke(e.data.kind, e.data.link), link: e.data.link },
     }));
     const layout = { nodeWidth: 170, nodeHeight: 54, nodeSep: 28, rankSep: 110 };
     const layered = runDagreLayout(nodes, edges, { rankDir: 'LR', ...layout });
@@ -96,6 +101,12 @@
     setNodes(packLayeredLR(layered, { ...layout, aspect }));
     setEdges(edges);
     applyVisual();
+  }
+
+  // a link drawn alone takes its basis style; an ambiguous one stands out
+  function edgeStroke(kind: string, link: ContractLink | null): string {
+    if (link && kind === 'dispatches') return link.tag === 'AMBIGUOUS' ? AMBIGUOUS_COLOR : LINK_COLOR;
+    return EDGE_COLOR[kind] ?? ROOT_COLOR;
   }
 
   function applyVisual() {
@@ -121,12 +132,15 @@
       const visible = kinds.some((k) => edgeFilter[k] ?? true);
       const incident = hoveredId != null && (e.source === hoveredId || e.target === hoveredId);
       const opacity = !hoveredId ? 1 : incident ? 1 : 0.05;
-      const width = incident ? 2.5 : 1.5;
+      const link = e.data?.link as ContractLink | null;
+      const ambiguous = link?.tag === 'AMBIGUOUS';
+      const width = incident || ambiguous ? 2.5 : 1.5;
+      const dash = link && e.data?.kind === 'dispatches' ? BASIS_DASH[link.basis] : '';
       return {
         ...e,
         hidden: !visible,
         animated: incident,
-        style: `stroke: ${stroke}; stroke-width: ${width}; opacity: ${opacity}`,
+        style: `stroke: ${stroke}; stroke-width: ${width}; opacity: ${opacity}${dash ? `; stroke-dasharray: ${dash}` : ''}`,
       };
     }));
   }
@@ -138,6 +152,11 @@
   function toggleEdge(kind: string) {
     edgeFilter = { ...edgeFilter, [kind]: !edgeFilter[kind] };
     applyVisual();
+  }
+
+  function onEdgeHover(edge: Edge, event: MouseEvent) {
+    const link = edge.data?.link as ContractLink | null;
+    edgeTip = link ? { x: event.clientX, y: event.clientY, link } : null;
   }
 
   function onHover(node: Node<GraphNodeData>) {
@@ -206,6 +225,8 @@
         onnodetap={openContract}
         onnodemouseenter={onHover}
         onnodemouseleave={offHover}
+        onedgemouseenter={onEdgeHover}
+        onedgemouseleave={() => (edgeTip = null)}
         canDeleteNodes={false}
         initialFit={{ padding: 0.15 }}
         minZoom={0.02}
@@ -263,6 +284,13 @@
           <span class="border-[1.5px] border-dotted border-text-muted rounded px-1">interface</span>
           <span class="border-[3px] border-double border-text-muted rounded px-1">library</span>
         </div>
+        <div class="text-text-muted uppercase tracking-wide text-[9px] mb-1 font-semibold">Dispatches</div>
+        <div class="flex flex-wrap gap-x-3 gap-y-1 mb-2 text-text-dim" data-testid="link-legend">
+          {#each Object.entries(BASIS_DASH) as [basis, dash]}
+            <span class="flex items-center gap-1"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke={LINK_COLOR} stroke-width="2" stroke-dasharray={dash} /></svg>{BASIS_LABEL[basis as Basis]}</span>
+          {/each}
+          <span class="flex items-center gap-1"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke={AMBIGUOUS_COLOR} stroke-width="3" /></svg>ambiguous</span>
+        </div>
         <div class="text-text-muted uppercase tracking-wide text-[9px] mb-1 font-semibold">Subsystem</div>
         <div class="flex flex-wrap gap-x-3 gap-y-1">
           {#each legendFolders as f}
@@ -271,6 +299,19 @@
         </div>
       </div>
     </div>
+    {#if edgeTip}
+      <div
+        class="fixed z-20 max-w-[420px] px-2.5 py-1.5 text-[11px] rounded-md border border-border bg-surface text-text pointer-events-none"
+        style="left: {edgeTip.x + 12}px; top: {edgeTip.y + 12}px"
+        data-testid="link-tooltip"
+      >
+        <div class="font-semibold">{edgeTip.link.from_contract} → {edgeTip.link.to_contract}</div>
+        <div class="text-text-muted">{describeLink(edgeTip.link)}</div>
+        {#each edgeTip.link.calls as call}
+          <div class="text-text-dim">{splitRef(call.function).member} · line {call.span.start_line}</div>
+        {/each}
+      </div>
+    {/if}
     <div class="px-4 py-1.5 bg-hover border-t border-border-subtle text-[11px] text-text-muted shrink-0">
       click a contract to open its functions · hover to highlight its relationships · toggle Relations/Kind to filter · ⌘K to search
     </div>

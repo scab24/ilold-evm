@@ -33,6 +33,38 @@ export interface ContractDetail extends ContractIdentity, Bases {
   state_vars: StateVarSummary[];
   inherited_functions?: FunctionSummary[];
   inherited_state_vars?: StateVarSummary[];
+  outgoing_links: ContractLink[];
+  incoming_links: ContractLink[];
+}
+
+export type Basis = 'self' | 'inherits_interface' | 'selector_match';
+export type RelationTag = 'INFERRED' | 'AMBIGUOUS';
+export type UnresolvedReason = 'out_of_scope_interface' | 'no_implementation' | 'dynamic_address';
+
+/** A deployable contract that may answer an external call; `function` is `<contract>::<function key>`. */
+export interface DispatchCandidate {
+  function: string;
+  contract: string;
+  basis: Basis;
+  tag: RelationTag;
+}
+
+/** Where a state variable holding a called address is set; `function` is null for its declaration. */
+export interface AssignmentSite {
+  state_var: string;
+  function: string | null;
+  span: SourceSpan;
+  expr_text: string;
+  kind: 'constructor_param' | 'initializer' | 'setter' | 'literal' | 'other';
+}
+
+export interface ContractLink {
+  from_contract: string;
+  to_contract: string;
+  via_state_vars: string[];
+  calls: { function: string; span: SourceSpan }[];
+  basis: Basis;
+  tag: RelationTag;
 }
 
 export interface FunctionSummary {
@@ -95,6 +127,10 @@ export interface CytoscapeEdgeData {
   kind_label?: string;
   /** Declaration named in source when virtual dispatch moved the target. */
   static_target?: string;
+  /** External calls to a contract only. */
+  dispatch_candidates?: DispatchCandidate[];
+  unresolved_reason?: UnresolvedReason;
+  assigned_at?: AssignmentSite[];
 }
 
 
@@ -129,12 +165,19 @@ export interface MapFunction {
   has_external_calls: boolean;
 }
 
+/** A call between functions, or with kind `ContractLink` and no functions, a contract link. */
 export interface MapRelationship {
   from_contract: string;
-  from_function: string;
+  from_function: string | null;
   to_contract: string;
-  to_function: string;
+  to_function: string | null;
   kind: string;
+  call_count: number;
+  dispatch_candidates?: DispatchCandidate[];
+  unresolved_reason?: UnresolvedReason;
+  basis: Basis | null;
+  tag: RelationTag | null;
+  via_state_vars: string[];
 }
 
 export const BASE = '';  // same origin in production, proxied in dev
@@ -181,6 +224,7 @@ export interface DepGraphEdge {
     kind: string;
     kinds: string[];
     call_count: number;
+    link: ContractLink | null;
   };
 }
 

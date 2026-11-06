@@ -4,13 +4,14 @@ use std::path::PathBuf;
 const RESPONSES: &[(&str, &str)] = &[
     ("project_map", "/project/map"),
     ("project_depgraph", "/project/depgraph"),
-    ("callgraph", "/contract/Vault/callgraph"),
+    ("callgraph", "/contract/Router/callgraph"),
+    ("contract_detail", "/contract/Router"),
 ];
 
 #[tokio::test]
 async fn responses_are_written_for_the_frontend_type_check() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let (_state, port) = ilold_web::start_server(vec![root.join("../../tests/fixtures/solc/cross")], 0, 2).await.unwrap();
+    let (_state, port) = ilold_web::start_server(vec![root.join("../../tests/fixtures/solc/dispatch")], 0, 2).await.unwrap();
     let client = reqwest::Client::new();
     for (name, route) in RESPONSES {
         let res = client.get(format!("http://127.0.0.1:{port}/api{route}")).send().await.unwrap();

@@ -3,7 +3,8 @@
   import { ownEntry } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
   import { formatAccess, isConditional } from '$lib/utils/access';
-  import type { FunctionSummary } from '$lib/api/rest';
+  import type { CytoscapeGraph, FunctionSummary } from '$lib/api/rest';
+  import { BASIS_LABEL, splitRef, tagColor } from '$lib/utils/links';
 
   interface Props {
     selectedNode: any;
@@ -18,6 +19,8 @@
     onpathselect: (funcName: string, path: any) => void;
     onloadmorepaths: (funcName: string) => void;
     onexpandcfg: (funcName: string, nodeId?: string) => void;
+    callgraph: CytoscapeGraph | null;
+    onviewsource: (contract: string, func: string) => void;
   }
 
   let {
@@ -33,6 +36,8 @@
     onpathselect,
     onloadmorepaths,
     onexpandcfg,
+    callgraph,
+    onviewsource,
   }: Props = $props();
 
   function termColor(t: string): string {
@@ -48,6 +53,13 @@
   function visibilityOf(node: any): string | null {
     return node.visibility ?? summary?.visibility ?? null;
   }
+
+  // external calls of the selected function, with what may answer each
+  const externalCalls = $derived.by(() => {
+    const node = funcKey ? callgraph?.nodes.find((n) => n.data.key === funcKey) : undefined;
+    if (!node || !callgraph) return [];
+    return callgraph.edges.filter((e) => e.data.source === node.data.id && e.data.dispatch_candidates !== undefined).map((e) => e.data);
+  });
 
   const inspectorTitle = $derived(
     selectedNode ? (selectedNode._funcName || selectedNode.label || 'Node') : '',
@@ -90,6 +102,39 @@
         {/if}
         {#if selectedNode.is_external}
           <div class="d-row"><span class="d-label">Contract</span><span>{selectedNode.contractName ?? 'other contract'} (external call target)</span></div>
+        {/if}
+        {#if externalCalls.length > 0}
+          <Collapsible title="External calls" count={externalCalls.length} open={true}>
+            {#each externalCalls as call}
+              <div class="ext-call" data-testid="external-call">
+                <div class="ext-target" title="Static target">{call.target}{call.call_count > 1 ? ` ×${call.call_count}` : ''}</div>
+                {#each call.dispatch_candidates ?? [] as candidate}
+                  <div class="ext-candidate">
+                    <span class="ext-dot" style="background:{tagColor(candidate.tag)}"></span>
+                    <span>{candidate.function}</span>
+                    <span class="ext-basis">{BASIS_LABEL[candidate.basis]}</span>
+                    <span class="ext-tag" style="color:{tagColor(candidate.tag)}">{candidate.tag}</span>
+                  </div>
+                {/each}
+                {#if call.unresolved_reason}
+                  <div class="ext-unresolved">unresolved: {call.unresolved_reason.replaceAll('_', ' ')}</div>
+                {/if}
+                {#each call.assigned_at ?? [] as site}
+                  {@const fn = site.function ? splitRef(site.function) : null}
+                  <div class="ext-site">
+                    <span class="ext-site-kind">{site.kind.replaceAll('_', ' ')}</span>
+                    <span>{splitRef(site.state_var).member} = {site.expr_text}</span>
+                    <span class="ext-basis">line {site.span.start_line}</span>
+                    {#if fn}
+                      <button class="ext-go" title="Go to source" onclick={() => onviewsource(fn.contract, fn.member)}>{fn.member} ↗</button>
+                    {:else}
+                      <span class="ext-basis">declaration</span>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/each}
+          </Collapsible>
         {/if}
         {#if !selectedNode.is_external}
           <div class="d-actions">
@@ -388,6 +433,15 @@
 {/if}
 
 <style>
+  .ext-call { padding: 4px 0 6px; border-bottom: 1px solid var(--color-border-subtle); font-size: 11px; }
+  .ext-target { color: var(--color-text); font-weight: 600; margin-bottom: 2px; }
+  .ext-candidate, .ext-site { display: flex; align-items: center; gap: 5px; padding-left: 6px; flex-wrap: wrap; }
+  .ext-dot { width: 6px; height: 6px; border-radius: 3px; display: inline-block; }
+  .ext-basis { color: var(--color-text-dim); font-size: 10px; }
+  .ext-tag { font-size: 9px; }
+  .ext-unresolved { padding-left: 6px; color: var(--color-warning); }
+  .ext-site-kind { font-size: 9px; text-transform: uppercase; color: var(--color-text-muted); }
+  .ext-go { background: transparent; border: 1px solid var(--color-border); color: var(--color-accent-hover); border-radius: 4px; font-size: 10px; padding: 0 4px; cursor: pointer; }
   .empty-state {
     display: flex;
     flex-direction: column;

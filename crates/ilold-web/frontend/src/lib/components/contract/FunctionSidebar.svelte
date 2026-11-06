@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
+  import LinksPanel from './LinksPanel.svelte';
   import { visibilityLabel } from '$lib/utils/visibility';
   import { describeGuard, formatAccess, isAccessGuard, isConditional, restricts } from '$lib/utils/access';
 
@@ -194,6 +195,7 @@
         {/if}
       {/if}
     </div>
+    <LinksPanel name={contract.name} outgoing={contract.outgoing_links} incoming={contract.incoming_links} />
   {/if}
 </div>
 

@@ -24,12 +24,14 @@
     onselectionchange?: (nodes: Node<GraphNodeData>[]) => void;
     onnodemouseenter?: (node: Node<GraphNodeData>) => void;
     onnodemouseleave?: (node: Node<GraphNodeData>) => void;
+    onedgemouseenter?: (edge: Edge, event: MouseEvent) => void;
+    onedgemouseleave?: (edge: Edge) => void;
     /** Fit once, after the pane has a size and every visible node is measured. */
     initialFit?: FitViewOptions;
     minZoom?: number;
   }
 
-  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, initialFit, minZoom = 0.1 }: Props = $props();
+  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, onedgemouseenter, onedgemouseleave, initialFit, minZoom = 0.1 }: Props = $props();
 
   const deleteKeysProp = $derived<string[] | null>(canDeleteNodes ? ['Delete', 'Backspace'] : null);
 
@@ -143,6 +145,8 @@
       onselectionchange={({ nodes }) => onselectionchange?.(nodes as unknown as Node<GraphNodeData>[])}
       onnodepointerenter={({ node }) => onnodemouseenter?.(node as Node<GraphNodeData>)}
       onnodepointerleave={({ node }) => onnodemouseleave?.(node as Node<GraphNodeData>)}
+      onedgepointerenter={({ edge, event }) => onedgemouseenter?.(edge, event as MouseEvent)}
+      onedgepointerleave={({ edge }) => onedgemouseleave?.(edge)}
       oninit={() => {
         const { fitView } = useSvelteFlow();
         flowFitView = fitView;

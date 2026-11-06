@@ -2,60 +2,227 @@
   "edges": [
     {
       "data": {
+        "assigned_at": [
+          {
+            "expr_text": "v",
+            "function": "Router::constructor",
+            "kind": "constructor_param",
+            "span": {
+              "end_col": 18,
+              "end_line": 15,
+              "file_index": 3,
+              "start_col": 9,
+              "start_line": 15
+            },
+            "state_var": "Router::vault"
+          }
+        ],
         "call_count": 1,
+        "dispatch_candidates": [
+          {
+            "basis": "inherits_interface",
+            "contract": "Vault",
+            "function": "Vault::deposit",
+            "tag": "INFERRED"
+          }
+        ],
         "id": "e0",
-        "kind": "InternalLibrary",
-        "kind_label": "library internal",
-        "source": "Vault::depositVia",
-        "target": "SafeMath::safeAdd"
+        "kind": "External",
+        "kind_label": "external",
+        "source": "Router::run",
+        "target": "IVault::deposit"
       }
     },
     {
       "data": {
+        "assigned_at": [
+          {
+            "expr_text": "h",
+            "function": "Router::constructor",
+            "kind": "constructor_param",
+            "span": {
+              "end_col": 17,
+              "end_line": 16,
+              "file_index": 3,
+              "start_col": 9,
+              "start_line": 16
+            },
+            "state_var": "Router::hook"
+          },
+          {
+            "expr_text": "h",
+            "function": "Router::setHook",
+            "kind": "setter",
+            "span": {
+              "end_col": 17,
+              "end_line": 26,
+              "file_index": 3,
+              "start_col": 9,
+              "start_line": 26
+            },
+            "state_var": "Router::hook"
+          }
+        ],
         "call_count": 1,
+        "dispatch_candidates": [
+          {
+            "basis": "inherits_interface",
+            "contract": "HookA",
+            "function": "HookA::onCall",
+            "tag": "AMBIGUOUS"
+          },
+          {
+            "basis": "inherits_interface",
+            "contract": "HookB",
+            "function": "HookB::onCall",
+            "tag": "AMBIGUOUS"
+          }
+        ],
         "id": "e1",
         "kind": "External",
         "kind_label": "external",
-        "source": "Vault::depositVia",
-        "target": "IPool::supply"
+        "source": "Router::run",
+        "target": "IHook::onCall"
       }
     },
     {
       "data": {
+        "assigned_at": [
+          {
+            "expr_text": "IOrphan(address(0))",
+            "function": "Router::constructor",
+            "kind": "literal",
+            "span": {
+              "end_col": 37,
+              "end_line": 18,
+              "file_index": 3,
+              "start_col": 9,
+              "start_line": 18
+            },
+            "state_var": "Router::orphan"
+          },
+          {
+            "expr_text": "o",
+            "function": "Router::initialize",
+            "kind": "initializer",
+            "span": {
+              "end_col": 19,
+              "end_line": 22,
+              "file_index": 3,
+              "start_col": 9,
+              "start_line": 22
+            },
+            "state_var": "Router::orphan"
+          }
+        ],
         "call_count": 1,
+        "dispatch_candidates": [],
         "id": "e2",
-        "kind": "InternalLibrary",
-        "kind_label": "library internal",
-        "source": "Vault::record",
-        "target": "SafeMath::safeAdd"
+        "kind": "External",
+        "kind_label": "external",
+        "source": "Router::run",
+        "target": "IOrphan::ping",
+        "unresolved_reason": "no_implementation"
       }
     },
     {
       "data": {
+        "assigned_at": [
+          {
+            "expr_text": "IRegistry(address(0x1234))",
+            "function": null,
+            "kind": "literal",
+            "span": {
+              "end_col": 59,
+              "end_line": 12,
+              "file_index": 3,
+              "start_col": 33,
+              "start_line": 12
+            },
+            "state_var": "Router::registry"
+          }
+        ],
         "call_count": 1,
+        "dispatch_candidates": [
+          {
+            "basis": "selector_match",
+            "contract": "Registry",
+            "function": "Registry::lookup",
+            "tag": "INFERRED"
+          }
+        ],
         "id": "e3",
         "kind": "External",
         "kind_label": "external",
-        "source": "Vault::depositCast",
-        "target": "IPool::supply"
+        "source": "Router::run",
+        "target": "IRegistry::lookup"
       }
     },
     {
       "data": {
+        "assigned_at": [
+          {
+            "expr_text": "o",
+            "function": "Router::constructor",
+            "kind": "constructor_param",
+            "span": {
+              "end_col": 19,
+              "end_line": 17,
+              "file_index": 3,
+              "start_col": 9,
+              "start_line": 17
+            },
+            "state_var": "Router::oracle"
+          }
+        ],
         "call_count": 1,
+        "dispatch_candidates": [],
         "id": "e4",
         "kind": "External",
         "kind_label": "external",
-        "source": "Vault::pushVia",
-        "target": "IPool::push"
+        "source": "Router::run",
+        "target": "IOracle::price",
+        "unresolved_reason": "out_of_scope_interface"
+      }
+    },
+    {
+      "data": {
+        "assigned_at": [],
+        "call_count": 1,
+        "dispatch_candidates": [
+          {
+            "basis": "self",
+            "contract": "Router",
+            "function": "Router::selfValue",
+            "tag": "INFERRED"
+          }
+        ],
+        "id": "e5",
+        "kind": "ExternalSelf",
+        "kind_label": "external self",
+        "source": "Router::run",
+        "target": "Router::selfValue"
+      }
+    },
+    {
+      "data": {
+        "assigned_at": [],
+        "call_count": 1,
+        "dispatch_candidates": [],
+        "id": "e6",
+        "kind": "External",
+        "kind_label": "external",
+        "source": "Router::viaPointer",
+        "target": "::f",
+        "unresolved_reason": "dynamic_address"
       }
     }
   ],
   "nodes": [
     {
       "data": {
-        "contract": "Vault",
-        "id": "Vault::constructor",
+        "contract": "Router",
+        "id": "Router::constructor",
         "is_external": false,
         "key": "constructor",
         "label": "constructor",
@@ -64,68 +231,105 @@
     },
     {
       "data": {
-        "contract": "Vault",
-        "id": "Vault::depositVia",
+        "contract": "Router",
+        "id": "Router::initialize",
         "is_external": false,
-        "key": "depositVia",
-        "label": "depositVia",
+        "key": "initialize",
+        "label": "initialize",
         "node_type": "internal"
       }
     },
     {
       "data": {
-        "contract": "Vault",
-        "id": "Vault::record",
+        "contract": "Router",
+        "id": "Router::setHook",
         "is_external": false,
-        "key": "record",
-        "label": "record",
+        "key": "setHook",
+        "label": "setHook",
         "node_type": "internal"
       }
     },
     {
       "data": {
-        "contract": "Vault",
-        "id": "Vault::depositCast",
+        "contract": "Router",
+        "id": "Router::run",
         "is_external": false,
-        "key": "depositCast",
-        "label": "depositCast",
+        "key": "run",
+        "label": "run",
         "node_type": "internal"
       }
     },
     {
       "data": {
-        "contract": "Vault",
-        "id": "Vault::pushVia",
+        "contract": "Router",
+        "id": "Router::selfValue",
         "is_external": false,
-        "key": "pushVia",
-        "label": "pushVia",
+        "key": "selfValue",
+        "label": "selfValue",
         "node_type": "internal"
       }
     },
     {
       "data": {
-        "contract": "SafeMath",
-        "id": "SafeMath::safeAdd",
+        "contract": "Router",
+        "id": "Router::viaPointer",
+        "is_external": false,
+        "key": "viaPointer",
+        "label": "viaPointer",
+        "node_type": "internal"
+      }
+    },
+    {
+      "data": {
+        "contract": "IVault",
+        "id": "IVault::deposit",
         "is_external": true,
-        "label": "safeAdd",
+        "label": "deposit",
         "node_type": "external"
       }
     },
     {
       "data": {
-        "contract": "IPool",
-        "id": "IPool::supply",
+        "contract": "IHook",
+        "id": "IHook::onCall",
         "is_external": true,
-        "label": "supply",
+        "label": "onCall",
         "node_type": "external"
       }
     },
     {
       "data": {
-        "contract": "IPool",
-        "id": "IPool::push",
+        "contract": "IOrphan",
+        "id": "IOrphan::ping",
         "is_external": true,
-        "label": "push",
+        "label": "ping",
+        "node_type": "external"
+      }
+    },
+    {
+      "data": {
+        "contract": "IRegistry",
+        "id": "IRegistry::lookup",
+        "is_external": true,
+        "label": "lookup",
+        "node_type": "external"
+      }
+    },
+    {
+      "data": {
+        "contract": "IOracle",
+        "id": "IOracle::price",
+        "is_external": true,
+        "label": "price",
+        "node_type": "external"
+      }
+    },
+    {
+      "data": {
+        "contract": "",
+        "id": "::f",
+        "is_external": true,
+        "label": "f",
         "node_type": "external"
       }
     }

@@ -71,7 +71,7 @@
 
   let projectMap: MapContract[] = $state([]);
 
-  let sourcePanel: { func: string } | null = $state(null);
+  let sourcePanel: { contract?: string; func: string } | null = $state(null);
 
   let sessionVisCount = $state(0);
   const sessionHighlight = $derived(getHighlightedFunction());
@@ -1362,6 +1362,8 @@
           onpathselect={selectPath}
           onloadmorepaths={loadMorePaths}
           onexpandcfg={(funcName, nodeId) => toggleFuncExpand(funcName, nodeId)}
+          callgraph={callgraphRaw}
+          onviewsource={(contract, func) => { sourcePanel = { contract, func }; }}
         />
       {/if}
     </div>
@@ -1391,7 +1393,7 @@
 
     {#if sourcePanel && contract}
       <FunctionSourcePanel
-        contract={contract.name}
+        contract={sourcePanel.contract ?? contract.name}
         func={sourcePanel.func}
         onclose={() => sourcePanel = null}
       />
