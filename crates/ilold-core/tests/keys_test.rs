@@ -4,6 +4,8 @@ use std::sync::OnceLock;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::model::project::Project;
+use ilold_core::narrative::function::build_function_narrative;
+use ilold_core::narrative::types::ObservationKind;
 use ilold_core::parse::solc_frontend::SolcFrontend;
 use ilold_core::relations::{storage_accesses, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
 
@@ -106,4 +108,19 @@ fn reads_in_one_block_with_different_keys_are_several() {
 fn transitive_records_name_the_reason_instead_of_keys() {
     let keys = RecordKeys::transitive();
     assert_eq!((keys.keys, keys.keys_reason, keys.key_sites.len()), (None, Some(KeysReason::Transitive), 0));
+}
+
+#[test]
+fn unguarded_writes_are_listed_in_a_stable_order() {
+    let keys = project().lookup_contract("Keys").unwrap();
+    let f = keys.functions.iter().find(|f| f.name == "move").unwrap();
+    let key = (keys.key().to_string(), f.key.clone());
+    let behaviors = &analysis().sequence_analyses[keys.key()].functions;
+    let description = || {
+        let narrative = build_function_narrative(keys, f, &analysis().path_trees[&key], &analysis().cfgs[&key], behaviors);
+        narrative.observations.into_iter().find(|o| o.kind == ObservationKind::NoAccessControl).unwrap().description
+    };
+    for _ in 0..20 {
+        assert_eq!(description(), "Public function writes state (balances[from], balances[to]) without access control");
+    }
 }

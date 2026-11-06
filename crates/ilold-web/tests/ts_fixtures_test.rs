@@ -16,7 +16,7 @@ const RESPONSES: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         "keys",
-        &[("keys_contract_detail", "/contract/Keys"), ("keys_cfg", "/contract/Keys/move/cfg"), ("keys_function", "/session/function/Keys/credit")],
+        &[("keys_contract_detail", "/contract/Keys"), ("keys_cfg", "/contract/Keys/move/cfg"), ("keys_function", "/session/function/Keys/move")],
     ),
 ];
 

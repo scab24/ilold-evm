@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph, CfgStatement};
 use crate::classify::entry_points::access_level;
@@ -335,7 +335,8 @@ fn generate_observations(
         }
     }
 
-    let my_writes: HashSet<&str> = path_tree
+    // sorted so the observation text is the same on every run
+    let my_writes: BTreeSet<&str> = path_tree
         .block_annotations()
         .flat_map(|a| a.state_writes.iter().map(|s| s.as_str()))
         .collect();

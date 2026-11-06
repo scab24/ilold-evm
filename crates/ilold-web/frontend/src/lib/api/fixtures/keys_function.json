@@ -6,20 +6,83 @@
       "keys": [
         {
           "kind": "parameter",
-          "ref": "Keys::credit",
-          "text": "account"
+          "ref": "Keys::move",
+          "text": "from"
+        }
+      ],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "balances[from]",
+      "span": {
+        "end_col": 31,
+        "end_line": 56,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 55
+      }
+    },
+    {
+      "block": 0,
+      "keys": [
+        {
+          "kind": "parameter",
+          "ref": "Keys::move",
+          "text": "to"
+        }
+      ],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "balances[to]",
+      "span": {
+        "end_col": 31,
+        "end_line": 56,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 55
+      }
+    },
+    {
+      "block": 0,
+      "keys": [
+        {
+          "kind": "parameter",
+          "ref": "Keys::move",
+          "text": "from"
         }
       ],
       "kind": "write",
       "modifier": null,
       "param": null,
-      "path": "balances[account]",
+      "path": "balances[from]",
       "span": {
-        "end_col": 35,
-        "end_line": 26,
+        "end_col": 33,
+        "end_line": 55,
         "file_index": 0,
         "start_col": 9,
-        "start_line": 26
+        "start_line": 55
+      }
+    },
+    {
+      "block": 0,
+      "keys": [
+        {
+          "kind": "parameter",
+          "ref": "Keys::move",
+          "text": "to"
+        }
+      ],
+      "kind": "write",
+      "modifier": null,
+      "param": null,
+      "path": "balances[to]",
+      "span": {
+        "end_col": 31,
+        "end_line": 56,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 56
       }
     }
   ],
@@ -31,10 +94,10 @@
   "happy_paths": 1,
   "internal_calls": [],
   "modifiers": [],
-  "name": "credit",
+  "name": "move",
   "observations": [
     {
-      "description": "Public function writes state (balances[account]) without access control",
+      "description": "Public function writes state (balances[from], balances[to]) without access control",
       "kind": "NoAccessControl"
     }
   ],
@@ -55,7 +118,7 @@
       "steps": [
         {
           "branch": null,
-          "description": "credit()",
+          "description": "move()",
           "detail": null,
           "step_type": "Entry"
         },
@@ -72,9 +135,12 @@
   "paths_omitted": 0,
   "revert_paths": 0,
   "revert_sources": [],
-  "state_reads": [],
+  "state_reads": [
+    "balances"
+  ],
   "state_writes": [
-    "balances[account]"
+    "balances[from]",
+    "balances[to]"
   ],
   "total_paths": 1,
   "transitive_events": [],
