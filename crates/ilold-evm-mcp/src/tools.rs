@@ -12,22 +12,22 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_project_map",
-            "Full project topology: every contract with its functions and state variables, plus the resolved cross-contract call relationships.",
+            "Full project topology: every contract with its functions and state variables, plus the resolved cross-contract call relationships. External calls list dispatch_candidates (in-scope contracts that may answer them, with basis inherits_interface | selector_match | self and tag INFERRED | AMBIGUOUS) or an unresolved_reason; rows of kind ContractLink are contract links with basis, tag, via_state_vars and call_count.",
             empty_schema(),
         ),
         tool(
             "ilold_dependency_graph",
-            "Contract dependency graph: inherits/calls/holds edges with topological reading-order layers. Shows which contracts are foundational and which depend on them.",
+            "Contract dependency graph: inherits/calls/holds/dispatches edges with topological reading-order layers. A dispatches edge carries its contract link: the deployable contract that may answer calls made through an interface, with basis, tag, via_state_vars and the calls. Shows which contracts are foundational and which depend on them.",
             empty_schema(),
         ),
         tool(
             "ilold_contract_dependencies",
-            "Dependencies of one contract and its blast radius: the contracts it depends on, and the contracts that depend on it.",
+            "Dependencies of one contract and its blast radius: the contracts it depends on, and the contracts that depend on it, including the contract links (dispatches edges with basis and tag) to the in-scope contracts that may answer its interface calls.",
             contract_schema(),
         ),
         tool(
             "ilold_contract_detail",
-            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, and inherited members.",
+            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, inherited members, and outgoing_links / incoming_links: the contracts it calls through interfaces and the ones that call it.",
             contract_schema(),
         ),
         tool(
@@ -52,7 +52,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_callgraph",
-            "Call graph of a contract as the most derived contract: own and inherited functions with super and virtual dispatch resolved. Edge kinds: Internal, InternalLibrary, LibraryDelegatecall, External, ExternalSelf (this.f), LowLevelCall, LowLevelDelegatecall, LowLevelStaticcall, Transfer, Send, Creation; node ids are Contract::name, or Contract::name(types) for overloads.",
+            "Call graph of a contract as the most derived contract: own and inherited functions with super and virtual dispatch resolved. Edge kinds: Internal, InternalLibrary, LibraryDelegatecall, External, ExternalSelf (this.f), LowLevelCall, LowLevelDelegatecall, LowLevelStaticcall, Transfer, Send, Creation; node ids are Contract::name, or Contract::name(types) for overloads. External and ExternalSelf edges carry dispatch_candidates (or unresolved_reason) and assigned_at, where the state variables holding the called address are set.",
             contract_schema(),
         ),
         tool(

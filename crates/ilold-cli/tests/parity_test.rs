@@ -13,10 +13,12 @@ fn fixture(name: &str) -> PathBuf {
 
 /// The export's records, envelope first.
 fn export(project: &Path) -> Vec<Value> {
+    // tests run in parallel and the clock may only count microseconds
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let dir = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "ilold-parity-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.join("graph.jsonl");
@@ -76,4 +78,122 @@ async fn contracts_are_the_same_in_every_surface() {
     assert!(!exported.is_empty());
     assert_eq!(exported, web);
     assert_eq!(web, mcp);
+}
+
+/// A contract link as every surface shows it: endpoints, basis, tag, address variables and call positions.
+type Link = (String, String, String, String, Vec<String>, BTreeSet<(u64, u64)>);
+
+fn text(value: &Value) -> String {
+    value.as_str().unwrap_or_else(|| panic!("not a string: {value}")).to_string()
+}
+
+fn web_link(link: &Value) -> Link {
+    let calls = link["calls"].as_array().unwrap().iter().map(|c| (c["span"]["start_line"].as_u64().unwrap(), c["span"]["start_col"].as_u64().unwrap())).collect();
+    let vars = link["via_state_vars"].as_array().unwrap().iter().map(text).collect();
+    (text(&link["from_contract"]), text(&link["to_contract"]), text(&link["basis"]), text(&link["tag"]), vars, calls)
+}
+
+/// The map rows of kind `ContractLink` carry the link without its calls; their count stands for them.
+fn map_links(map: &Value) -> BTreeSet<(String, String, String, String, Vec<String>, u64)> {
+    map["relationships"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["kind"] == "ContractLink")
+        .map(|r| {
+            let vars = r["via_state_vars"].as_array().unwrap().iter().map(text).collect();
+            (text(&r["from_contract"]), text(&r["to_contract"]), text(&r["basis"]), text(&r["tag"]), vars, r["call_count"].as_u64().unwrap())
+        })
+        .collect()
+}
+
+fn depgraph_links(graph: &Value) -> BTreeSet<Link> {
+    graph["edges"].as_array().unwrap().iter().map(|e| &e["data"]["link"]).filter(|l| !l.is_null()).map(web_link).collect()
+}
+
+fn without_calls(links: &BTreeSet<Link>) -> BTreeSet<(String, String, String, String, Vec<String>, u64)> {
+    links.iter().map(|(f, t, b, g, v, c)| (f.clone(), t.clone(), b.clone(), g.clone(), v.clone(), c.len() as u64)).collect()
+}
+
+impl Surfaces {
+    /// Export ids of contracts and members to the names the web API uses.
+    fn names(&self) -> std::collections::BTreeMap<String, String> {
+        self.records.iter().filter(|r| r["kind"] == "contract").map(|c| (text(&c["id"]), text(&c["name"]))).collect()
+    }
+
+    fn exported_links(&self) -> BTreeSet<Link> {
+        let names = self.names();
+        let calls: std::collections::BTreeMap<String, &Value> = self.records("calls").map(|c| (text(&c["id"]), c)).collect();
+        self.records("contract_link")
+            .map(|l| {
+                let vars = l["via_state_vars"].as_array().unwrap().iter().map(|v| text(v).rsplit_once('.').unwrap().1.to_string()).collect();
+                let spans = l["call_ids"].as_array().unwrap().iter().map(|id| &calls[&text(id)]["span"]).map(|s| (s["start_line"].as_u64().unwrap(), s["start_col"].as_u64().unwrap())).collect();
+                (names[&text(&l["from_contract"])].clone(), names[&text(&l["to_contract"])].clone(), text(&l["basis"]), text(&l["tag"]), vars, spans)
+            })
+            .collect()
+    }
+}
+
+#[tokio::test]
+async fn contract_links_are_the_same_in_every_surface() {
+    let s = Surfaces::of("dispatch").await;
+    let exported = s.exported_links();
+    assert_eq!(exported.len(), 5, "{exported:#?}");
+
+    assert_eq!(depgraph_links(&s.web("/api/project/depgraph").await), exported, "/api/project/depgraph");
+    assert_eq!(depgraph_links(&s.mcp("ilold_dependency_graph", serde_json::json!({})).await), exported, "ilold_dependency_graph");
+    assert_eq!(map_links(&s.web("/api/project/map").await), without_calls(&exported), "/api/project/map");
+    assert_eq!(map_links(&s.mcp("ilold_project_map", serde_json::json!({})).await), without_calls(&exported), "ilold_project_map");
+
+    let contracts: BTreeSet<String> = exported.iter().flat_map(|(f, t, ..)| [f.clone(), t.clone()]).collect();
+    for contract in contracts {
+        let touching: BTreeSet<Link> = exported.iter().filter(|(f, t, ..)| *f == contract || *t == contract).cloned().collect();
+        let detail = s.web(&format!("/api/contract/{contract}")).await;
+        let listed: BTreeSet<Link> = ["outgoing_links", "incoming_links"].iter().flat_map(|k| detail[k].as_array().unwrap().iter().map(web_link)).collect();
+        assert_eq!(listed, touching, "/api/contract/{contract}");
+        let deps = s.mcp("ilold_contract_dependencies", serde_json::json!({"contract": contract})).await;
+        assert_eq!(depgraph_links(&deps), touching, "ilold_contract_dependencies {contract}");
+    }
+}
+
+/// Per call of `contract`, keyed by caller and static target names: the candidates as (contract, basis, tag), or the reason.
+type Candidates = std::collections::BTreeMap<(String, String), (BTreeSet<(String, String, String)>, Option<String>)>;
+
+fn callgraph_candidates(graph: &Value) -> Candidates {
+    graph["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| &e["data"])
+        .filter(|d| d.get("dispatch_candidates").is_some())
+        .map(|d| {
+            let candidates = d["dispatch_candidates"].as_array().unwrap().iter().map(|c| (text(&c["contract"]), text(&c["basis"]), text(&c["tag"]))).collect();
+            ((text(&d["source"]), text(&d["target"])), (candidates, d["unresolved_reason"].as_str().map(str::to_string)))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn dispatch_candidates_are_the_same_in_every_surface() {
+    let s = Surfaces::of("dispatch").await;
+    let names = s.names();
+    // `evm:<file>:<Contract>.<name>(<types>)` as the call graph names it, `<Contract>::<name>`
+    let member = |id: &str| {
+        let (contract, rest) = id.rsplit_once(':').unwrap().1.split_once('.').unwrap();
+        format!("{contract}::{}", rest.split('(').next().unwrap())
+    };
+    let exported: Candidates = s
+        .records("calls")
+        .filter(|c| c.get("dispatch_candidates").is_some() && !c["static_target"].is_null())
+        .map(|c| {
+            let candidates = c["dispatch_candidates"].as_array().unwrap().iter().map(|d| (names[&text(&d["contract"])].clone(), text(&d["basis"]), text(&d["tag"]))).collect();
+            ((member(&text(&c["from"])), member(&text(&c["static_target"]))), (candidates, c["unresolved_reason"].as_str().map(str::to_string)))
+        })
+        .collect();
+    assert_eq!(exported.len(), 6, "{exported:#?}");
+
+    let web: Candidates = callgraph_candidates(&s.web("/api/contract/Router/callgraph").await).into_iter().filter(|(k, _)| exported.contains_key(k)).collect();
+    assert_eq!(web, exported, "/callgraph");
+    let mcp: Candidates = callgraph_candidates(&s.mcp("ilold_callgraph", serde_json::json!({"contract": "Router"})).await).into_iter().filter(|(k, _)| exported.contains_key(k)).collect();
+    assert_eq!(mcp, exported, "ilold_callgraph");
 }
