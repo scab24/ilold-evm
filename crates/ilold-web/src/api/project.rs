@@ -5,7 +5,9 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use ilold_core::model::contract::ContractDef;
+use ilold_core::relations::{Basis, DispatchCandidate, Tag, UnresolvedReason};
 
+use crate::api::contract::edge_dispatch;
 use crate::state::AppState;
 
 #[derive(Deserialize, Default)]
@@ -115,13 +117,22 @@ pub struct MapStateVar {
     pub is_constant: bool,
 }
 
+/// A call between functions, or with kind `ContractLink` and no functions, a contract link.
 #[derive(Serialize)]
 pub struct MapRelationship {
     pub from_contract: String,
-    pub from_function: String,
+    pub from_function: Option<String>,
     pub to_contract: String,
-    pub to_function: String,
+    pub to_function: Option<String>,
     pub kind: String,
+    pub call_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatch_candidates: Option<Vec<DispatchCandidate>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unresolved_reason: Option<UnresolvedReason>,
+    pub basis: Option<Basis>,
+    pub tag: Option<Tag>,
+    pub via_state_vars: Vec<String>,
 }
 
 pub async fn get_project_map(
@@ -186,15 +197,37 @@ pub async fn get_project_map(
                     continue;
                 }
                 if dst_node.is_external || src_node.contract != dst_node.contract {
+                    let dispatch = edge_dispatch(&state, contract, edge.kind, dst_node);
                     relationships.push(MapRelationship {
                         from_contract: src_node.contract.clone(),
-                        from_function: src_node.function.clone(),
+                        from_function: Some(src_node.function.clone()),
                         to_contract: dst_node.contract.clone(),
-                        to_function: dst_node.function.clone(),
+                        to_function: Some(dst_node.function.clone()),
                         kind: format!("{:?}", edge.kind),
+                        call_count: edge.call_count,
+                        unresolved_reason: dispatch.as_ref().and_then(|d| d.unresolved_reason),
+                        dispatch_candidates: dispatch.map(|d| d.candidates),
+                        basis: None,
+                        tag: None,
+                        via_state_vars: Vec::new(),
                     });
                 }
             }
+        }
+        for link in state.relations.outgoing(contract.key()) {
+            relationships.push(MapRelationship {
+                from_contract: link.from_contract.clone(),
+                from_function: None,
+                to_contract: link.to_contract.clone(),
+                to_function: None,
+                kind: "ContractLink".into(),
+                call_count: link.calls.len(),
+                dispatch_candidates: None,
+                unresolved_reason: None,
+                basis: Some(link.basis),
+                tag: Some(link.tag),
+                via_state_vars: link.via_state_vars.clone(),
+            });
         }
     }
 

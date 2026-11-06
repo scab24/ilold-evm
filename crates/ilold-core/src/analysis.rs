@@ -130,8 +130,9 @@ impl ProjectAnalysis {
             classifications.insert(contract_key, classify_contract(project, contract));
         }
 
-        let dep_graph = ContractDeps::from_call_graphs(project, &call_graphs);
         let relations = Relations::build(project, &cfgs);
+        let mut dep_graph = ContractDeps::from_call_graphs(project, &call_graphs);
+        dep_graph.add_links(&relations.links);
 
         Self {
             cfgs,

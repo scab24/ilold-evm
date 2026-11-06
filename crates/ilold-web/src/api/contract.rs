@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use ilold_core::callgraph::types::{CallKind, CallNode};
 use ilold_core::classify::entry_points::{classify_in, AccessLevel};
 use ilold_core::classify::guards::GuardFact;
 use ilold_core::model::common::{SourceSpan, StateVar};
@@ -13,6 +14,7 @@ use ilold_core::model::contract::ContractDef;
 use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
+use ilold_core::relations::{declared_target, external_calls, AssignmentSite, ContractLink, Dispatch, DispatchCandidate, UnresolvedReason};
 use ilold_core::sequence::types::SequencePage;
 use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
 
@@ -34,6 +36,8 @@ pub struct ContractDetail {
     pub state_vars: Vec<StateVarSummary>,
     pub inherited_functions: Vec<FunctionSummary>,
     pub inherited_state_vars: Vec<StateVarSummary>,
+    pub outgoing_links: Vec<ContractLink>,
+    pub incoming_links: Vec<ContractLink>,
 }
 
 #[derive(Serialize)]
@@ -154,6 +158,8 @@ pub async fn get_contract(
         state_vars,
         inherited_functions,
         inherited_state_vars,
+        outgoing_links: state.relations.outgoing(contract.key()).cloned().collect(),
+        incoming_links: state.relations.incoming(contract.key()).cloned().collect(),
     }))
 }
 
@@ -204,6 +210,39 @@ pub struct CytoscapeEdgeData {
     /// Declaration named in the source when virtual dispatch picked another implementation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_target: Option<String>,
+    /// External calls to a contract: what may answer them, the same for every call site.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatch_candidates: Option<Vec<DispatchCandidate>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unresolved_reason: Option<UnresolvedReason>,
+    /// Where the state variables holding the called address are set, over every call site.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assigned_at: Option<Vec<AssignmentSite>>,
+}
+
+/// What may answer a call-graph edge to `target`, for calls to a contract only.
+pub(crate) fn edge_dispatch(state: &AppState, context: &ContractDef, kind: CallKind, target: &CallNode) -> Option<Dispatch> {
+    if !matches!(kind, CallKind::External | CallKind::ExternalSelf) {
+        return None;
+    }
+    let key = if target.key.is_empty() { &target.function } else { &target.key };
+    let declared = declared_target(&state.project, &target.contract, key);
+    Some(state.relations.dispatch(&state.project, context, kind, declared.as_deref()).into_owned())
+}
+
+/// The assignments of every state variable `source` calls `dispatch`'s target through.
+fn edge_assignments(state: &AppState, source: &CallNode, kind: CallKind, dispatch: &Dispatch) -> Vec<AssignmentSite> {
+    let Ok(owner) = state.project.lookup_contract(&source.contract) else { return Vec::new() };
+    let Some(cfg) = state.cfgs.get(&(source.contract.clone(), source.key.clone())) else { return Vec::new() };
+    let mut sites: Vec<AssignmentSite> = Vec::new();
+    for call in external_calls(&state.project, owner, cfg).into_iter().filter(|c| c.kind == kind && c.target == dispatch.target) {
+        for site in call.via.as_deref().map(|v| state.relations.assignments(v)).unwrap_or_default() {
+            if !sites.contains(site) {
+                sites.push(site.clone());
+            }
+        }
+    }
+    sites
 }
 
 pub async fn get_callgraph(
@@ -247,6 +286,7 @@ pub async fn get_callgraph(
         .map(|(i, edge_idx)| {
             let (src, dst) = cg.edge_endpoints(edge_idx).unwrap();
             let edge = &cg[edge_idx];
+            let dispatch = edge_dispatch(&state, contract, edge.kind, &cg[dst]);
             CytoscapeEdge {
                 data: CytoscapeEdgeData {
                     id: format!("e{i}"),
@@ -256,6 +296,9 @@ pub async fn get_callgraph(
                     call_count: edge.call_count,
                     kind_label: Some(edge.kind.label().to_string()),
                     static_target: edge.static_target.clone(),
+                    assigned_at: dispatch.as_ref().map(|d| edge_assignments(&state, &cg[src], edge.kind, d)),
+                    unresolved_reason: dispatch.as_ref().and_then(|d| d.unresolved_reason),
+                    dispatch_candidates: dispatch.map(|d| d.candidates),
                 },
             }
         })
@@ -333,6 +376,9 @@ pub async fn get_cfg(
                     call_count: 0,
                     kind_label: None,
                     static_target: None,
+                    dispatch_candidates: None,
+                    unresolved_reason: None,
+                    assigned_at: None,
                 },
             }
         })

@@ -40,12 +40,10 @@ pub(super) fn build(project: &Project, cfgs: &HashMap<(String, String), CfgGraph
     for (owner_key, func_key) in keys {
         let Some(owner) = contract(project, owner_key) else { continue };
         let Some(func) = owner.functions.iter().find(|f| &f.key == func_key) else { continue };
-        for (stmt, kind, target) in calls(project, &cfgs[&(owner_key.clone(), func_key.clone())]) {
+        for ExternalCallSite { kind, target, span, via } in external_calls(project, owner, &cfgs[&(owner_key.clone(), func_key.clone())]) {
             let dispatch = dispatches
-                .entry((context_of(owner, kind), target.clone()))
+                .entry((context_of(owner, kind), target))
                 .or_insert_with_key(|(context, target)| resolve(project, context.as_deref(), kind, target.as_deref()));
-            let CfgStatement::ExternalCall { target_source, span, .. } = stmt else { continue };
-            let via = target_source.as_ref().and_then(|s| state_var_ref(project, owner, s));
             targeted.extend(via.clone());
             if owner.is_dependency {
                 continue;
@@ -94,12 +92,26 @@ fn context_of(owner: &ContractDef, kind: CallKind) -> Option<String> {
     (kind == CallKind::ExternalSelf).then(|| owner.key().to_string())
 }
 
-/// External calls in the reachable code of a function, with their targets.
-fn calls<'c>(project: &Project, cfg: &'c CfgGraph) -> Vec<(&'c CfgStatement, CallKind, Option<String>)> {
+/// An external call to a contract in a function's reachable code.
+pub struct ExternalCallSite {
+    pub kind: CallKind,
+    pub target: Option<String>,
+    pub span: Option<SourceSpan>,
+    /// `<contract key>::<name>` of the state variable holding the called address.
+    pub via: Option<String>,
+}
+
+/// `context` declares the code `cfg` runs.
+pub fn external_calls(project: &Project, context: &ContractDef, cfg: &CfgGraph) -> Vec<ExternalCallSite> {
     reachable(cfg)
         .into_iter()
         .flat_map(|n| cfg[n].statements.iter())
-        .filter_map(|stmt| call_target(project, stmt).map(|(kind, target)| (stmt, kind, target)))
+        .filter_map(|stmt| {
+            let (kind, target) = call_target(project, stmt)?;
+            let CfgStatement::ExternalCall { target_source, span, .. } = stmt else { return None };
+            let via = target_source.as_ref().and_then(|s| state_var_ref(project, context, s));
+            Some(ExternalCallSite { kind, target, span: *span, via })
+        })
         .collect()
 }
 

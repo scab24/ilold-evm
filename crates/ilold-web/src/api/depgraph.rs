@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use ilold_core::depgraph::{ContractDeps, DepEdge};
 use ilold_core::model::contract::ContractKind;
+use ilold_core::relations::ContractLink;
 
 use crate::api::contract::route_contract;
 use crate::api::ApiError;
@@ -49,6 +50,7 @@ pub struct DepEdgeData {
     pub kind: String,
     pub kinds: Vec<String>,
     pub call_count: usize,
+    pub link: Option<ContractLink>,
 }
 
 /// Layers are computed on the listed graph.
@@ -164,6 +166,7 @@ fn edge(id: String, source: &str, target: &str, e: &DepEdge) -> DepGraphEdge {
             kind,
             kinds,
             call_count: e.call_count,
+            link: e.link.clone(),
         },
     }
 }

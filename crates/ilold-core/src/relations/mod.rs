@@ -13,7 +13,7 @@ use crate::model::expression::CallKind;
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
 
-pub use dispatch::call_target;
+pub use dispatch::{call_target, external_calls, ExternalCallSite};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -147,6 +147,13 @@ impl Relations {
     pub fn incoming<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractLink> {
         self.links.iter().filter(move |l| l.to_contract == contract)
     }
+}
+
+/// `<contract key>::<member key>` when the contract declares that function or state variable.
+pub fn declared_target(project: &Project, contract: &str, member: &str) -> Option<String> {
+    let c = &project.contracts[*project.contract_index.get(contract)?];
+    let declared = c.functions.iter().any(|f| f.key == member) || c.state_vars.iter().any(|v| v.name == member);
+    declared.then(|| format!("{contract}::{member}"))
 }
 
 /// `<contract key>::<name>` of the state variable a value comes from, as `context` sees it.
