@@ -6,6 +6,8 @@
   import type { CytoscapeGraph, FunctionSummary } from '$lib/api/rest';
   import { BASIS_LABEL, splitRef, tagColor } from '$lib/utils/links';
   import AccessList from './AccessList.svelte';
+  import CatchClauseView from './CatchClauseView.svelte';
+  import TryCatchList from './TryCatchList.svelte';
   import WhoTouches from './WhoTouches.svelte';
 
   interface Props {
@@ -111,6 +113,11 @@
           {#if summary.accesses.length > 0}
             <Collapsible title="Storage" count={summary.accesses.length} open={true}>
               <AccessList accesses={summary.accesses} onvariable={(v) => (whoVar = v)} />
+            </Collapsible>
+          {/if}
+          {#if summary.try_catches?.length}
+            <Collapsible title="Try / catch" count={summary.try_catches.length} open={true}>
+              <TryCatchList facts={summary.try_catches} />
             </Collapsible>
           {/if}
           {#if whoVar}
@@ -339,6 +346,16 @@
         {#if selectedNode.accesses?.length > 0}
           <Collapsible title="Storage" count={selectedNode.accesses.length} open={true}>
             <AccessList accesses={selectedNode.accesses} />
+          </Collapsible>
+        {/if}
+        {#if selectedNode.tryCatch}
+          <Collapsible title="Try / catch" count={1} open={true}>
+            <TryCatchList facts={[selectedNode.tryCatch]} />
+          </Collapsible>
+        {/if}
+        {#if selectedNode.catchClause}
+          <Collapsible title="Catch clause" open={true}>
+            <CatchClauseView clause={selectedNode.catchClause} />
           </Collapsible>
         {/if}
         <div class="d-row"><span class="d-label">Reachable via</span><span>{passingPaths.length} of {paths.length}{ownEntry(funcPaths, parentFunc)?.page?.truncated ? ' loaded' : ''} paths</span></div>

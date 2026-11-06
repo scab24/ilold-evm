@@ -9,6 +9,8 @@ import keysContractDetail from './keys_contract_detail.json';
 import keysCfg from './keys_cfg.json';
 import keysWho from './keys_who.json';
 import keysFunction from './keys_function.json';
+import trycatchContractDetail from './trycatch_contract_detail.json';
+import trycatchCfg from './trycatch_cfg.json';
 
 // imported JSON widens string literals, so unions of literals are compared as strings
 type Json<T> = T extends string ? string : T extends (infer U)[] ? Json<U>[] : T extends object ? { [K in keyof T]: Json<T[K]> } : T;
@@ -21,3 +23,5 @@ keysContractDetail satisfies Json<ContractDetail>;
 keysCfg satisfies Json<CytoscapeGraph>;
 keysWho.VariableInfo satisfies Json<VariableInfo>;
 keysFunction satisfies Json<FunctionNarrative>;
+trycatchContractDetail satisfies Json<ContractDetail>;
+trycatchCfg satisfies Json<CytoscapeGraph>;

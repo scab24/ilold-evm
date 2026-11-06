@@ -1,0 +1,461 @@
+{
+  "edges": [
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e0",
+        "kind": "ExternalCallSuccess",
+        "source": "b0",
+        "target": "b2"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e1",
+        "kind": "Unconditional",
+        "source": "b2",
+        "target": "b3"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e2",
+        "kind": "CatchClause { kind: \"Error\" }",
+        "source": "b0",
+        "target": "b4"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e3",
+        "kind": "Unconditional",
+        "source": "b4",
+        "target": "b1"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e4",
+        "kind": "CatchClause { kind: \"Panic\" }",
+        "source": "b0",
+        "target": "b5"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e5",
+        "kind": "Unconditional",
+        "source": "b5",
+        "target": "b1"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e6",
+        "kind": "CatchClause { kind: \"default\" }",
+        "source": "b0",
+        "target": "b6"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e7",
+        "kind": "Unconditional",
+        "source": "b6",
+        "target": "b1"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e8",
+        "kind": "Unconditional",
+        "source": "b1",
+        "target": "b7"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "data": {
+        "accesses": [
+          {
+            "block": 0,
+            "keys": [],
+            "kind": "read",
+            "modifier": null,
+            "param": null,
+            "path": "pinger",
+            "span": {
+              "end_col": 33,
+              "end_line": 69,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 69
+            }
+          }
+        ],
+        "contract": "TryCatch",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/trycatch/src/TryCatch.sol",
+        "id": "b0",
+        "is_external": false,
+        "label": "▶ pinger.quote()",
+        "node_type": "Entry",
+        "span": {
+          "end_col": 33,
+          "end_line": 69,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 69
+        },
+        "statements": [
+          "pinger.quote()"
+        ]
+      }
+    },
+    {
+      "data": {
+        "contract": "TryCatch",
+        "id": "b1",
+        "is_external": false,
+        "label": "·",
+        "node_type": "Normal"
+      }
+    },
+    {
+      "data": {
+        "contract": "TryCatch",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/trycatch/src/TryCatch.sol",
+        "id": "b2",
+        "is_external": false,
+        "label": "emit Quoted",
+        "node_type": "Normal",
+        "span": {
+          "end_col": 27,
+          "end_line": 70,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 70
+        },
+        "statements": [
+          "emit Quoted"
+        ]
+      }
+    },
+    {
+      "data": {
+        "contract": "TryCatch",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/trycatch/src/TryCatch.sol",
+        "id": "b3",
+        "is_external": false,
+        "label": "✓ Return",
+        "node_type": "Return",
+        "span": {
+          "end_col": 21,
+          "end_line": 71,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 71
+        }
+      }
+    },
+    {
+      "data": {
+        "contract": "TryCatch",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/trycatch/src/TryCatch.sol",
+        "id": "b4",
+        "is_external": false,
+        "label": "emit Rejected",
+        "node_type": "Normal",
+        "span": {
+          "end_col": 34,
+          "end_line": 73,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 73
+        },
+        "statements": [
+          "emit Rejected"
+        ]
+      }
+    },
+    {
+      "data": {
+        "accesses": [
+          {
+            "block": 5,
+            "keys": [
+              {
+                "kind": "local",
+                "ref": null,
+                "text": "code"
+              }
+            ],
+            "kind": "read",
+            "modifier": null,
+            "param": null,
+            "path": "panics[code]",
+            "span": {
+              "end_col": 30,
+              "end_line": 75,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 75
+            }
+          },
+          {
+            "block": 5,
+            "keys": [
+              {
+                "kind": "local",
+                "ref": null,
+                "text": "code"
+              }
+            ],
+            "kind": "write",
+            "modifier": null,
+            "param": null,
+            "path": "panics[code]",
+            "span": {
+              "end_col": 30,
+              "end_line": 75,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 75
+            }
+          }
+        ],
+        "contract": "TryCatch",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/trycatch/src/TryCatch.sol",
+        "id": "b5",
+        "is_external": false,
+        "label": "panics[code] = ...",
+        "node_type": "Normal",
+        "span": {
+          "end_col": 30,
+          "end_line": 75,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 75
+        },
+        "statements": [
+          "panics[code] = ..."
+        ]
+      }
+    },
+    {
+      "data": {
+        "accesses": [
+          {
+            "block": 6,
+            "keys": [],
+            "kind": "read",
+            "modifier": null,
+            "param": null,
+            "path": "pinger",
+            "span": {
+              "end_col": 26,
+              "end_line": 78,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 77
+            }
+          },
+          {
+            "block": 6,
+            "keys": [],
+            "kind": "write",
+            "modifier": null,
+            "param": null,
+            "path": "lastData",
+            "span": {
+              "end_col": 28,
+              "end_line": 77,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 77
+            }
+          }
+        ],
+        "contract": "TryCatch",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/trycatch/src/TryCatch.sol",
+        "id": "b6",
+        "is_external": false,
+        "label": "lastData = ...  (+1)",
+        "node_type": "Normal",
+        "span": {
+          "end_col": 26,
+          "end_line": 78,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 77
+        },
+        "statements": [
+          "lastData = ...",
+          "pinger.ping()"
+        ]
+      }
+    },
+    {
+      "data": {
+        "contract": "TryCatch",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/trycatch/src/TryCatch.sol",
+        "id": "b7",
+        "is_external": false,
+        "label": "✓ Return",
+        "node_type": "Return",
+        "span": {
+          "end_col": 17,
+          "end_line": 80,
+          "file_index": 0,
+          "start_col": 9,
+          "start_line": 80
+        }
+      }
+    }
+  ],
+  "try_catches": [
+    {
+      "block": 0,
+      "catch_clauses": [
+        {
+          "block": 4,
+          "effects": {
+            "calls": [],
+            "emits": [
+              {
+                "span": {
+                  "end_col": 34,
+                  "end_line": 73,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 73
+                },
+                "text": "Rejected"
+              }
+            ],
+            "reverts": false,
+            "writes": []
+          },
+          "empty": false,
+          "kind": "Error",
+          "span": {
+            "end_col": 10,
+            "end_line": 74,
+            "file_index": 0,
+            "start_col": 11,
+            "start_line": 72
+          }
+        },
+        {
+          "block": 5,
+          "effects": {
+            "calls": [],
+            "emits": [],
+            "reverts": false,
+            "writes": [
+              {
+                "span": {
+                  "end_col": 30,
+                  "end_line": 75,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 75
+                },
+                "text": "panics[code]"
+              }
+            ]
+          },
+          "empty": false,
+          "kind": "Panic",
+          "span": {
+            "end_col": 10,
+            "end_line": 76,
+            "file_index": 0,
+            "start_col": 11,
+            "start_line": 74
+          }
+        },
+        {
+          "block": 6,
+          "effects": {
+            "calls": [
+              {
+                "span": {
+                  "end_col": 26,
+                  "end_line": 78,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 78
+                },
+                "text": "pinger.ping"
+              }
+            ],
+            "emits": [],
+            "reverts": false,
+            "writes": [
+              {
+                "span": {
+                  "end_col": 28,
+                  "end_line": 77,
+                  "file_index": 0,
+                  "start_col": 13,
+                  "start_line": 77
+                },
+                "text": "lastData"
+              }
+            ]
+          },
+          "empty": false,
+          "kind": "bytes",
+          "span": {
+            "end_col": 10,
+            "end_line": 79,
+            "file_index": 0,
+            "start_col": 11,
+            "start_line": 76
+          }
+        }
+      ],
+      "function": "TryCatch::clauses",
+      "guarded_call": {
+        "kind": "External",
+        "span": {
+          "end_col": 33,
+          "end_line": 69,
+          "file_index": 0,
+          "start_col": 13,
+          "start_line": 69
+        },
+        "text": "pinger.quote"
+      },
+      "id": "TryCatch::clauses#0",
+      "in_context": "TryCatch",
+      "modifier": null,
+      "reason": null,
+      "span": {
+        "end_col": 10,
+        "end_line": 79,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 69
+      },
+      "success_block": 2,
+      "success_span": {
+        "end_col": 10,
+        "end_line": 72,
+        "file_index": 0,
+        "start_col": 34,
+        "start_line": 69
+      },
+      "tag": "EXTRACTED"
+    }
+  ]
+}

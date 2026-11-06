@@ -1,5 +1,5 @@
 import type { Node, Edge } from '@xyflow/svelte';
-import type { SourceSpan, StorageAccess } from '$lib/api/rest';
+import type { CatchClauseFact, SourceSpan, StorageAccess, TryCatchFact } from '$lib/api/rest';
 
 
 export interface FunctionNodeData {
@@ -32,6 +32,10 @@ export interface BlockNodeData {
   span?: SourceSpan;
   file?: string;
   accesses?: StorageAccess[];
+  /** The try statement whose guarded call ends the block. */
+  tryCatch?: TryCatchFact;
+  /** The catch clause the block starts. */
+  catchClause?: CatchClauseFact;
   _dimmed?: boolean;
 }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Handle, Position } from '@xyflow/svelte';
   import type { BlockNodeData } from '$lib/stores/graph.svelte';
+  import { catchLabel, SWALLOWED } from '$lib/utils/trycatch';
 
   let { data }: { data: BlockNodeData } = $props();
 
@@ -38,6 +39,17 @@
       {/if}
       {#if hasStateWrite}
         <span class="text-[8px] px-0.5 rounded bg-accent-dark/30 text-accent-hover">write</span>
+      {/if}
+    </div>
+  {/if}
+  {#if data.tryCatch}
+    <div class="mt-0.5"><span class="text-[8px] px-0.5 rounded bg-warning/20 text-warning" data-testid="try-badge">try {data.tryCatch.guarded_call?.text ?? '?'}</span></div>
+  {/if}
+  {#if data.catchClause}
+    <div class="flex items-center justify-center gap-1 mt-0.5">
+      <span class="text-[8px] text-danger-light" data-testid="catch-label">{catchLabel(data.catchClause)}</span>
+      {#if data.catchClause.empty}
+        <span class="text-[8px] px-0.5 rounded bg-danger/30 text-danger-light font-bold" data-testid="swallowed-badge">{SWALLOWED}</span>
       {/if}
     </div>
   {/if}

@@ -38,7 +38,7 @@ export interface ContractDetail extends ContractIdentity, Bases {
 }
 
 export type Basis = 'self' | 'inherits_interface' | 'selector_match';
-export type RelationTag = 'INFERRED' | 'AMBIGUOUS';
+export type RelationTag = 'INFERRED' | 'AMBIGUOUS' | 'EXTRACTED';
 export type UnresolvedReason = 'out_of_scope_interface' | 'no_implementation' | 'dynamic_address';
 
 /** A deployable contract that may answer an external call; `function` is `<contract>::<function key>`. */
@@ -84,6 +84,51 @@ export interface FunctionSummary {
   guards: GuardFact[];
   /** Reads and writes of its own code and modifiers. */
   accesses: StorageAccess[];
+  /** Absent when the function has no try statement. */
+  try_catches?: TryCatchFact[];
+}
+
+export type CatchKind = 'Error' | 'Panic' | 'bytes' | 'all';
+
+/** A write's raw path, a call's text or an event name, where the clause has it. */
+export interface EffectSite {
+  text: string;
+  span: SourceSpan;
+}
+
+/** What the clause's own code does; callees' effects are theirs. */
+export interface CatchEffects {
+  writes: EffectSite[];
+  calls: EffectSite[];
+  emits: EffectSite[];
+  reverts: boolean;
+}
+
+export interface CatchClauseFact {
+  /** null when the clause names an error the language does not catch by name. */
+  kind: CatchKind | null;
+  span: SourceSpan;
+  /** No statement: the failure is swallowed. */
+  empty: boolean;
+  effects: CatchEffects;
+  /** CFG block the clause starts at. */
+  block: number;
+}
+
+/** A try statement; `block` ends in the guarded call, `success_block` starts the success branch. */
+export interface TryCatchFact {
+  id: string;
+  function: string;
+  in_context: string;
+  modifier: string | null;
+  span: SourceSpan;
+  guarded_call: { text: string; kind: string; span: SourceSpan } | null;
+  success_span: SourceSpan | null;
+  catch_clauses: CatchClauseFact[];
+  tag: RelationTag;
+  reason: 'statement_not_found' | 'unknown_catch_kind' | null;
+  block: number;
+  success_block: number;
 }
 
 export interface StateVarSummary {
@@ -144,6 +189,8 @@ export interface VariableInfo {
 export interface CytoscapeGraph {
   nodes: { data: CytoscapeNodeData }[];
   edges: { data: CytoscapeEdgeData }[];
+  /** CFGs with try statements only. */
+  try_catches?: TryCatchFact[];
 }
 
 export interface SourceSpan {

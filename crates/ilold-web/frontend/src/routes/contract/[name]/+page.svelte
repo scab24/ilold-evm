@@ -36,6 +36,7 @@
   } from '$lib/stores/graph.svelte';
   import { ownEntry, runDagreLayout } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
+  import { tryRoles } from '$lib/utils/trycatch';
   import { MarkerType } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
 
@@ -973,6 +974,7 @@
     const cfg = await ensureCfg(funcName);
     if (!cfg) return;
     const parentPos = liveNodePosition(parentId) ?? { x: 300, y: 200 };
+    const roles = tryRoles(cfg.try_catches);
 
     const cfgNodes: Node<GraphNodeData>[] = cfg.nodes.map(n => ({
       id: `cfg:${funcName}:${n.data.id}`,
@@ -987,11 +989,14 @@
         span: n.data.span,
         file: n.data.file,
         accesses: n.data.accesses,
+        tryCatch: roles.guards.get(n.data.id),
+        catchClause: roles.clauses.get(n.data.id),
       },
     }));
 
     const cfgEdges: Edge[] = cfg.edges.map((e, i) => {
       const es = cfgEdgeStyle(e.data.kind);
+      es.label = roles.branches.get(`${e.data.source}->${e.data.target}`) ?? es.label;
       return {
         id: `cfg-edge:${funcName}:${i}`,
         source: `cfg:${funcName}:${e.data.source}`,

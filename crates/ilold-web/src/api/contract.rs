@@ -15,8 +15,8 @@ use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
 use ilold_core::relations::{
-    declared_target, external_calls, key_kinds, storage_accesses, AssignmentSite, ContractLink, Dispatch, DispatchCandidate, KeyKind,
-    StorageAccess, UnresolvedReason,
+    declared_target, external_calls, key_kinds, storage_accesses, try_catches, AssignmentSite, ContractLink, Dispatch, DispatchCandidate,
+    KeyKind, StorageAccess, TryCatchFact, UnresolvedReason,
 };
 use ilold_core::sequence::types::SequencePage;
 use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
@@ -64,6 +64,8 @@ pub struct FunctionSummary {
     pub guards: Vec<GuardFact>,
     /// The reads and writes of its own code and modifiers, with their keys.
     pub accesses: Vec<StorageAccess>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub try_catches: Vec<TryCatchFact>,
 }
 
 #[derive(Serialize)]
@@ -129,6 +131,7 @@ pub async fn get_contract(
             access,
             guards,
             accesses: cfg.map(|cfg| storage_accesses(&state.project, owner, owner, f, cfg)).unwrap_or_default(),
+            try_catches: cfg.map(|cfg| try_catches(&state.project, owner, owner, f, cfg)).unwrap_or_default(),
         }
     };
     let kinds = key_kinds(&state.project, contract, &state.cfgs);
@@ -179,6 +182,9 @@ pub async fn get_contract(
 pub struct CytoscapeGraph {
     pub nodes: Vec<CytoscapeNode>,
     pub edges: Vec<CytoscapeEdge>,
+    /// CFGs: the try statements, naming the blocks of their branches.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub try_catches: Vec<TryCatchFact>,
 }
 
 #[derive(Serialize)]
@@ -319,7 +325,7 @@ pub async fn get_callgraph(
         })
         .collect();
 
-    Ok(Json(CytoscapeGraph { nodes, edges }))
+    Ok(Json(CytoscapeGraph { nodes, edges, try_catches: Vec::new() }))
 }
 
 
@@ -401,7 +407,7 @@ pub async fn get_cfg(
         })
         .collect();
 
-    Ok(Json(CytoscapeGraph { nodes, edges }))
+    Ok(Json(CytoscapeGraph { nodes, edges, try_catches: try_catches(&state.project, owning, owning, func, cfg) }))
 }
 
 
