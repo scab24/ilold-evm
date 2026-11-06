@@ -180,7 +180,8 @@ fn exit_0_on_a_complete_export_with_guards_calls_and_code_facts() {
 
     let call = |function: &str| find(&records, "calls", |c| c["from"] == facts_id(function));
     let from_state = call("Targets.fromState()");
-    assert_eq!(from_state["target_source"], serde_json::json!({"kind": "state_var", "name": "pool", "id": facts_id("Targets.pool")}));
+    assert_eq!(as_1_0(from_state)["target_source"], serde_json::json!({"kind": "state_var", "name": "pool", "id": facts_id("Targets.pool")}));
+    assert_eq!(from_state["target_source"]["assigned_at"], serde_json::json!([]), "never assigned");
     assert_eq!((&from_state["kind"], &from_state["call_kind"]), (&Value::from("calls"), &Value::from("external")));
     assert_eq!(from_state["to"], facts_id("IPool.supply(address,uint256)"));
     assert_eq!(from_state["tag"], "TYPE_RESOLVED");
@@ -648,4 +649,65 @@ fn existing_fixtures_keep_every_1_0_record() {
         .map(|(f, _)| format!("{f:?}"))
         .collect();
     assert!(changed.is_empty(), "exports differ from schema 1.0:\n{}", changed.join("\n"));
+}
+
+const DISPATCH: &str = "tests/fixtures/solc/dispatch/src";
+
+fn dispatch_id(file: &str, member: &str) -> String {
+    format!("evm:{DISPATCH}/{file}:{member}")
+}
+
+#[test]
+fn external_calls_carry_their_candidates_and_add_up_to_contract_links() {
+    let records = export(&fixture("dispatch"), "dispatch", 0);
+    let run = dispatch_id("Router.sol", "Router.run(uint256)");
+    let call = |text: &str| find(&records, "calls", |c| c["from"] == run && c["target_text"] == text);
+
+    let vault = call("vault.deposit");
+    assert_eq!(vault["dispatch_target"], Value::Null, "dispatch_target keeps its 1.0 meaning");
+    assert_eq!(
+        vault["dispatch_candidates"],
+        serde_json::json!([{"function": dispatch_id("Impls.sol", "Vault.deposit(uint256)"), "contract": dispatch_id("Impls.sol", "Vault"), "basis": "inherits_interface", "tag": "INFERRED"}])
+    );
+    assert!(vault.get("unresolved_reason").is_none(), "{vault}");
+    let assigned = &vault["target_source"]["assigned_at"];
+    assert_eq!(assigned[0]["function"], dispatch_id("Router.sol", "Router.constructor(IVault,IHook,IOracle)"), "{assigned}");
+    assert_eq!((assigned[0]["kind"].as_str(), assigned[0]["expr_text"].as_str()), (Some("constructor_param"), Some("v")));
+    assert!(assigned[0]["span"]["start_line"].as_u64().is_some(), "{assigned}");
+    let hook_sites: Vec<&str> = call("hook.onCall")["target_source"]["assigned_at"].as_array().unwrap().iter().map(|a| a["kind"].as_str().unwrap()).collect();
+    assert_eq!(hook_sites, ["constructor_param", "setter"]);
+
+    let hooks: Vec<(&str, &str)> = call("hook.onCall")["dispatch_candidates"].as_array().unwrap().iter().map(|c| (c["contract"].as_str().unwrap(), c["tag"].as_str().unwrap())).collect();
+    let (a, b) = (dispatch_id("Impls.sol", "HookA"), dispatch_id("Impls.sol", "HookB"));
+    assert_eq!(hooks, [(a.as_str(), "AMBIGUOUS"), (b.as_str(), "AMBIGUOUS")]);
+    assert_eq!(call("registry.lookup")["dispatch_candidates"][0]["basis"], "selector_match");
+    assert_eq!(call("this.selfValue")["dispatch_candidates"][0]["basis"], "self");
+    for (text, reason) in [("oracle.price", "out_of_scope_interface"), ("orphan.ping", "no_implementation")] {
+        assert_eq!(call(text)["dispatch_candidates"], serde_json::json!([]), "{text}");
+        assert_eq!(call(text)["unresolved_reason"], reason, "{text}");
+    }
+    let pointer = find(&records, "calls", |c| c["from"] == dispatch_id("Router.sol", "Router.viaPointer(uint256)"));
+    assert_eq!(pointer["unresolved_reason"], "dynamic_address");
+
+    let links: std::collections::BTreeSet<(&str, &str, &str)> = of_kind(&records, "contract_link")
+        .iter()
+        .map(|l| (l["to_contract"].as_str().unwrap(), l["basis"].as_str().unwrap(), l["tag"].as_str().unwrap()))
+        .collect();
+    let (registry, router, vault_id) = (dispatch_id("Impls.sol", "Registry"), dispatch_id("Router.sol", "Router"), dispatch_id("Impls.sol", "Vault"));
+    assert_eq!(
+        links,
+        std::collections::BTreeSet::from([
+            (a.as_str(), "inherits_interface", "AMBIGUOUS"),
+            (b.as_str(), "inherits_interface", "AMBIGUOUS"),
+            (registry.as_str(), "selector_match", "INFERRED"),
+            (router.as_str(), "self", "INFERRED"),
+            (vault_id.as_str(), "inherits_interface", "INFERRED"),
+        ])
+    );
+    let to_vault = find(&records, "contract_link", |l| l["to_contract"] == vault_id);
+    assert_eq!(to_vault["from_contract"], router);
+    assert_eq!(to_vault["via_state_vars"], serde_json::json!([dispatch_id("Router.sol", "Router.vault")]));
+    assert_eq!(to_vault["call_ids"], serde_json::json!([vault["id"]]));
+    assert_eq!(to_vault["span"], vault["span"]);
+    assert!(to_vault["id"].as_str().unwrap().starts_with(&format!("contract_link:{router}#")), "{to_vault}");
 }

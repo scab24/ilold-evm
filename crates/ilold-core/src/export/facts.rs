@@ -18,6 +18,7 @@ use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
 use crate::pathtree::walker::normalize_path;
+use crate::relations::{call_target, state_var_ref, ContractLink};
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
 use crate::sequence::effects::{reachable, resolve_call, summarize, CallSite, EffectEngine};
 use crate::util::target_base_name;
@@ -171,7 +172,16 @@ impl<'p> Builder<'p> {
                 self.exposes(c);
             }
         }
-        let edges = self.numbered();
+        let mut edges = self.numbered();
+        let mut calls: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+        for (id, call) in edges.iter().filter(|(_, e)| e["kind"] == "calls" && e.get("dispatch_candidates").is_some()) {
+            let from = call["from"].as_str().unwrap_or_default().to_string();
+            calls.entry((from, call["span"].to_string())).or_default().push(id.clone());
+        }
+        for link in &self.analysis.relations.links {
+            self.link(link, &calls);
+        }
+        edges.extend(self.numbered());
         let nodes = self.nodes(&edges);
         Graph { nodes, edges, truncation: self.truncation }
     }
@@ -353,12 +363,12 @@ impl<'p> Builder<'p> {
         let (options, target_source, result_used) = match stmt {
             CfgStatement::ExternalCall { options, target_source, result_used, .. } => (
                 options.iter().map(|(name, value)| (name.clone(), Value::from(value.as_str()))).collect(),
-                target_source.as_ref().map(|s| self.source(s)),
+                target_source.as_ref().map(|s| self.target_source(site.context, s)),
                 *result_used,
             ),
             _ => (serde_json::Map::new(), None, None),
         };
-        let record = json!({
+        let mut record = json!({
             "from": site.function,
             "to": dispatch_target.as_ref().or(static_target.as_ref()),
             "target_text": target_text,
@@ -371,7 +381,69 @@ impl<'p> Builder<'p> {
             "via": origin.via,
             "in_context": site.context_id,
         });
+        if let Some((kind, target)) = call_target(project, stmt) {
+            let dispatch = self.analysis.relations.dispatch(project, site.context, kind, target.as_deref());
+            let candidates: Vec<Value> = dispatch
+                .candidates
+                .iter()
+                .map(|c| {
+                    let contract = self.contract(&c.contract).and_then(|c| self.ids.contract(c));
+                    json!({"function": self.reference(&c.function), "contract": contract, "basis": c.basis, "tag": c.tag})
+                })
+                .collect();
+            record["dispatch_candidates"] = Value::from(candidates);
+            if let Some(reason) = dispatch.unresolved_reason {
+                record["unresolved_reason"] = json!(reason);
+            }
+        }
         self.edge("calls", site.function, record, Some(origin.span), tag, origin.rule);
+    }
+
+    /// A call's receiver, with the assignments of the state variable holding it.
+    fn target_source(&self, context: &ContractDef, source: &ValueSource) -> Value {
+        let mut value = self.source(source);
+        if let Some(var) = state_var_ref(self.project, context, source) {
+            let sites: Vec<Value> = self
+                .analysis
+                .relations
+                .assignments(&var)
+                .iter()
+                .map(|a| {
+                    let function = a.function.as_deref().and_then(|f| self.reference(f));
+                    json!({"function": function, "span": self.ids.span(a.span), "expr_text": a.expr_text, "kind": a.kind})
+                })
+                .collect();
+            value["assigned_at"] = Value::from(sites);
+        }
+        value
+    }
+
+    /// The id of a `<contract key>::<member key>` reference: a function, else a state variable.
+    fn reference(&self, reference: &str) -> Option<String> {
+        let (contract, member) = reference.rsplit_once("::")?;
+        self.ids.function_by_key(contract, member).or_else(|| self.ids.member_by_key(reference))
+    }
+
+    /// One edge per contract pair, listing the export's ids of the calls that make it.
+    fn link(&mut self, link: &ContractLink, calls: &BTreeMap<(String, String), Vec<String>>) {
+        let (Some(from), Some(to)) = (self.contract(&link.from_contract), self.contract(&link.to_contract)) else { return };
+        let Some(from_id) = self.ids.contract(from) else { return };
+        let call_ids: Vec<&String> = link
+            .calls
+            .iter()
+            .filter_map(|c| Some((self.reference(&c.function)?, self.ids.span(c.span).to_string())))
+            .flat_map(|key| calls.get(&key).into_iter().flatten())
+            .collect();
+        let via: Vec<Option<String>> = link.via_state_vars.iter().map(|name| self.state_var(from, name)).collect();
+        let record = json!({
+            "from_contract": from_id,
+            "to_contract": self.ids.contract(to),
+            "via_state_vars": via,
+            "call_ids": call_ids,
+            "basis": link.basis,
+        });
+        let tag = json!(link.tag);
+        self.edge("contract_link", &from_id, record, link.calls.first().map(|c| c.span), tag.as_str().unwrap_or_default(), "dispatch");
     }
 
     fn access(&mut self, site: &Site, kind: &str, path: &str, param: Option<String>, origin: Origin) {
