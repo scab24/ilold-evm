@@ -7,7 +7,6 @@ use crate::cfg::builder::{expr_to_string, modifier_code};
 use crate::classify::guards::check_call;
 use crate::model::common::{SourceSpan, StateVar};
 use crate::model::contract::ContractDef;
-use crate::model::decl_id::{DeclId, DeclKind};
 use crate::model::expression::{BinaryOperator, CallKind, CallType, Expression, ExpressionKind, LiteralType};
 use crate::model::function::FunctionDef;
 use crate::model::project::Project;
@@ -163,7 +162,7 @@ impl<'p> Code<'p> {
         let callees = calls
             .into_iter()
             .filter_map(|(callee, kind)| {
-                let declaration = resolved(callee).and_then(|id| project.decl_table.function(id)).map(|t| (t.contract.clone(), t.function.clone()));
+                let declaration = callee.resolved().and_then(|id| project.decl_table.function(id)).map(|t| (t.contract.clone(), t.function.clone()));
                 let call = CallSite { call: expr_to_string(callee), kind, declaration, storage_args: Vec::new(), modifier: None };
                 resolve_call(project, context, owner, &call)
             })
@@ -172,19 +171,10 @@ impl<'p> Code<'p> {
     }
 }
 
-fn resolved(expr: &Expression) -> Option<DeclId> {
-    match &expr.kind {
-        ExpressionKind::Identifier { resolved, .. } | ExpressionKind::MemberAccess { resolved, .. } => *resolved,
-        _ => None,
-    }
-}
-
 /// `<contract key>::<name>` and declaration of the state variable an identifier resolves to.
 fn declared_var<'p>(project: &'p Project, expr: &Expression) -> Option<(String, &'p StateVar)> {
     let ExpressionKind::Identifier { resolved: Some(id), .. } = &uncast(expr).kind else { return None };
-    let target = project.decl_table.lookup(*id).filter(|t| t.kind == DeclKind::StateVariable)?;
-    let contract = &project.contracts[*project.contract_index.get(&target.contract)?];
-    let var = contract.state_vars.iter().find(|v| v.name == target.name)?;
+    let (target, var) = project.state_var_by_id(*id)?;
     Some((format!("{}::{}", target.contract, target.name), var))
 }
 
