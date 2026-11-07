@@ -36,7 +36,7 @@ The same commit, the same `foundry.toml` profile and the same ilold version prod
 | Field | Meaning |
 | --- | --- |
 | `kind` | `"envelope"`. |
-| `schema_version` | `"1.0.0"`. |
+| `schema_version` | `"1.1.0"`. |
 | `tool` | `{name, version, git_commit, dirty}`. `git_commit` is the commit ilold was built from and `dirty` whether its sources (`crates/`, `Cargo.toml`, `Cargo.lock`, untracked files included) differed from it; both are `null` for a build outside a git checkout. |
 | `target` | `{git_commit, dirty, sources_sha256}`. `git_commit` and `dirty` are `null` outside a git repository; `git_commit` is also `null` before the first commit. `dirty` covers the Foundry root, untracked files included. `sources_sha256` hashes every analysed source in path order: `path`, a NUL byte, the SHA-256 of its content, a newline. |
 | `project_root` | The Foundry root relative to the git root; `""` when they are the same directory. |
@@ -393,7 +393,7 @@ A direct fact points at its statement; a read or revert, which the control-flow 
 - Keys are read from the index's text in the code making the access, its modifiers and the callees returning a storage pointer it calls; a key that reaches the path another way, or a text naming two declarations there, is an `expression`. So is a local declared in a tuple, `(address a, uint256 b) = ...`: the model keeps no declaration ids for its parts.
 - An access made in a callee carries no keys (`keys_reason: "transitive"`); its keys are on the callee's own record.
 - Catch clause effects list the clause's own code only, and name calls and events by their text, not by record id.
-- Value is recognized only from the table above. A transfer made in a function the code calls is that function's record, reached through the `calls` record; it is not repeated on the caller.
+- Value is recognized only from the table above. A transfer made in a project function the code calls is that function's record, reached through the `calls` record; it is not repeated on the caller. Library helpers are the exception, recorded at the call site with `via_library`.
 - `direction` reads the source text: an address that equals the running contract only at run time reads as another account.
 - The model drops a literal's unit, so `1 ether` and `1 days` read `1`.
 - Phase candidates read conditions only: a boolean helper's `return` expression is not a condition, so `require(ready())` gates on what `ready()` tests only when `ready()` tests it in a condition of its own. Code reached through `this.f()`, a library or another contract does not count for the caller.

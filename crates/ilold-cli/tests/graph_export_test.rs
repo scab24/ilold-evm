@@ -126,7 +126,7 @@ fn exit_0_on_a_complete_export_with_guards_calls_and_code_facts() {
     let records = export(&fixture("facts"), "facts", 0);
     let envelope = &records[0];
     assert_eq!(envelope["status"], "complete");
-    assert_eq!(envelope["schema_version"], "1.0.0");
+    assert_eq!(envelope["schema_version"], "1.1.0");
     assert_eq!(envelope["project_root"], "tests/fixtures/solc/facts");
     assert_eq!(envelope["solc_versions"], serde_json::json!(["0.8.28"]));
     assert_eq!(envelope["profile"], "default");
