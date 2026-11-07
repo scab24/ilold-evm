@@ -81,6 +81,13 @@ A function that moves value or reads a balance lists each under `Value`: the ope
   │      └── mint erc20 share: this → msg.sender price (line 48)
 ```
 
+A function that tests or writes a phase of the contract lists each under `Phases`: the variable, its type and declaration line, the functions it gates, its writers and the conditions that test it:
+
+```
+  ├── Phases:
+  │      └── Sale::state (enum Sale.State, line 32) · gates buy, close, open, refund · set by close, open · when state != State.Closed | state == State.Open | state == State.Setup
+```
+
 The `info` command does not require the function to be in the session. It analyzes the function in isolation.
 
 ## trace

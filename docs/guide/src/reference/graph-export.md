@@ -84,7 +84,7 @@ Counts of where the analysis stopped, and the limits it used. Exported facts nev
 
 `<path>` is the declaring file relative to the git root. A function signature is its name and parameter types: `deposit(uint256)`. Contract types appear by name (`setFeed(IFeed)`). Internal and private functions keep data locations, because overloads may differ only by them: `_sum(uint256[] storage)` and `_sum(uint256[] memory)`. `receive()`, `fallback()` and `constructor(...)` follow the same form. The `selector` field carries the ABI selector where one exists.
 
-Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason`, `target_source.assigned_at` and `in_try`; on `reads` and `writes`: `keys`, `keys_reason` and `key_sites`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. A `try_catch` hashes only `function`, `in_context`, `guarded_call` and `via`, so editing a catch clause keeps its id. A `value_transfer` hashes `function`, `in_context`, `asset_kind`, `operation`, its five expressions, `via_library` and `via`; a `balance_read` the same without `operation`, `from_expr`, `to_expr` and `amount_expr` and with `owner_expr`. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
+Edge ids are `<kind>:<from>#<hash>.<n>`. The hash (16 hex digits) covers the record without `span`, `tag`, `rule` and `id`, so it never depends on positions: moving unrelated code keeps every id. Fields added to a kind after schema 1.0 (on `calls`: `dispatch_candidates`, `unresolved_reason`, `target_source.assigned_at` and `in_try`; on `reads` and `writes`: `keys`, `keys_reason` and `key_sites`) are left out of the hash too, so a record keeps the id 1.0 gave it. The `from` of a `contract_link` is its `from_contract`. A `try_catch` hashes only `function`, `in_context`, `guarded_call` and `via`, so editing a catch clause keeps its id. A `value_transfer` hashes `function`, `in_context`, `asset_kind`, `operation`, its five expressions, `via_library` and `via`; a `balance_read` the same without `operation`, `from_expr`, `to_expr` and `amount_expr` and with `owner_expr`. A `phase_candidate` hashes only `state_var` and `in_context`, its `from`, so a new gated function or writer keeps its id. `<n>` numbers, from `0`, the edges of `<from>` that share the hash, ordered by span (file, then line and column); it is always present, so a first occurrence keeps `.0` when another one is added later. Equal facts, position included, collapse into one line.
 
 ## Common fields
 
@@ -104,7 +104,7 @@ Every node and edge has:
 | --- | --- |
 | `EXTRACTED` | Read from the syntax: declarations, reverts, code facts, guards found in code on every path, storage-parameter accesses, try statements, ether sent by `.transfer`, `.send` or `{value: ...}`, `.balance` reads. |
 | `TYPE_RESOLVED` | Resolved through solc declaration ids and types: call targets, emitted events, state variables of reads and writes, linearization, token and library value transfers and balance reads. |
-| `INFERRED` | A heuristic: guards from a modifier name, guards on some paths only (`scope: conditional`), events matched by name where solc gave no id, calls resolved by name, linearization without solc data, an external call with exactly one in-scope implementation. |
+| `INFERRED` | A heuristic: guards from a modifier name, guards on some paths only (`scope: conditional`), events matched by name where solc gave no id, calls resolved by name, linearization without solc data, an external call with exactly one in-scope implementation, phase candidates. |
 | `AMBIGUOUS` | Unresolved: the edge keeps its text and `to`, `event` or `state_var` is `null`. A modifier without code is `AMBIGUOUS` too, and so are dispatch candidates and contract links when several in-scope contracts may answer one call, and a try statement whose clauses cannot be told apart (`reason`), and a value transfer or balance read whose asset is not decided (`asset_candidates`, `reason`). |
 
 ### Rules
@@ -119,6 +119,7 @@ Every node and edge has:
 | `code_facts` | Builtins and unchecked blocks, modifiers included. |
 | `dispatch` | Which in-scope contracts may answer external calls: `contract_link`. |
 | `value` | The recognizer table over the function's calls and `.balance` reads, modifiers included: `value_transfer`, `balance_read`. |
+| `phases` | The conditions of each entry point of a deployable contract, its modifiers and internal helpers included: `phase_candidate`. |
 
 ## Contexts
 
@@ -156,6 +157,7 @@ Fact edges (everything but `inherits` and `exposes`) carry `function` (or `from`
 | `try_catch` | `function`, `in_context`, `guarded_call` (the id of the `calls` record it guards, `null` when unknown), `success_span`, `catch_clauses`, `reason`, `via`. See [Try statements](#try-statements). |
 | `value_transfer` | `function`, `in_context`, `asset_kind`, `asset_candidates`, `operation`, `direction`, `token_expr`, `from_expr`, `to_expr`, `amount_expr`, `id_expr`, `call_id` (the `calls` record that makes it), `via_library`, `reason`, `via`. See [Value transfers and balance reads](#value-transfers-and-balance-reads). |
 | `balance_read` | `function`, `in_context`, `asset_kind`, `asset_candidates`, `token_expr`, `owner_expr`, `id_expr`, `via_library`, `reason`, `via`. |
+| `phase_candidate` | `state_var`, `in_context`, `type_name`, `guarded_functions`, `writers`, `condition_texts`. One per variable and deployable project contract. See [Phase candidates](#phase-candidates). |
 | `contract_link` | `from_contract`, `to_contract`, `via_state_vars` (ids of the state variables holding the called address), `call_ids` (the `calls` records it aggregates), `basis`. See [Contract links](#contract-links). |
 | `reads`, `writes` | `state_var`, `path` (`balances[]`, `s.x`), `param` (the storage parameter it goes through, then `state_var` is `null`), `via`, `keys`, `keys_reason`, `key_sites`. See [Mapping keys](#mapping-keys). |
 | `emits` | `event` (the declaration solc resolved; without an id, the one event with that name, else `null`), `event_text`, `via`. An emit reached through a call yields one edge per event declaration the callee emits under that name. |
@@ -361,6 +363,24 @@ A library helper is recorded at the call site in the function that calls it, `vi
  "reason": null, "via": [], "tag": "TYPE_RESOLVED", "rule": "value", "...": "..."}
 ```
 
+### Phase candidates
+
+A `phase_candidate` is a state variable that gates which entry points of a deployable project contract can run: a `bool` or an `enum`, or a `uint` compared with `==` or `!=` against a number or a constant, that the conditions of two or more entry points test and that some entry point writes. Conditions are those of `require`, `assert`, `if`, `while`, `for` and `?:`, in the entry point's code, its modifiers and the internal functions it calls; the variable is matched by the declaration solc resolves, not by name. A variable only one entry point tests is a precondition of that function, not a phase, and one no entry point writes is a constant of the deployment; neither yields a record.
+
+Inherited entry points count in every deployable contract that runs them, so a base's pause flag yields one record per deriving contract, each with its own `in_context`. `guarded_functions` and `writers` are function ids, sorted; a writer may write the variable through an internal helper. `condition_texts` are the distinct conditions that test it, as the source writes them. The span is the variable's declaration. Every record is `INFERRED`: the variable gates the functions, but whether it encodes a lifecycle is a reading of the code.
+
+```json
+{"kind": "phase_candidate", "id": "phase_candidate:evm:src/Phases.sol:Sale#fa0990d9af5c019b.0",
+ "state_var": "evm:src/Phases.sol:Sale.state", "in_context": "evm:src/Phases.sol:Sale", "type_name": "enum Sale.State",
+ "guarded_functions": ["evm:src/Phases.sol:Sale.buy()", "evm:src/Phases.sol:Sale.close()", "evm:src/Phases.sol:Sale.open()", "evm:src/Phases.sol:Sale.refund()"],
+ "writers": ["evm:src/Phases.sol:Sale.close()", "evm:src/Phases.sol:Sale.open()"],
+ "condition_texts": ["state != State.Closed", "state == State.Open", "state == State.Setup"],
+ "tag": "INFERRED", "rule": "phases", "span": {"file": "src/Phases.sol", "start_line": 32, "...": "..."}}
+{"kind": "phase_candidate", "state_var": "evm:src/Phases.sol:Pausable.paused", "in_context": "evm:src/Phases.sol:Vault", "type_name": "bool",
+ "guarded_functions": ["evm:src/Phases.sol:Vault.deposit()", "evm:src/Phases.sol:Vault.withdraw(uint256)"],
+ "writers": ["evm:src/Phases.sol:Pausable.setPaused(bool)"], "condition_texts": ["!paused"], "...": "..."}
+```
+
 ### Spans
 
 A direct fact points at its statement; a read or revert, which the control-flow graph records per block, at its block. A fact with `via` points at the call in the function that leads to it. A guard found only by a modifier name points at the function.
@@ -376,6 +396,7 @@ A direct fact points at its statement; a read or revert, which the control-flow 
 - Value is recognized only from the table above. A transfer made in a function the code calls is that function's record, reached through the `calls` record; it is not repeated on the caller.
 - `direction` reads the source text: an address that equals the running contract only at run time reads as another account.
 - The model drops a literal's unit, so `1 ether` and `1 days` read `1`.
+- Phase candidates read conditions only: a boolean helper's `return` expression is not a condition, so `require(ready())` gates on what `ready()` tests only when `ready()` tests it in a condition of its own. Code reached through `this.f()`, a library or another contract does not count for the caller.
 
 ## Out of v1
 
