@@ -37,6 +37,7 @@
   import { ownEntry, runDagreLayout } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
   import { tryRoles } from '$lib/utils/trycatch';
+  import { splitRef } from '$lib/utils/links';
   import { MarkerType } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
 
@@ -1407,7 +1408,7 @@
       />
     {/if}
 
-    <Legend {mode} />
+    <Legend {mode} phases={contract?.phase_candidates} onfunction={(ref) => handleSidebarAdd(routeKey(splitRef(ref).member))} />
   {/if}
   <ErrorToasts />
 </div>

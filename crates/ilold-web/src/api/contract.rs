@@ -15,8 +15,9 @@ use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
 use ilold_core::relations::{
-    declared_target, external_calls, key_kinds, storage_accesses, try_catches, value_facts, value_flows, AssignmentSite, BalanceRead,
-    ContractLink, Dispatch, DispatchCandidate, KeyKind, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow, ValueTransfer,
+    declared_target, external_calls, key_kinds, phase_candidates, storage_accesses, try_catches, value_facts, value_flows, AssignmentSite,
+    BalanceRead, ContractLink, Dispatch, DispatchCandidate, KeyKind, PhaseCandidate, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow,
+    ValueTransfer,
 };
 use ilold_core::sequence::types::SequencePage;
 use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
@@ -43,6 +44,8 @@ pub struct ContractDetail {
     pub incoming_links: Vec<ContractLink>,
     /// The transfers of its own and inherited functions, summed by direction, asset and counterparty.
     pub value_flows: Vec<ValueFlow>,
+    /// Variables that gate which of its entry points can run; none unless it is a deployable project contract.
+    pub phase_candidates: Vec<PhaseCandidate>,
 }
 
 #[derive(Serialize)]
@@ -161,6 +164,7 @@ pub async fn get_contract(
         .filter(|af| af.is_inherited)
         .map(|af| summary(af.owner, af.function))
         .collect();
+    let behaviors = state.sequence_analyses.get(contract.key()).map(|s| s.functions.as_slice()).unwrap_or_default();
     let transfers: Vec<ValueTransfer> = functions.iter().chain(&inherited_functions).flat_map(|f| f.value_transfers.iter().cloned()).collect();
     // storage order, most base contract first
     let inherited_state_vars = state.project
@@ -185,6 +189,7 @@ pub async fn get_contract(
         outgoing_links: state.relations.outgoing(contract.key()).cloned().collect(),
         incoming_links: state.relations.incoming(contract.key()).cloned().collect(),
         value_flows: value_flows(&transfers),
+        phase_candidates: phase_candidates(&state.project, contract, behaviors),
     }))
 }
 

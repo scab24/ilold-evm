@@ -34,6 +34,7 @@ const RESPONSES: &[(&str, &[(&str, &str)])] = &[
             ("value_balances_function", "/session/function/Payments/balances"),
         ],
     ),
+    ("phases", &[("phases_contract_detail", "/contract/Sale")]),
 ];
 
 fn write(root: &Path, name: &str, body: &Value) {

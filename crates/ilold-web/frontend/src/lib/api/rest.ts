@@ -37,6 +37,8 @@ export interface ContractDetail extends ContractIdentity, Bases {
   incoming_links: ContractLink[];
   /** Transfers of its own and inherited functions, summed by direction, asset and counterparty. */
   value_flows: ValueFlow[];
+  /** Variables that gate which of its entry points can run. */
+  phase_candidates: PhaseCandidate[];
 }
 
 export type Basis = 'self' | 'inherits_interface' | 'selector_match';
@@ -146,6 +148,18 @@ export interface ValueFlow {
   counterparty_expr: string | null;
   functions: string[];
   transfers: string[];
+}
+
+/** A bool, enum or uint compared with a constant that two or more entry points test and one writes; refs are `<contract>::<member>`. */
+export interface PhaseCandidate {
+  state_var: string;
+  in_context: string;
+  type_name: string;
+  guarded_functions: string[];
+  writers: string[];
+  condition_texts: string[];
+  span: SourceSpan;
+  tag: RelationTag;
 }
 
 export type CatchKind = 'Error' | 'Panic' | 'bytes' | 'all';

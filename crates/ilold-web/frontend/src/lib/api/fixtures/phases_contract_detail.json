@@ -1,0 +1,926 @@
+{
+  "display_name": "Sale",
+  "functions": [
+    {
+      "access": {
+        "Special": {
+          "kind": "constructor"
+        }
+      },
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "owner",
+          "span": {
+            "end_col": 27,
+            "end_line": 42,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 42
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "cap",
+          "span": {
+            "end_col": 19,
+            "end_line": 43,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 43
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "constructor",
+      "kind": "Constructor",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "constructor",
+      "params": [
+        {
+          "name": "cap_",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "constructor(uint256)",
+      "visibility": "Public"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "state",
+          "span": {
+            "end_col": 51,
+            "end_line": 47,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 47
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "state",
+          "span": {
+            "end_col": 27,
+            "end_line": 48,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 48
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "open",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "open",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "open()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": "whenNotPaused",
+          "param": null,
+          "path": "paused",
+          "span": {
+            "end_col": 35,
+            "end_line": 10,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 10
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "state",
+          "span": {
+            "end_col": 49,
+            "end_line": 52,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 52
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "raised",
+          "span": {
+            "end_col": 37,
+            "end_line": 53,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 53
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "cap",
+          "span": {
+            "end_col": 37,
+            "end_line": 53,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 53
+          }
+        },
+        {
+          "block": 5,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "raised",
+          "span": {
+            "end_col": 28,
+            "end_line": 55,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 54
+          }
+        },
+        {
+          "block": 5,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "raised",
+          "span": {
+            "end_col": 28,
+            "end_line": 55,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 55
+          }
+        }
+      ],
+      "guards": [
+        {
+          "ambiguous": false,
+          "condition": "require(!paused)",
+          "heuristic": false,
+          "kind": "Pause",
+          "negated": false,
+          "requires_caller": false,
+          "scope": "Unconditional",
+          "span": {
+            "end_col": 35,
+            "end_line": 10,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 10
+          },
+          "via": [
+            "modifier whenNotPaused"
+          ]
+        }
+      ],
+      "happy_paths": 1,
+      "key": "buy",
+      "kind": "Function",
+      "modifiers": [
+        "whenNotPaused"
+      ],
+      "mutability": "Payable",
+      "name": "buy",
+      "params": [],
+      "path_count": 4,
+      "paths_truncated": false,
+      "revert_paths": 3,
+      "signature": "buy()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": "whenNotPaused",
+          "param": null,
+          "path": "paused",
+          "span": {
+            "end_col": 35,
+            "end_line": 10,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 10
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "state",
+          "span": {
+            "end_col": 6,
+            "end_line": 62,
+            "file_index": 0,
+            "start_col": 5,
+            "start_line": 58
+          }
+        },
+        {
+          "block": 5,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "raised",
+          "span": {
+            "end_col": 37,
+            "end_line": 60,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 60
+          }
+        },
+        {
+          "block": 5,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "cap",
+          "span": {
+            "end_col": 37,
+            "end_line": 60,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 60
+          }
+        },
+        {
+          "block": 6,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "raised",
+          "span": {
+            "end_col": 19,
+            "end_line": 61,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 61
+          }
+        }
+      ],
+      "guards": [
+        {
+          "ambiguous": false,
+          "condition": "require(!paused)",
+          "heuristic": false,
+          "kind": "Pause",
+          "negated": false,
+          "requires_caller": false,
+          "scope": "Unconditional",
+          "span": {
+            "end_col": 35,
+            "end_line": 10,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 10
+          },
+          "via": [
+            "modifier whenNotPaused"
+          ]
+        }
+      ],
+      "happy_paths": 1,
+      "key": "refund",
+      "kind": "Function",
+      "modifiers": [
+        "whenNotPaused"
+      ],
+      "mutability": "NonPayable",
+      "name": "refund",
+      "params": [],
+      "path_count": 4,
+      "paths_truncated": false,
+      "revert_paths": 3,
+      "signature": "refund()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "state",
+          "span": {
+            "end_col": 49,
+            "end_line": 65,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 65
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "state",
+          "span": {
+            "end_col": 29,
+            "end_line": 66,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 66
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "close",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "close",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "close()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "round",
+          "span": {
+            "end_col": 46,
+            "end_line": 70,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 70
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "round",
+          "span": {
+            "end_col": 19,
+            "end_line": 71,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 71
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "round",
+          "span": {
+            "end_col": 19,
+            "end_line": 71,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 71
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "nextRound",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "nextRound",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "nextRound()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "audited",
+          "span": {
+            "end_col": 23,
+            "end_line": 75,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 75
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "audit",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "audit",
+      "params": [],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "audit()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "audited",
+          "span": {
+            "end_col": 6,
+            "end_line": 81,
+            "file_index": 0,
+            "start_col": 5,
+            "start_line": 78
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "raised",
+          "span": {
+            "end_col": 6,
+            "end_line": 81,
+            "file_index": 0,
+            "start_col": 5,
+            "start_line": 78
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 2,
+      "key": "report",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "View",
+      "name": "report",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "report()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "frozen",
+          "span": {
+            "end_col": 35,
+            "end_line": 84,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 84
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "raised",
+          "span": {
+            "end_col": 6,
+            "end_line": 86,
+            "file_index": 0,
+            "start_col": 5,
+            "start_line": 83
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "frozenRaised",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "View",
+      "name": "frozenRaised",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "frozenRaised()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "frozen",
+          "span": {
+            "end_col": 35,
+            "end_line": 89,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 89
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "cap",
+          "span": {
+            "end_col": 6,
+            "end_line": 91,
+            "file_index": 0,
+            "start_col": 5,
+            "start_line": 88
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "frozenCap",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "View",
+      "name": "frozenCap",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "frozenCap()",
+      "visibility": "External"
+    },
+    {
+      "access": "Internal",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "round",
+          "span": {
+            "end_col": 6,
+            "end_line": 95,
+            "file_index": 0,
+            "start_col": 5,
+            "start_line": 93
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "_checkRound",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "View",
+      "name": "_checkRound",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "_checkRound()",
+      "visibility": "Internal"
+    }
+  ],
+  "incoming_links": [],
+  "inherit_keys": [
+    "Pausable"
+  ],
+  "inherited_functions": [
+    {
+      "access": {
+        "Restricted": {
+          "role": "require(msg.sender == owner)"
+        }
+      },
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "owner",
+          "span": {
+            "end_col": 46,
+            "end_line": 15,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 15
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "paused",
+          "span": {
+            "end_col": 23,
+            "end_line": 16,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 16
+          }
+        }
+      ],
+      "guards": [
+        {
+          "account": "MsgSender",
+          "ambiguous": false,
+          "compared_against": {
+            "StateVar": {
+              "key": "src/Phases.sol:Pausable::owner",
+              "name": "owner"
+            }
+          },
+          "condition": "require(msg.sender == owner)",
+          "heuristic": false,
+          "kind": "CallerEquals",
+          "negated": false,
+          "requires_caller": true,
+          "scope": "Unconditional",
+          "span": {
+            "end_col": 46,
+            "end_line": 15,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 15
+          },
+          "via": []
+        }
+      ],
+      "happy_paths": 1,
+      "key": "setPaused",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "setPaused",
+      "params": [
+        {
+          "name": "value",
+          "type_name": "bool"
+        }
+      ],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "setPaused(bool)",
+      "visibility": "External"
+    }
+  ],
+  "inherited_state_vars": [
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "paused",
+      "type_name": "bool",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "owner",
+      "type_name": "address",
+      "visibility": "Public"
+    }
+  ],
+  "inherits": [
+    "Pausable"
+  ],
+  "is_dependency": false,
+  "kind": "Contract",
+  "name": "Sale",
+  "outgoing_links": [],
+  "phase_candidates": [
+    {
+      "condition_texts": [
+        "!paused"
+      ],
+      "guarded_functions": [
+        "Sale::buy",
+        "Sale::refund"
+      ],
+      "in_context": "Sale",
+      "span": {
+        "end_col": 23,
+        "end_line": 6,
+        "file_index": 0,
+        "start_col": 5,
+        "start_line": 6
+      },
+      "state_var": "Pausable::paused",
+      "tag": "INFERRED",
+      "type_name": "bool",
+      "writers": [
+        "Pausable::setPaused"
+      ]
+    },
+    {
+      "condition_texts": [
+        "round != FINAL_ROUND",
+        "round == FINAL_ROUND"
+      ],
+      "guarded_functions": [
+        "Sale::buy",
+        "Sale::nextRound"
+      ],
+      "in_context": "Sale",
+      "span": {
+        "end_col": 25,
+        "end_line": 33,
+        "file_index": 0,
+        "start_col": 5,
+        "start_line": 33
+      },
+      "state_var": "Sale::round",
+      "tag": "INFERRED",
+      "type_name": "uint256",
+      "writers": [
+        "Sale::nextRound"
+      ]
+    },
+    {
+      "condition_texts": [
+        "state != State.Closed",
+        "state == State.Open",
+        "state == State.Setup"
+      ],
+      "guarded_functions": [
+        "Sale::buy",
+        "Sale::close",
+        "Sale::open",
+        "Sale::refund"
+      ],
+      "in_context": "Sale",
+      "span": {
+        "end_col": 23,
+        "end_line": 32,
+        "file_index": 0,
+        "start_col": 5,
+        "start_line": 32
+      },
+      "state_var": "Sale::state",
+      "tag": "INFERRED",
+      "type_name": "enum Sale.State",
+      "writers": [
+        "Sale::close",
+        "Sale::open"
+      ]
+    }
+  ],
+  "qualified_id": "src/Phases.sol:Sale",
+  "state_vars": [
+    {
+      "is_constant": true,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "FINAL_ROUND",
+      "type_name": "uint256",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "state",
+      "type_name": "enum Sale.State",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "round",
+      "type_name": "uint256",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "raised",
+      "type_name": "uint256",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "cap",
+      "type_name": "uint256",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "audited",
+      "type_name": "bool",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "frozen",
+      "type_name": "bool",
+      "visibility": "Public"
+    }
+  ],
+  "value_flows": []
+}

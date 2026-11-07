@@ -1396,6 +1396,7 @@
       "via_state_vars": []
     }
   ],
+  "phase_candidates": [],
   "qualified_id": "src/TryCatch.sol:TryCatch",
   "state_vars": [
     {
