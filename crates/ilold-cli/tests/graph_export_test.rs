@@ -856,3 +856,37 @@ fn value_transfers_link_their_call_and_name_the_library_that_moves_the_value() {
         assert!(record["span"]["start_line"].is_u64() && record.get("owner_expr").is_some() && record.get("via_library").is_some(), "{record}");
     }
 }
+
+const PHASES: &str = "tests/fixtures/solc/phases/src/Phases.sol";
+
+fn phases_id(member: &str) -> String {
+    format!("evm:{PHASES}:{member}")
+}
+
+#[test]
+fn phase_candidates_name_the_variable_the_functions_it_gates_and_its_writers() {
+    let records = export(&fixture("phases"), "phases", 0);
+    let phases = of_kind(&records, "phase_candidate");
+    let listed: Vec<(&str, &str)> = phases.iter().map(|r| (r["in_context"].as_str().unwrap(), r["state_var"].as_str().unwrap())).collect();
+    let (sale, vault) = (phases_id("Sale"), phases_id("Vault"));
+    let (paused, round, state) = (phases_id("Pausable.paused"), phases_id("Sale.round"), phases_id("Sale.state"));
+    let mut expected = vec![(sale.as_str(), paused.as_str()), (sale.as_str(), round.as_str()), (sale.as_str(), state.as_str()), (vault.as_str(), paused.as_str())];
+    let mut listed = listed;
+    listed.sort();
+    expected.sort();
+    assert_eq!(listed, expected);
+
+    let machine = find(&records, "phase_candidate", |r| r["state_var"] == state);
+    assert!(machine["id"].as_str().unwrap().starts_with(&format!("phase_candidate:{sale}#")), "{machine}");
+    let ids = |members: &[&str]| Value::from(members.iter().map(|m| phases_id(m)).collect::<Vec<_>>());
+    assert_eq!(machine["guarded_functions"], ids(&["Sale.buy()", "Sale.close()", "Sale.open()", "Sale.refund()"]));
+    assert_eq!(machine["writers"], ids(&["Sale.close()", "Sale.open()"]));
+    assert_eq!(machine["condition_texts"], serde_json::json!(["state != State.Closed", "state == State.Open", "state == State.Setup"]));
+    assert_eq!((&machine["type_name"], &machine["tag"], &machine["rule"]), (&Value::from("enum Sale.State"), &Value::from("INFERRED"), &Value::from("phases")));
+    let declared = find(&records, "state_var", |r| r["id"] == state);
+    assert_eq!(machine["span"], declared["span"], "the span is the declaration");
+
+    let in_vault = find(&records, "phase_candidate", |r| r["in_context"] == vault);
+    assert_eq!(in_vault["guarded_functions"], ids(&["Vault.deposit()", "Vault.withdraw(uint256)"]));
+    assert_eq!(in_vault["writers"], ids(&["Pausable.setPaused(bool)"]));
+}

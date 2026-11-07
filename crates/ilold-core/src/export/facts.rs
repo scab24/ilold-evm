@@ -19,8 +19,8 @@ use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
 use crate::pathtree::walker::normalize_path;
 use crate::relations::{
-    call_target, state_var_ref, storage_accesses, try_catches, value_facts, AccessKey, AccessKind, ContractLink, EffectSite, KeySite, RecordKeys,
-    TryCatchFact, ValueTransfer,
+    call_target, phase_candidates, state_var_ref, storage_accesses, try_catches, value_facts, AccessKey, AccessKind, ContractLink, EffectSite, KeySite,
+    RecordKeys, TryCatchFact, ValueTransfer,
 };
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
 use crate::sequence::effects::{reachable, resolve_call, summarize, CallSite, EffectEngine};
@@ -194,6 +194,7 @@ impl<'p> Builder<'p> {
             self.inherits(c);
             if !c.is_dependency && c.is_deployable() {
                 self.exposes(c);
+                self.phases(c);
             }
         }
         let mut edges = self.numbered();
@@ -788,6 +789,22 @@ impl<'p> Builder<'p> {
             let via_base = if inherited { self.ids.contract(owner) } else { None };
             let record = json!({"contract": contract, "function": self.ids.member(owner, &var.name), "via_base": via_base, "selector": var.selector, "getter": true});
             self.edge("exposes", &contract, record, Some(var.span), tag, "linearization");
+        }
+    }
+
+    /// Who tests and who writes the variable stay out of the id, so a new entry point keeps it.
+    fn phases(&mut self, c: &'p ContractDef) {
+        let (Some(contract), Some(sequence)) = (self.ids.contract(c), self.analysis.sequence_analyses.get(c.key())) else { return };
+        for phase in phase_candidates(self.project, c, &sequence.functions) {
+            let functions = |keys: &[String]| keys.iter().map(|f| self.reference(f)).collect::<Vec<_>>();
+            let (guarded, writers) = (functions(&phase.guarded_functions), functions(&phase.writers));
+            let record = json!({"state_var": self.ids.member_by_key(&phase.state_var), "in_context": contract});
+            let tag = json!(phase.tag);
+            let pending = self.edge("phase_candidate", &contract, record, Some(phase.span), tag.as_str().unwrap_or_default(), "phases");
+            pending.record["type_name"] = Value::from(phase.type_name);
+            pending.record["guarded_functions"] = json!(guarded);
+            pending.record["writers"] = json!(writers);
+            pending.record["condition_texts"] = json!(phase.condition_texts);
         }
     }
 
