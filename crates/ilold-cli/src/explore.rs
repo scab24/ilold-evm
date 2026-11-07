@@ -1995,6 +1995,10 @@ fn print_narrative(val: &serde_json::Value) {
     if !transfers.is_empty() || !balance_reads.is_empty() {
         sections.push(Section::StringList { label: "Value", label_color: SectionColor::Danger, items: fmt::render_value_facts(&transfers, &balance_reads) });
     }
+    let phases: Vec<ilold_core::relations::PhaseCandidate> = serde_json::from_value(listed("phase_candidates")).unwrap_or_default();
+    if !phases.is_empty() {
+        sections.push(Section::StringList { label: "Phases", label_color: SectionColor::Warn, items: fmt::render_phases(&phases) });
+    }
 
     let collect_transitive = |key: &str| -> Vec<(Vec<String>, String)> {
         val.get(key)

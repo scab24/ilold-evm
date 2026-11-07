@@ -413,3 +413,49 @@ async fn value_transfers_and_balance_reads_are_the_same_in_every_surface() {
     }
     assert_eq!(narrative, exported, "ilold_function_analysis");
 }
+
+/// Context, variable, gated functions, writers, conditions, declaration line and tag.
+type Phase = (String, String, Vec<String>, Vec<String>, Vec<String>, u64, String);
+
+fn api_phase(p: &Value) -> Phase {
+    let refs = |v: &Value| v.as_array().unwrap().iter().map(text).collect::<Vec<_>>();
+    (text(&p["in_context"]), text(&p["state_var"]), refs(&p["guarded_functions"]), refs(&p["writers"]), refs(&p["condition_texts"]), line(&p["span"]), text(&p["tag"]))
+}
+
+#[tokio::test]
+async fn phase_candidates_are_the_same_in_every_surface() {
+    let s = Surfaces::of("phases").await;
+    // `evm:<file>:Sale.buy()` is `Sale::buy` on the api, where an unoverloaded key is the name
+    let api_ref = |id: &Value| text(id).rsplit_once(':').unwrap().1.split('(').next().unwrap().replacen('.', "::", 1);
+    let exported: BTreeSet<Phase> = s
+        .records("phase_candidate")
+        .map(|r| {
+            let refs = |v: &Value| v.as_array().unwrap().iter().map(api_ref).collect::<Vec<_>>();
+            let context = api_ref(&r["in_context"]);
+            let texts = r["condition_texts"].as_array().unwrap().iter().map(text).collect();
+            (context, api_ref(&r["state_var"]), refs(&r["guarded_functions"]), refs(&r["writers"]), texts, line(&r["span"]), text(&r["tag"]))
+        })
+        .collect();
+    assert_eq!(exported.len(), 4, "{exported:#?}");
+
+    let mut web = BTreeSet::new();
+    let mut mcp = BTreeSet::new();
+    let mut narrative = BTreeSet::new();
+    for contract in ["Pausable", "Sale", "Vault"] {
+        let detail = s.web(&format!("/api/contract/{contract}")).await;
+        web.extend(listed(detail.get("phase_candidates")).map(api_phase));
+        let mcp_detail = s.mcp("ilold_contract_detail", serde_json::json!({"contract": contract})).await;
+        mcp.extend(listed(mcp_detail.get("phase_candidates")).map(api_phase));
+        for f in detail["functions"].as_array().unwrap().iter().chain(listed(detail.get("inherited_functions"))) {
+            let analysis = s.mcp("ilold_function_analysis", serde_json::json!({"contract": contract, "function": text(&f["key"])})).await;
+            for phase in listed(analysis.get("phase_candidates")).map(api_phase) {
+                let function = format!("{}::{}", text(&analysis["contract"]), text(&f["key"]));
+                assert!(phase.2.contains(&function) || phase.3.contains(&function), "{function} is not in {phase:?}");
+                narrative.insert(phase);
+            }
+        }
+    }
+    assert_eq!(web, exported, "/contract");
+    assert_eq!(mcp, exported, "ilold_contract_detail");
+    assert_eq!(narrative, exported, "ilold_function_analysis");
+}

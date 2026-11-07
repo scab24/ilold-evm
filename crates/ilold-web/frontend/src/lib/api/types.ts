@@ -1,4 +1,4 @@
-import type { BalanceRead, StorageAccess, TryCatchFact, ValueTransfer } from './rest';
+import type { BalanceRead, PhaseCandidate, StorageAccess, TryCatchFact, ValueTransfer } from './rest';
 export type AccessLevel =
   | "Public"
   | "Internal"
@@ -308,4 +308,6 @@ export interface FunctionNarrative {
   try_catches?: TryCatchFact[];
   value_transfers?: ValueTransfer[];
   balance_reads?: BalanceRead[];
+  /** Phases of the contract that runs it which it tests or writes; absent when there are none. */
+  phase_candidates?: PhaseCandidate[];
 }

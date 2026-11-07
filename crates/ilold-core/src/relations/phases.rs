@@ -38,6 +38,13 @@ pub struct PhaseCandidate {
     pub tag: Tag,
 }
 
+impl PhaseCandidate {
+    /// `function` is `<contract key>::<function key>`.
+    pub fn involves(&self, function: &str) -> bool {
+        self.guarded_functions.iter().chain(&self.writers).any(|f| f == function)
+    }
+}
+
 /// The phase candidates of a deployable project contract, by state variable; `behaviors` are the contract's own.
 pub fn phase_candidates(project: &Project, context: &ContractDef, behaviors: &[FunctionBehavior]) -> Vec<PhaseCandidate> {
     if context.is_dependency || !context.is_deployable() {

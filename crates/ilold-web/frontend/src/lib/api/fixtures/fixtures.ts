@@ -16,6 +16,7 @@ import valueContractDetail from './value_contract_detail.json';
 import valueFunction from './value_function.json';
 import valueBalancesFunction from './value_balances_function.json';
 import phasesContractDetail from './phases_contract_detail.json';
+import phasesFunction from './phases_function.json';
 
 // imported JSON widens string literals, so unions of literals are compared as strings
 type Json<T> = T extends string ? string : T extends (infer U)[] ? Json<U>[] : T extends object ? { [K in keyof T]: Json<T[K]> } : T;
@@ -35,3 +36,4 @@ valueContractDetail satisfies Json<ContractDetail>;
 valueFunction satisfies Json<FunctionNarrative>;
 valueBalancesFunction satisfies Json<FunctionNarrative>;
 phasesContractDetail satisfies Json<ContractDetail>;
+phasesFunction satisfies Json<FunctionNarrative>;

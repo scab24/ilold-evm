@@ -177,6 +177,7 @@ pub fn build_function_narrative_capped(
         try_catches: Vec::new(),
         value_transfers: Vec::new(),
         balance_reads: Vec::new(),
+        phase_candidates: Vec::new(),
     }
 }
 

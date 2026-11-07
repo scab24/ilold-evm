@@ -14,7 +14,7 @@ use crate::narrative::trace::{build_flow_tree, FlowConfig, FlowTree};
 use crate::narrative::types::{FunctionNarrative, MutationRef, SequenceNarrative};
 use crate::pathtree::types::PathTree;
 use crate::pathtree::walker::normalize_path;
-use crate::relations::{storage_accesses, try_catches, value_facts, AccessKind, KeySite, RecordKeys};
+use crate::relations::{phase_candidates, storage_accesses, try_catches, value_facts, AccessKind, KeySite, RecordKeys};
 use crate::journal::export::export_markdown;
 use crate::model::expression::AssignOperator;
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior, SequenceAnalysis};
@@ -740,6 +740,8 @@ pub fn get_function_info(
     narrative.try_catches = try_catches(data.project, owning, owning, func, cfg);
     let values = value_facts(data.project, owning, owning, func, cfg);
     (narrative.value_transfers, narrative.balance_reads) = (values.transfers, values.balance_reads);
+    let function = format!("{}::{}", owning.key(), func.key);
+    narrative.phase_candidates = phase_candidates(data.project, data.contract, data.behaviors).into_iter().filter(|p| p.involves(&function)).collect();
     Ok(narrative)
 }
 

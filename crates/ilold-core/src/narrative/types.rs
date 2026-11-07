@@ -54,6 +54,9 @@ pub struct FunctionNarrative {
     /// The balances its code reads; filled where the project is at hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub balance_reads: Vec<crate::relations::BalanceRead>,
+    /// The phases of the contract that runs it which it tests or writes; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phase_candidates: Vec<crate::relations::PhaseCandidate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

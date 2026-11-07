@@ -22,3 +22,18 @@ async fn the_contract_lists_its_phase_candidates_with_inherited_functions_counte
     assert_eq!(vault["phase_candidates"][0]["guarded_functions"], json!(["Vault::deposit", "Vault::withdraw"]));
     assert_eq!(contract(port, "Pausable").await["phase_candidates"], json!([]));
 }
+
+#[tokio::test]
+async fn the_function_narrative_lists_the_phases_that_gate_it_or_that_it_sets() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/phases");
+    let (_state, port) = ilold_web::start_server(vec![fixture], 0, 2).await.unwrap();
+    let narrative = |func: &'static str| async move {
+        let res = reqwest::get(format!("http://127.0.0.1:{port}/api/session/function/Sale/{func}")).await.unwrap();
+        assert!(res.status().is_success(), "{}", res.status());
+        res.json::<Value>().await.unwrap()
+    };
+    let vars = |narrative: &Value| -> Vec<Value> { narrative["phase_candidates"].as_array().unwrap().iter().map(|p| p["state_var"].clone()).collect() };
+    assert_eq!(vars(&narrative("buy").await), [json!("Pausable::paused"), json!("Sale::round"), json!("Sale::state")]);
+    assert_eq!(vars(&narrative("setPaused").await), [json!("Pausable::paused")], "the writer");
+    assert!(narrative("audit").await.get("phase_candidates").is_none());
+}

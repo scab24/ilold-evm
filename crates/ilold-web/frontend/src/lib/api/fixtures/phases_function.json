@@ -1,0 +1,392 @@
+{
+  "access": "Public",
+  "accesses": [
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": "whenNotPaused",
+      "param": null,
+      "path": "paused",
+      "span": {
+        "end_col": 35,
+        "end_line": 10,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 10
+      }
+    },
+    {
+      "block": 1,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "state",
+      "span": {
+        "end_col": 49,
+        "end_line": 52,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 52
+      }
+    },
+    {
+      "block": 3,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "raised",
+      "span": {
+        "end_col": 37,
+        "end_line": 53,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 53
+      }
+    },
+    {
+      "block": 3,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "cap",
+      "span": {
+        "end_col": 37,
+        "end_line": 53,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 53
+      }
+    },
+    {
+      "block": 5,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "raised",
+      "span": {
+        "end_col": 28,
+        "end_line": 55,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 54
+      }
+    },
+    {
+      "block": 5,
+      "keys": [],
+      "kind": "write",
+      "modifier": null,
+      "param": null,
+      "path": "raised",
+      "span": {
+        "end_col": 28,
+        "end_line": 55,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 55
+      }
+    }
+  ],
+  "can_revert": true,
+  "contract": "Sale",
+  "events": [],
+  "external_calls": [],
+  "guards": [
+    {
+      "ambiguous": false,
+      "condition": "require(!paused)",
+      "heuristic": false,
+      "kind": "Pause",
+      "negated": false,
+      "requires_caller": false,
+      "scope": "Unconditional",
+      "span": {
+        "end_col": 35,
+        "end_line": 10,
+        "file_index": 0,
+        "start_col": 9,
+        "start_line": 10
+      },
+      "via": [
+        "modifier whenNotPaused"
+      ]
+    }
+  ],
+  "happy_paths": 1,
+  "internal_calls": [
+    "_checkRound"
+  ],
+  "modifiers": [
+    "whenNotPaused"
+  ],
+  "name": "buy",
+  "observations": [
+    {
+      "description": "frozenRaised reads raised which this function writes",
+      "kind": "SharedState"
+    },
+    {
+      "description": "refund reads raised which this function writes",
+      "kind": "SharedState"
+    },
+    {
+      "description": "report reads raised which this function writes",
+      "kind": "SharedState"
+    },
+    {
+      "description": "Public function writes state (raised) without access control",
+      "kind": "NoAccessControl"
+    }
+  ],
+  "path_stats": {
+    "cap_reached": false,
+    "depth_cutoff": 0,
+    "happy_paths": 1,
+    "loop_cutoff": 0,
+    "max_depth_reached": 4,
+    "paths_dropped": 0,
+    "revert_paths": 3,
+    "total_paths": 4,
+    "truncated": false
+  },
+  "paths": [
+    {
+      "id": 0,
+      "steps": [
+        {
+          "branch": null,
+          "description": "buy()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": "True",
+          "description": "require(state == State.Open)",
+          "detail": null,
+          "step_type": "Condition"
+        },
+        {
+          "branch": "True",
+          "description": "require(raised < cap)",
+          "detail": null,
+          "step_type": "Condition"
+        },
+        {
+          "branch": null,
+          "description": "_checkRound()",
+          "detail": null,
+          "step_type": "InternalCall"
+        },
+        {
+          "branch": null,
+          "description": "return",
+          "detail": null,
+          "step_type": "Return"
+        }
+      ],
+      "terminal": "Return"
+    },
+    {
+      "id": 1,
+      "steps": [
+        {
+          "branch": null,
+          "description": "buy()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": "True",
+          "description": "require(state == State.Open)",
+          "detail": null,
+          "step_type": "Condition"
+        },
+        {
+          "branch": "True",
+          "description": "require(raised < cap)",
+          "detail": null,
+          "step_type": "Condition"
+        },
+        {
+          "branch": "False",
+          "description": "revert",
+          "detail": null,
+          "step_type": "Revert"
+        }
+      ],
+      "terminal": "Revert"
+    },
+    {
+      "id": 2,
+      "steps": [
+        {
+          "branch": null,
+          "description": "buy()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": "True",
+          "description": "require(state == State.Open)",
+          "detail": null,
+          "step_type": "Condition"
+        },
+        {
+          "branch": "False",
+          "description": "revert",
+          "detail": null,
+          "step_type": "Revert"
+        }
+      ],
+      "terminal": "Revert"
+    },
+    {
+      "id": 3,
+      "steps": [
+        {
+          "branch": null,
+          "description": "buy()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": "False",
+          "description": "revert",
+          "detail": null,
+          "step_type": "Revert"
+        }
+      ],
+      "terminal": "Revert"
+    }
+  ],
+  "paths_omitted": 0,
+  "phase_candidates": [
+    {
+      "condition_texts": [
+        "!paused"
+      ],
+      "guarded_functions": [
+        "Sale::buy",
+        "Sale::refund"
+      ],
+      "in_context": "Sale",
+      "span": {
+        "end_col": 23,
+        "end_line": 6,
+        "file_index": 0,
+        "start_col": 5,
+        "start_line": 6
+      },
+      "state_var": "Pausable::paused",
+      "tag": "INFERRED",
+      "type_name": "bool",
+      "writers": [
+        "Pausable::setPaused"
+      ]
+    },
+    {
+      "condition_texts": [
+        "round != FINAL_ROUND",
+        "round == FINAL_ROUND"
+      ],
+      "guarded_functions": [
+        "Sale::buy",
+        "Sale::nextRound"
+      ],
+      "in_context": "Sale",
+      "span": {
+        "end_col": 25,
+        "end_line": 33,
+        "file_index": 0,
+        "start_col": 5,
+        "start_line": 33
+      },
+      "state_var": "Sale::round",
+      "tag": "INFERRED",
+      "type_name": "uint256",
+      "writers": [
+        "Sale::nextRound"
+      ]
+    },
+    {
+      "condition_texts": [
+        "state != State.Closed",
+        "state == State.Open",
+        "state == State.Setup"
+      ],
+      "guarded_functions": [
+        "Sale::buy",
+        "Sale::close",
+        "Sale::open",
+        "Sale::refund"
+      ],
+      "in_context": "Sale",
+      "span": {
+        "end_col": 23,
+        "end_line": 32,
+        "file_index": 0,
+        "start_col": 5,
+        "start_line": 32
+      },
+      "state_var": "Sale::state",
+      "tag": "INFERRED",
+      "type_name": "enum Sale.State",
+      "writers": [
+        "Sale::close",
+        "Sale::open"
+      ]
+    }
+  ],
+  "revert_paths": 3,
+  "revert_sources": [
+    {
+      "item": "require(!paused)",
+      "origin_contract": "Sale",
+      "via": []
+    },
+    {
+      "item": "require(raised < cap)",
+      "origin_contract": "Sale",
+      "via": []
+    },
+    {
+      "item": "require(state == State.Open)",
+      "origin_contract": "Sale",
+      "via": []
+    },
+    {
+      "item": "revert RoundsOver()",
+      "origin_contract": "Sale",
+      "via": [
+        "Sale::_checkRound"
+      ]
+    }
+  ],
+  "state_reads": [
+    "cap",
+    "paused",
+    "raised",
+    "state"
+  ],
+  "state_writes": [
+    "raised"
+  ],
+  "total_paths": 4,
+  "transitive_events": [],
+  "transitive_external_calls": [],
+  "transitive_state_reads": [
+    {
+      "item": "round",
+      "origin_contract": "Sale",
+      "via": [
+        "Sale::_checkRound"
+      ]
+    }
+  ],
+  "transitive_state_writes": []
+}

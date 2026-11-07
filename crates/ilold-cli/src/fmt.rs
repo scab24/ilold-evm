@@ -4,7 +4,7 @@ use ilold_core::exploration::commands::{ScenarioInfo, VariableAccess};
 use ilold_core::exploration::session::MutationScope;
 use ilold_core::exploration::timeline::{TimelineEntry, VariableTimeline};
 use ilold_core::narrative::trace::{FlowKind, FlowNode, FlowTree};
-use ilold_core::relations::{AccessKind, AssetKind, BalanceRead, CatchKind, KeysReason, Tag, TryCatchFact, ValueReason, ValueTransfer};
+use ilold_core::relations::{AccessKind, AssetKind, BalanceRead, CatchKind, KeysReason, PhaseCandidate, Tag, TryCatchFact, ValueReason, ValueTransfer};
 use ilold_core::slicing::{SliceDirection, SliceEntry, SliceResult, StatementOrigin};
 
 use crate::colors::{c_accent, c_bright, c_danger, c_muted, c_ok, c_warn};
@@ -524,6 +524,25 @@ pub fn render_value_facts(transfers: &[ValueTransfer], reads: &[BalanceRead]) ->
     moved.chain(read).collect()
 }
 
+/// One line per phase for `info`: the variable, the functions it gates, its writers and the conditions that test it.
+pub fn render_phases(phases: &[PhaseCandidate]) -> Vec<String> {
+    let members = |refs: &[String]| refs.iter().map(|r| r.rsplit_once("::").map_or(r.as_str(), |(_, m)| m)).collect::<Vec<_>>().join(", ");
+    phases
+        .iter()
+        .map(|p| {
+            format!(
+                "{} ({}, line {}) · gates {} · set by {} · when {}",
+                p.state_var,
+                p.type_name,
+                p.span.start_line,
+                members(&p.guarded_functions),
+                members(&p.writers),
+                p.condition_texts.join(" | "),
+            )
+        })
+        .collect()
+}
+
 /// One line per try statement for `info`: the guarded call, then what each clause does with the failure.
 pub fn render_try_catches(facts: &[TryCatchFact]) -> Vec<String> {
     let texts = |sites: &[ilold_core::relations::EffectSite]| sites.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(", ");
@@ -816,6 +835,38 @@ mod tests {
                 "call native: this → to amount (line 88) via Address::sendValue",
                 "burn erc20|erc721 burnable: this → ∅ (line 88) in refund, ambiguous: no_standard",
                 "balance erc1155 multi of who #id (line 88)",
+            ]
+        );
+    }
+
+    #[test]
+    fn phase_lines_name_the_gated_functions_the_writers_and_the_conditions() {
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::relations::Tag;
+        let span = SourceSpan { file_index: 0, start_line: 33, start_col: 5, end_line: 33, end_col: 23 };
+        let state = PhaseCandidate {
+            state_var: "Sale::state".into(),
+            in_context: "Sale".into(),
+            type_name: "enum Sale.State".into(),
+            guarded_functions: vec!["Sale::close".into(), "Sale::open".into()],
+            writers: vec!["Sale::close".into()],
+            condition_texts: vec!["state == State.Open".into(), "state == State.Setup".into()],
+            span,
+            tag: Tag::Inferred,
+        };
+        let paused = PhaseCandidate {
+            state_var: "Pausable::paused".into(),
+            type_name: "bool".into(),
+            guarded_functions: vec!["Sale::buy".into(), "Sale::refund".into()],
+            writers: vec!["Pausable::setPaused".into()],
+            condition_texts: vec!["!paused".into()],
+            ..state.clone()
+        };
+        assert_eq!(
+            render_phases(&[state, paused]),
+            [
+                "Sale::state (enum Sale.State, line 33) · gates close, open · set by close · when state == State.Open | state == State.Setup",
+                "Pausable::paused (bool, line 33) · gates buy, refund · set by setPaused · when !paused",
             ]
         );
     }
