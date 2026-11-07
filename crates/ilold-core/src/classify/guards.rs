@@ -855,7 +855,7 @@ impl<'a> Walker<'a> {
     }
 }
 
-fn check_call(expr: &Expression) -> Option<(&'static str, &[Expression])> {
+pub(crate) fn check_call(expr: &Expression) -> Option<(&'static str, &[Expression])> {
     let ExpressionKind::FunctionCall { callee, arguments, .. } = &expr.kind else { return None };
     let ExpressionKind::Identifier { name, .. } = &callee.kind else { return None };
     let check = match name.as_str() {

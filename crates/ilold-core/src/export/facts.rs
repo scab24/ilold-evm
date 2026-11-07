@@ -13,7 +13,7 @@ use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclKind};
 use crate::model::expression::CallKind;
-use crate::model::function::{FunctionDef, FunctionKind, Visibility};
+use crate::model::function::{FunctionDef, Visibility};
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
@@ -776,7 +776,7 @@ impl<'p> Builder<'p> {
         let tag = Self::linearization_tag(c);
         for af in self.project.accessible_functions(c) {
             let f = af.function;
-            if f.kind == FunctionKind::Constructor || !matches!(f.visibility, Visibility::Public | Visibility::External) {
+            if !f.is_entry_point() {
                 continue;
             }
             let via_base = if af.is_inherited { self.ids.contract(af.owner) } else { None };
@@ -855,7 +855,7 @@ impl<'p> Builder<'p> {
                 "virtual": f.is_virtual,
                 "override": f.is_override,
                 "overrides": overrides,
-                "is_entry_point": f.kind != FunctionKind::Constructor && matches!(f.visibility, Visibility::Public | Visibility::External),
+                "is_entry_point": f.is_entry_point(),
                 "has_body": f.body.is_some(),
                 "paths": self.analysis.path_trees.get(&(c.key().to_string(), f.key.clone())).map(|t| &t.stats),
                 "analysis": self.flags.remove(&id).map(|flags| flags.into_values().collect::<Vec<_>>()).unwrap_or_default(),
