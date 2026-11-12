@@ -14,8 +14,8 @@ use crate::model::statement::walk_all;
 use crate::sequence::effects::{is_view_call, reachable};
 
 use super::{
-    param_source, state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractCall, ContractLink, Dispatch, DispatchCandidate, LinkCall,
-    LinkKind, Relations, Running, Tag, UnresolvedReason,
+    param_source, state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractCall, ContractCallKind, ContractLink, Dispatch,
+    DispatchCandidate, LinkCall, Relations, Running, Tag, UnresolvedReason,
 };
 
 /// The kind and the declared `<contract key>::<member key>` of an external call to a contract, `this` included.
@@ -59,7 +59,7 @@ pub(super) fn build(project: &Project, units: &[Running]) -> Relations {
 /// One per ordered contract pair, from the calls to contracts that each contract's own code makes.
 fn links(calls: &[ContractCall]) -> Vec<ContractLink> {
     let mut links: BTreeMap<(String, String), ContractLink> = BTreeMap::new();
-    for made in calls.iter().filter(|c| c.kind != LinkKind::Library) {
+    for made in calls.iter().filter(|c| c.kind != ContractCallKind::Library) {
         let call = LinkCall { function: made.function.clone(), span: made.span };
         let only = made.callees.len() == 1;
         for candidate in &made.callees {
@@ -112,16 +112,16 @@ fn contract_calls(
                 .clone();
             let read = matches!(stmt, CfgStatement::ExternalCall { resolved, .. } if is_view_call(project, site.kind, *resolved));
             let kind = match site.kind {
-                CallKind::ExternalSelf => LinkKind::SelfCall,
-                _ if read => LinkKind::Read,
-                _ => LinkKind::Call,
+                CallKind::ExternalSelf => ContractCallKind::SelfCall,
+                _ if read => ContractCallKind::Read,
+                _ => ContractCallKind::Call,
             };
             (kind, dispatch, site.span, site.via)
         } else if let Some((library, callee)) = library_callee(project, stmt).filter(|(library, _)| library.key() != owner.key()) {
             let answer = format!("{}::{}", library.key(), callee.key);
             let candidate = DispatchCandidate { function: answer.clone(), contract: library.key().to_string(), basis: Basis::Library, tag: Tag::TypeResolved };
             let dispatch = Dispatch { context: None, target: Some(answer), candidates: vec![candidate], unresolved_reason: None };
-            (LinkKind::Library, dispatch, stmt.origin().0, None)
+            (ContractCallKind::Library, dispatch, stmt.origin().0, None)
         } else {
             continue;
         };

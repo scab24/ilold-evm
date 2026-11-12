@@ -131,7 +131,7 @@ pub struct ContractLink {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum LinkKind {
+pub enum ContractCallKind {
     Call,
     /// A call to a view or pure function or a getter.
     Read,
@@ -148,7 +148,7 @@ pub struct ContractCall {
     /// `<contract key>::<function key>` making the call.
     pub function: String,
     pub span: SourceSpan,
-    pub kind: LinkKind,
+    pub kind: ContractCallKind,
     /// `<contract key>::<member key>` the source names; a dependency member stays here when nothing answers it.
     pub target: Option<String>,
     /// Several are AMBIGUOUS; none carry the reason.

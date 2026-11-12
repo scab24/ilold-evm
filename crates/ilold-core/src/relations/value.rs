@@ -16,7 +16,7 @@ use crate::model::source::uncast;
 use crate::sequence::effects::reachable;
 
 use super::dispatch::{contract, library_callee};
-use super::{call_text, LinkKind, Relations, Running, Tag};
+use super::{call_text, ContractCallKind, Relations, Running, Tag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -552,7 +552,7 @@ fn parties(project: &Project, relations: &Relations, t: &ValueTransfer, typed: &
     let running = || Party::Contract(vec![t.in_context.clone()]);
     let target = || {
         let made = relations.calls_from(&t.in_context);
-        let call = made.iter().find(|c| c.function == t.function && c.span == t.span && c.kind != LinkKind::Library)?;
+        let call = made.iter().find(|c| c.function == t.function && c.span == t.span && c.kind != ContractCallKind::Library)?;
         if !call.callees.is_empty() {
             let mut keys: Vec<String> = call.callees.iter().map(|d| d.contract.clone()).collect();
             keys.sort();

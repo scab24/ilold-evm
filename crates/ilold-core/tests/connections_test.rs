@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::relations::{routes, LinkKind, Relations, Tag, UnresolvedReason};
+use ilold_core::relations::{routes, ContractCallKind, Relations, Tag, UnresolvedReason};
 
 const SOURCES: &[(&str, &str)] = &[
     ("foundry.toml", "[profile.default]\nsrc = 'src'\nlibs = ['lib']\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n"),
@@ -79,7 +79,7 @@ fn analysis() -> &'static ProjectAnalysis {
     ANALYSIS.get_or_init(|| ProjectAnalysis::build(project(), &AnalysisParams::new(1)))
 }
 
-type Row = (String, LinkKind, Vec<(String, String, Tag)>, Option<UnresolvedReason>, Option<String>);
+type Row = (String, ContractCallKind, Vec<(String, String, Tag)>, Option<UnresolvedReason>, Option<String>);
 
 fn rows(context: &str) -> Vec<Row> {
     rows_of(analysis(), context)
@@ -101,7 +101,7 @@ fn callee(function: &str, contract: &str, tag: Tag) -> (String, String, Tag) {
     (function.into(), contract.into(), tag)
 }
 
-fn row(function: &str, kind: LinkKind, callees: Vec<(String, String, Tag)>, reason: Option<UnresolvedReason>, via: Option<&str>) -> Row {
+fn row(function: &str, kind: ContractCallKind, callees: Vec<(String, String, Tag)>, reason: Option<UnresolvedReason>, via: Option<&str>) -> Row {
     (function.into(), kind, callees, reason, via.map(str::to_string))
 }
 
@@ -110,12 +110,12 @@ fn pay(self_call: &str, self_contract: &str) -> Vec<Row> {
     let vault = Some("Base::vault");
     let hooks = vec![callee("HookA::onCall", "HookA", Tag::Ambiguous), callee("HookB::onCall", "HookB", Tag::Ambiguous)];
     vec![
-        row("Base::pay", LinkKind::Library, vec![callee("Fees::cut", "Fees", Tag::TypeResolved)], None, None),
-        row("Base::pay", LinkKind::Call, vec![callee("Vault::deposit", "Vault", Tag::Inferred)], None, vault),
-        row("Base::pay", LinkKind::Call, hooks, None, Some("Base::hook")),
-        row("Base::pay", LinkKind::Read, vec![callee("Vault::total", "Vault", Tag::Inferred)], None, vault),
-        row("Base::pay", LinkKind::SelfCall, vec![callee(self_call, self_contract, Tag::Inferred)], None, None),
-        row("Base::pay", LinkKind::Library, vec![callee("ExtLib::twice", "ExtLib", Tag::TypeResolved)], None, None),
+        row("Base::pay", ContractCallKind::Library, vec![callee("Fees::cut", "Fees", Tag::TypeResolved)], None, None),
+        row("Base::pay", ContractCallKind::Call, vec![callee("Vault::deposit", "Vault", Tag::Inferred)], None, vault),
+        row("Base::pay", ContractCallKind::Call, hooks, None, Some("Base::hook")),
+        row("Base::pay", ContractCallKind::Read, vec![callee("Vault::total", "Vault", Tag::Inferred)], None, vault),
+        row("Base::pay", ContractCallKind::SelfCall, vec![callee(self_call, self_contract, Tag::Inferred)], None, None),
+        row("Base::pay", ContractCallKind::Library, vec![callee("ExtLib::twice", "ExtLib", Tag::TypeResolved)], None, None),
     ]
 }
 
@@ -128,8 +128,8 @@ fn the_declaring_contract_runs_its_own_calls() {
 fn an_inheriting_contract_runs_inherited_and_dependency_code_with_its_own_overrides() {
     let mut expected = pay("Router::quote", "Router");
     let hooks = expected[2].2.clone();
-    expected.push(row("Base::pay", LinkKind::Call, hooks, None, Some("Base::hook")));
-    expected.push(row("ExtBase::poke", LinkKind::Call, vec![], Some(UnresolvedReason::OutOfScopeInterface), Some("ExtBase::ext")));
+    expected.push(row("Base::pay", ContractCallKind::Call, hooks, None, Some("Base::hook")));
+    expected.push(row("ExtBase::poke", ContractCallKind::Call, vec![], Some(UnresolvedReason::OutOfScopeInterface), Some("ExtBase::ext")));
     assert_eq!(rows("Router"), expected);
     let unresolved = analysis().relations.calls_from("Router").last().unwrap();
     assert_eq!(unresolved.target.as_deref(), Some("IExt::ping"), "the dependency interface stays the callee");
@@ -143,15 +143,15 @@ fn dependency_code_is_no_running_context_of_its_own() {
 
 #[test]
 fn incoming_calls_come_from_every_contract_running_the_caller() {
-    let into_vault: Vec<(&str, &str, LinkKind)> =
+    let into_vault: Vec<(&str, &str, ContractCallKind)> =
         analysis().relations.calls_into("Vault").map(|c| (c.in_context.as_str(), c.function.as_str(), c.kind)).collect();
     assert_eq!(
         into_vault,
         vec![
-            ("Base", "Base::pay", LinkKind::Call),
-            ("Base", "Base::pay", LinkKind::Read),
-            ("Router", "Base::pay", LinkKind::Call),
-            ("Router", "Base::pay", LinkKind::Read),
+            ("Base", "Base::pay", ContractCallKind::Call),
+            ("Base", "Base::pay", ContractCallKind::Read),
+            ("Router", "Base::pay", ContractCallKind::Call),
+            ("Router", "Base::pay", ContractCallKind::Read),
         ]
     );
 }
@@ -204,8 +204,8 @@ fn private_helpers_of_project_and_dependency_bases_run_in_the_inheriting_contrac
     assert_eq!(
         rows_of(&analysis, "Kept"),
         vec![
-            row("ExtBase::_ping", LinkKind::Call, vec![], unresolved, Some("ExtBase::ext")),
-            row("Keeper::_stash", LinkKind::Call, deposit.clone(), None, Some("Keeper::vault")),
+            row("ExtBase::_ping", ContractCallKind::Call, vec![], unresolved, Some("ExtBase::ext")),
+            row("Keeper::_stash", ContractCallKind::Call, deposit.clone(), None, Some("Keeper::vault")),
         ],
         "overridden code stays out"
     );
@@ -266,8 +266,8 @@ fn overridden_code_runs_in_the_inheriting_contract_only_where_its_code_calls_it(
     assert_eq!(
         rows_of(&analysis, "Child"),
         vec![
-            row("ExtBase::poke", LinkKind::Call, vec![], unresolved, Some("ExtBase::ext")),
-            row("Mid::save", LinkKind::Call, vec![callee("Vault::deposit", "Vault", Tag::Inferred)], None, Some("Mid::vault")),
+            row("ExtBase::poke", ContractCallKind::Call, vec![], unresolved, Some("ExtBase::ext")),
+            row("Mid::save", ContractCallKind::Call, vec![callee("Vault::deposit", "Vault", Tag::Inferred)], None, Some("Mid::vault")),
         ],
         "ExtBase::skip and Mid::keep are overridden and never called"
     );

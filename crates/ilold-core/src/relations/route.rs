@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::callgraph::types::CallGraph;
 
-use super::{ContractCall, DispatchCandidate, LinkKind, Relations};
+use super::{ContractCall, ContractCallKind, DispatchCandidate, Relations};
 
 /// Beyond this many equally short routes the rest are left out.
 const MAX_ROUTES: usize = 32;
@@ -46,7 +46,7 @@ pub struct Routes {
 
 /// The shortest routes from `from` to `to` following calls, and reads when asked; library and self calls stay out.
 pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, from: &str, to: &str, include_reads: bool) -> Routes {
-    let follows = |c: &ContractCall| c.kind == LinkKind::Call || (include_reads && c.kind == LinkKind::Read);
+    let follows = |c: &ContractCall| c.kind == ContractCallKind::Call || (include_reads && c.kind == ContractCallKind::Read);
     let mut graph: DiGraphMap<&str, ()> = DiGraphMap::new();
     for call in relations.calls.iter().filter(|c| follows(c)) {
         for callee in call.callees.iter().filter(|d| d.contract != call.in_context) {
