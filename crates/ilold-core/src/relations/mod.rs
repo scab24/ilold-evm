@@ -170,7 +170,7 @@ pub struct Relations {
     pub calls: Vec<ContractCall>,
     /// Every function's facts in each contract that runs it, sorted by context, then function, then position.
     pub values: ValueFacts,
-    /// Sorted by context, then the parties.
+    /// Project contracts only, sorted by context, then the parties.
     pub value_pairs: Vec<ValuePair>,
 }
 

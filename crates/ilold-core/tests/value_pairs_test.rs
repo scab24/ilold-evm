@@ -87,7 +87,8 @@ fn resolved_calls_mints_and_burns_name_the_contract_on_the_other_side() {
 #[test]
 fn outside_parties_come_from_the_type_the_code_states() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/value");
-    let analysis = analysis_of(&root);
+    let project = SolcFrontend.parse_project(&root).expect("parse");
+    let analysis = ProjectAnalysis::build(&project, &AnalysisParams::new(1));
     let pool = Party::Declared("IPoolManager".into());
     let found = pairs(&analysis, "Payments");
     let me = contract("Payments");
@@ -96,5 +97,55 @@ fn outside_parties_come_from_the_type_the_code_states() {
     assert!(found.contains(&(&Party::Declared("IMintableToken".into()), &expression("msg.sender"), AssetKind::Erc20, 1)), "{found:#?}");
     assert!(found.contains(&(&me, &expression("to"), AssetKind::Native, 5)), "a plain address stays its expression, one pair for all: {found:#?}");
     let transfers: usize = analysis.relations.value_pairs.iter().map(|p| p.transfers.len()).sum();
-    assert_eq!(transfers, analysis.relations.values.transfers.len(), "every transfer is in exactly one pair");
+    let run = analysis.relations.values.transfers.iter().filter(|t| !project.contracts[project.contract_index[&t.in_context]].is_dependency);
+    assert_eq!(transfers, run.count(), "every transfer a project contract runs is in exactly one pair");
+}
+
+const MANY: &[(&str, &str)] = &[
+    ("foundry.toml", "[profile.default]\nsrc = 'src'\nlibs = ['lib']\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n"),
+    ("remappings.txt", "@ext/=lib/ext/\n"),
+    (
+        "lib/ext/Ext.sol",
+        "pragma solidity 0.8.28;
+interface IExtSink { function feed() external payable; }
+abstract contract ExtPayer {
+    IExtSink public extSink;
+    function payOut() public payable { extSink.feed{value: msg.value}(); }
+}
+",
+    ),
+    (
+        "src/Many.sol",
+        "pragma solidity 0.8.28;
+import {ExtPayer} from '@ext/Ext.sol';
+interface ISink { function fund() external payable; }
+contract SinkB is ISink { function fund() external payable {} }
+contract SinkA is ISink { function fund() external payable {} }
+contract Many is ExtPayer {
+    ISink public sink;
+    function pay() external payable { sink.fund{value: msg.value}(); }
+}
+",
+    ),
+];
+
+#[test]
+fn several_answering_contracts_sort_by_key_and_dependency_code_pairs_only_where_run() {
+    let root = std::env::temp_dir().canonicalize().unwrap().join(format!("ilold-value-pairs-many-{}", std::process::id()));
+    for (path, text) in MANY {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, text).unwrap();
+    }
+    let analysis = analysis_of(&root);
+    fs::remove_dir_all(&root).unwrap();
+    let me = contract("Many");
+    let sinks = Party::Contract(vec!["SinkA".into(), "SinkB".into()]);
+    let outside = Party::Declared("IExtSink".into());
+    let mut found = pairs(&analysis, "Many");
+    found.sort();
+    assert_eq!(found, vec![(&me, &sinks, AssetKind::Native, 1), (&me, &outside, AssetKind::Native, 1)]);
+    let contexts: Vec<&str> = analysis.relations.value_pairs.iter().map(|p| p.in_context.as_str()).collect();
+    assert_eq!(contexts, vec!["Many", "Many"], "no pair for code only its dependency declares");
+    assert!(analysis.relations.values.transfers.iter().any(|t| t.in_context == "ExtPayer"), "the dependency's own facts stay");
 }

@@ -517,14 +517,15 @@ fn outside_parameter(project: &Project, stmt: &CfgStatement, arg: Arg) -> Option
     project.lookup_contract(&name).ok().filter(|found| found.is_dependency).map(|found| found.key().to_string())
 }
 
-/// Every running contract's facts, and the pairs its transfers add up to.
+/// Every running contract's facts, and the pairs a project contract's transfers add up to.
 pub(super) fn build(project: &Project, units: &[Running], relations: &Relations) -> (ValueFacts, Vec<ValuePair>) {
     type Key = (String, Party, Party, AssetKind, Option<String>, Option<ValueReason>);
     let mut facts = ValueFacts::default();
     let mut pairs: BTreeMap<Key, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
     for Running { context, owner, func, cfg } in units {
         let (mut found, typed) = typed_value_facts(project, context, owner, func, cfg);
-        for (t, typed) in found.transfers.iter().zip(&typed) {
+        // a dependency running its own code has no call rows to resolve a side from
+        for (t, typed) in found.transfers.iter().zip(&typed).filter(|_| !context.is_dependency) {
             let (from, to) = parties(project, relations, t, typed);
             let (functions, ids) = pairs.entry((t.in_context.clone(), from, to, t.asset_kind, t.token_expr.clone(), t.reason)).or_default();
             functions.insert(t.function.clone());
@@ -558,7 +559,9 @@ fn parties(project: &Project, relations: &Relations, t: &ValueTransfer, typed: &
         let made = relations.calls_from(&t.in_context);
         let call = made.iter().find(|c| c.function == t.function && c.span == t.span && c.kind != LinkKind::Library)?;
         if !call.callees.is_empty() {
-            return Some(Party::Contract(call.callees.iter().map(|d| d.contract.clone()).collect()));
+            let mut keys: Vec<String> = call.callees.iter().map(|d| d.contract.clone()).collect();
+            keys.sort();
+            return Some(Party::Contract(keys));
         }
         let (declared, _) = call.target.as_deref()?.rsplit_once("::")?;
         contract(project, declared).filter(|found| found.is_dependency).map(|found| Party::Declared(found.key().to_string()))
