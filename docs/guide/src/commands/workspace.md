@@ -62,8 +62,8 @@ ilold[Staking]> browser
 `?`, `h` or `help` lists the commands. Append `?` to any command for its usage,
 for example `sl?`, `sc?` or `q?`. Tab completes command names, functions
 (including inherited ones) for `c`, `i`, `tr` and `sl`, state variables for
-`who`, `tl` and the second argument of `sl`, contracts for `use`, `deps` and
-`usedby`, and scenario names for `sc switch|fork|delete`.
+`who`, `tl` and the second argument of `sl`, contracts for `use`, `deps`,
+`usedby`, `links`, `value` and both arguments of `route`, and scenario names for `sc switch|fork|delete`.
 
 ## quit
 

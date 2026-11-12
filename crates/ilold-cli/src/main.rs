@@ -6,6 +6,7 @@ use clap::Parser;
 
 mod analyze;
 mod colors;
+mod connections_view;
 mod context;
 mod deps_view;
 mod explore;

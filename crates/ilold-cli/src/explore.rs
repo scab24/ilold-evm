@@ -19,6 +19,13 @@ use ilold_evm_mcp::{check_segments, encode_component as enc};
 use crate::colors::*;
 use crate::fmt;
 
+/// The facts an attached server serves, read into the analysis types.
+macro_rules! attached {
+    ($handle:expr, $client:expr, $url:expr) => {
+        send_get($handle, $client, &$url).and_then(|v| serde_json::from_value(v).map_err(|e| format!("Parse failed: {e}")))
+    };
+}
+
 pub async fn run(
     paths: Vec<PathBuf>,
     addr: std::net::SocketAddr,
@@ -526,6 +533,54 @@ fn handle_input(
         "usedby" | "rdeps" => {
             let target = if arg.is_empty() { contract } else { arg };
             show_deps(handle, client, base_url, state, target, true);
+            InputResult::Continue
+        }
+        "links" => {
+            let target = if arg.is_empty() { contract } else { arg };
+            let found = match state {
+                Some(state) => state.project.find_contract(Some(target)).map(|c| state.relations.connections(c.key())),
+                None => attached!(handle, client, format!("{base_url}/api/contract/{}/connections", enc(target))),
+            };
+            match found {
+                Ok(connections) => print!("{}", crate::connections_view::links(&connections)),
+                Err(e) => eprintln!("  {}", c_danger(&e)),
+            }
+            InputResult::Continue
+        }
+        "route" => {
+            let reads = arg.split_whitespace().any(|w| w == "--reads");
+            let [from, to] = arg.split_whitespace().filter(|w| *w != "--reads").collect::<Vec<_>>()[..] else {
+                println!("  Usage: route <from> <to> [--reads]");
+                return InputResult::Continue;
+            };
+            let found = match state {
+                Some(state) => state.project.find_contract(Some(from)).and_then(|f| {
+                    let t = state.project.find_contract(Some(to))?;
+                    Ok(ilold_core::relations::routes(&state.relations, &state.call_graphs, f.key(), t.key(), reads))
+                }),
+                None => attached!(handle, client, format!("{base_url}/api/project/route?from={}&to={}&reads={reads}", enc(from), enc(to))),
+            };
+            match found {
+                Ok(routes) => print!("{}", crate::connections_view::route(from, to, reads, &routes)),
+                Err(e) => eprintln!("  {}", c_danger(&e)),
+            }
+            InputResult::Continue
+        }
+        "value" => {
+            let target = (!arg.is_empty()).then_some(arg);
+            let found = match state {
+                Some(state) => {
+                    target.map(|t| state.project.find_contract(Some(t))).transpose().map(|c| state.relations.value_flow(c.map(|c| c.key())))
+                }
+                None => {
+                    let query = target.map(|t| format!("?contract={}", enc(t))).unwrap_or_default();
+                    attached!(handle, client, format!("{base_url}/api/project/value-flow{query}"))
+                }
+            };
+            match found {
+                Ok(flow) => print!("{}", crate::connections_view::value(target, &flow)),
+                Err(e) => eprintln!("  {}", c_danger(&e)),
+            }
             InputResult::Continue
         }
         "use" => {
@@ -2202,6 +2257,9 @@ const HELP_GROUPS: &[(&str, &[HelpEntry])] = &[
         ("ct",     "contracts [all]",  "List project contracts (`all`: with dependencies)"),
         ("",       "deps [contract]",  "What this contract depends on"),
         ("",       "usedby [contract]","What depends on it (blast radius)"),
+        ("",       "links [contract]", "Calls to and from other contracts, function to function"),
+        ("",       "route <A> <B>",    "Shortest chains of calls from A to B (--reads)"),
+        ("",       "value [contract]", "Who pays whom"),
         ("",       "use <contract>",   "Switch active contract (its steps are kept)"),
     ]),
     ("Findings", &[
@@ -2246,6 +2304,9 @@ const INLINE_HELP: &[(&[&str], &str, &str)] = &[
     (&["ct", "contracts"],"contracts [all]",                 "List the project contracts; `all` adds dependency contracts (lib/)."),
     (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on, with the ones that may answer its interface calls. Example: deps Vault"),
     (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it or may be called through an interface — the blast radius. Example: usedby IPool"),
+    (&["links"],          "links [contract]",                "Calls the code of the current (or named) contract makes to other contracts, inherited code included, grouped by the contract that may answer, then the calls into it, unresolved calls and where the called addresses are set. Example: links Vault"),
+    (&["route"],          "route <from> <to> [--reads]",     "Shortest chains of calls from one contract to another, function to function; --reads also follows view calls. Example: route Router Vault"),
+    (&["value"],          "value [contract]",                "Who pays whom: value moves per running contract, by the two sides and asset; a side is a contract only where the call resolves to it. With a contract, the moves it runs or is a side of. Example: value Vault"),
     (&["use"],            "use <contract>",                  "Switch the active contract; each contract keeps its own steps. Example: use Staking"),
     (&["status"],         "status <func> <status>",          "Change review status (reviewed, suspicious, vulnerable, clean, inprogress, notreviewed). Example: status deposit reviewed"),
     (&["save"],           "save <name>",                     "Save the contract's scenarios to ~/.ilold/sessions/<name>.json. Names are plain (letters, digits, - _ .). Example: save my-audit"),
@@ -2345,9 +2406,9 @@ struct IloldCompleter {
 
 const COMMAND_WORDS: &[&str] = &[
     "back", "browser", "call", "clear", "contracts", "deps", "exit", "export", "finding", "findings",
-    "funcs-all", "functions", "help", "info", "load", "note", "quit", "save", "scenario", "sequence",
-    "session", "slice", "state", "status", "step", "timeline", "trace", "use", "usedby", "vars",
-    "vars-all", "who",
+    "funcs-all", "functions", "help", "info", "links", "load", "note", "quit", "route", "save", "scenario",
+    "sequence", "session", "slice", "state", "status", "step", "timeline", "trace", "use", "usedby", "value",
+    "vars", "vars-all", "who",
 ];
 const SCENARIO_SUBCOMMANDS: &[&str] = &["new", "list", "switch", "fork", "delete"];
 const SEVERITIES: &[&str] = &["critical", "high", "medium", "low", "info"];
@@ -2375,7 +2436,8 @@ impl IloldCompleter {
                 ("w" | "who" | "tl" | "timeline", []) => owned(&self.state_vars),
                 ("sl" | "slice", []) => owned(&self.functions),
                 ("sl" | "slice", [_]) => owned(&self.state_vars),
-                ("use" | "deps" | "dep" | "usedby" | "rdeps", []) => owned(&self.contracts),
+                ("use" | "deps" | "dep" | "usedby" | "rdeps" | "links" | "value" | "route", []) => owned(&self.contracts),
+                ("route", [_]) => owned(&self.contracts),
                 ("sc" | "scen" | "scenario", []) => fixed(SCENARIO_SUBCOMMANDS),
                 ("sc" | "scen" | "scenario", [sub]) if matches!(*sub, "switch" | "fork" | "delete" | "rm") => {
                     owned(&self.scenarios)
@@ -2680,6 +2742,10 @@ mod tests {
         assert_eq!(values("sl w"), vec!["withdraw".to_string()]);
         assert_eq!(values("sl withdraw bal"), vec!["balances".to_string()]);
         assert_eq!(values("use L"), vec!["LendingPool".to_string()]);
+        assert_eq!(values("links V"), vec!["Vault".to_string()]);
+        assert_eq!(values("value L"), vec!["LendingPool".to_string()]);
+        assert_eq!(values("route Vault L"), vec!["LendingPool".to_string()]);
+        assert_eq!(values("ro"), vec!["route".to_string()]);
         assert_eq!(values("sc s"), vec!["switch".to_string()]);
         assert_eq!(values("sc switch a"), vec!["attack".to_string()]);
         assert_eq!(values("scenario delete "), vec!["main".to_string(), "attack".to_string()]);

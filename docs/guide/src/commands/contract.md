@@ -174,6 +174,111 @@ The same relationships are available project-wide on the CLI with
 topological reading order (dependency-free contracts first), and as an
 interactive graph on the web canvas.
 
+## links
+
+`links [contract]`
+
+Lists the calls between a contract — the current one, or the named one — and
+other contracts, function to function, as the contract runs its code: inherited
+functions and base constructors are included, so a call an abstract base makes
+is listed under every contract that inherits it.
+
+- **calls** — the calls it makes, grouped by the contract that may answer. A
+  call through an interface several contracts implement is one row, listed under
+  each of them, with `N possible` and `AMBIGUOUS`. Library calls are listed
+  under the library and `this.f()` calls under the contract itself. Rows other
+  than plain calls say `read` (a view or pure function or a getter), `library`
+  or `self`, and `via` names the state variable holding the called address.
+- **called by** — the calls into it, grouped by the contract running the
+  calling code.
+- **Unresolved** — calls nothing in the project answers, with the reason
+  (`out_of_scope_interface`, `no_implementation`, `dynamic_address`).
+- **Addresses set at** — where the state variables named in `via` get their
+  value.
+
+```
+ilold[Curve]> links
+
+  Curve → calls
+    DenA  1 call
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 35  via CurveBase::den  AMBIGUOUS
+    DenB  1 call
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 35  via CurveBase::den  AMBIGUOUS
+    Hook  2 calls
+      CurveBase::_graduate → Hook::migrate  line 26  via CurveBase::hook
+      CurveBase::_graduate → Hook::fee  read  line 26  via CurveBase::hook
+    Token  1 call
+      buy → Token::mint  line 34  via CurveBase::token
+
+  Curve ← called by
+    Router  2 calls
+      Router::buyWith → Curve::buy  line 14  via Router::curve
+      Router::quote → CurveBase::price  read  line 18  via Router::curve
+
+  Addresses set at
+      CurveBase::den = den_  constructor_param  CurveBase::constructor  line 14
+      CurveBase::hook = hook_  constructor_param  CurveBase::constructor  line 12
+      CurveBase::token = token_  constructor_param  CurveBase::constructor  line 13
+```
+
+Functions of the contract itself are shown by name; inherited ones keep their
+declaring contract (`CurveBase::_graduate`).
+
+## route
+
+`route <from> <to> [--reads]`
+
+Prints the shortest chains of calls from one contract to another, step by step,
+with every call of each step. Library and `this` calls are not followed; reads
+are followed only with `--reads`. A call marked `not recorded from the previous
+step` joins the route by contract only: nothing records the previous step's
+callee reaching it inside the contract. When more than 32 routes are equally
+short, the rest are left out and the header says so.
+
+```
+ilold[Curve]> route Router Hook
+
+  Router → Hook  1 shortest route(s) following calls
+
+  route 1 Router → Curve → Hook
+    Router → Curve
+      Router::buyWith → Curve::buy  line 14
+    Curve → Hook
+      CurveBase::_graduate → Hook::migrate  line 26
+```
+
+## value
+
+`value [contract]`
+
+Who pays whom: the value moves of every project contract, grouped per running
+contract by the two sides, the asset and the token. A side is a contract only
+where the code resolves one — the contract running the code, the contract a
+call with value or a mint or burn goes to, or a contract outside the project
+the call is typed as, such as a pool manager (`(outside the project)`); any
+other account stays as the source writes it, in backticks. A Uniswap v4
+`Currency` is shown as `ETH or token, set by the pool`. With a contract, only
+the moves it runs or is a side of are listed.
+
+```
+ilold[Curve]> value
+
+  Value flow  5 pair(s), 5 transfer(s)
+    as Curve runs
+      Curve → Hook  native  ×1  CurveBase::_graduate
+      Curve → `payable(to)`  native  ×1  buy
+      Token → `to`  erc20 token  ×1  buy
+    as CurveBase runs
+      CurveBase → Hook  native  ×1  _graduate
+    as Router runs
+      Router → Curve  native  ×1  buyWith
+```
+
+`links`, `route` and `value` read the same facts as the web API
+([`/api/contract/{name}/connections`](../reference/api-endpoints.md#get-apicontractnameconnections),
+[`/api/project/route`](../reference/api-endpoints.md#get-apiprojectroute),
+[`/api/project/value-flow`](../reference/api-endpoints.md#get-apiprojectvalue-flow)).
+
 ## use
 
 `use <contract>`
