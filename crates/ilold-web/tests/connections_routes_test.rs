@@ -33,7 +33,9 @@ async fn connections_list_the_calls_of_the_running_contract_and_into_it() {
     let port = server().await;
     let curve = ok(port, "/contract/Curve/connections").await;
     assert_eq!(curve["contract"], "Curve");
-    assert_eq!(groups(&curve["outgoing"]), pairs(&[("DenA", 1), ("DenB", 1), ("Hook", 2), ("Token", 1)]));
+    assert_eq!(groups(&curve["outgoing"]), pairs(&[("DenA", 1), ("DenB", 1), ("Hook", 2), ("Payout", 1), ("Token", 2)]));
+    let token: Vec<(&str, &str)> = curve["outgoing"][4]["calls"].as_array().unwrap().iter().map(|c| (c["function"].as_str().unwrap(), c["kind"].as_str().unwrap())).collect();
+    assert_eq!(token, vec![("Curve::buy", "call"), ("Payout::pay", "call")], "the project library runs in Curve");
     assert_eq!(groups(&curve["incoming"]), pairs(&[("Router", 2)]), "buyWith and the price read");
     let deliver = &curve["outgoing"][0]["calls"][0];
     assert_eq!((&deliver["function"], &deliver["kind"], deliver["callees"].as_array().unwrap().len()), (&json!("Curve::buy"), &json!("call"), 2));
@@ -104,13 +106,13 @@ async fn value_flow_pairs_the_parties_the_code_resolves() {
     let port = server().await;
     let row = |c: &str, from: &str, to: &str, asset: &str| (c.to_string(), from.to_string(), to.to_string(), asset.to_string(), 1);
     let hook = ok(port, "/project/value-flow?contract=Hook").await;
-    assert_eq!(flow(&hook), vec![row("Curve", "Curve", "Hook", "native")]);
+    assert_eq!(flow(&hook), vec![row("Curve", "Curve", "Hook", "native"), row("Hook", "Hook", "declared IPoolManager", "native")]);
     let transfers: Vec<(&str, &str)> = hook["transfers"].as_array().unwrap().iter().map(|t| (t["in_context"].as_str().unwrap(), t["call"].as_str().unwrap())).collect();
-    assert_eq!(transfers, vec![("Curve", "hook.migrate")]);
+    assert_eq!(transfers, vec![("Curve", "hook.migrate"), ("Hook", "manager.settle")]);
 
     let all = ok(port, "/project/value-flow").await;
     let found = flow(&all);
-    for expected in [row("Router", "Router", "Curve", "native"), row("Curve", "Token", "`to`", "erc20"), row("Curve", "Curve", "`payable(to)`", "native")] {
+    for expected in [row("Router", "Router", "Curve", "native"), row("Curve", "Token", "`to`", "erc20"), row("Curve", "Curve", "`to`", "erc20"), row("Curve", "Curve", "`payable(to)`", "native")] {
         assert!(found.contains(&expected), "{expected:?} in {found:#?}");
     }
     assert_eq!(get(port, "/project/value-flow?contract=Nope").await.0, 404);

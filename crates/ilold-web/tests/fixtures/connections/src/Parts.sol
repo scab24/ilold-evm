@@ -33,6 +33,7 @@ contract Hook is IHook {
 
     function migrate(uint256 amount) external payable {
         manager.unlock(abi.encode(amount));
+        manager.settle{value: amount}();
     }
 
     function fee() external pure returns (uint256) {

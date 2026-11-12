@@ -6,10 +6,10 @@
       "kind": "constructor_param",
       "span": {
         "end_col": 19,
-        "end_line": 14,
+        "end_line": 15,
         "file_index": 1,
         "start_col": 9,
-        "start_line": 14
+        "start_line": 15
       },
       "state_var": "CurveBase::den"
     },
@@ -19,10 +19,10 @@
       "kind": "constructor_param",
       "span": {
         "end_col": 21,
-        "end_line": 12,
+        "end_line": 13,
         "file_index": 1,
         "start_col": 9,
-        "start_line": 12
+        "start_line": 13
       },
       "state_var": "CurveBase::hook"
     },
@@ -32,10 +32,10 @@
       "kind": "constructor_param",
       "span": {
         "end_col": 23,
-        "end_line": 13,
+        "end_line": 14,
         "file_index": 1,
         "start_col": 9,
-        "start_line": 13
+        "start_line": 14
       },
       "state_var": "CurveBase::token"
     }
@@ -59,7 +59,7 @@
           "span": {
             "end_col": 40,
             "end_line": 14,
-            "file_index": 4,
+            "file_index": 5,
             "start_col": 9,
             "start_line": 14
           },
@@ -82,7 +82,7 @@
           "span": {
             "end_col": 29,
             "end_line": 18,
-            "file_index": 4,
+            "file_index": 5,
             "start_col": 16,
             "start_line": 18
           },
@@ -117,10 +117,10 @@
           "kind": "call",
           "span": {
             "end_col": 24,
-            "end_line": 35,
+            "end_line": 36,
             "file_index": 1,
             "start_col": 9,
-            "start_line": 35
+            "start_line": 36
           },
           "target": "IDen::deliver",
           "unresolved_reason": null,
@@ -151,10 +151,10 @@
           "kind": "call",
           "span": {
             "end_col": 24,
-            "end_line": 35,
+            "end_line": 36,
             "file_index": 1,
             "start_col": 9,
-            "start_line": 35
+            "start_line": 36
           },
           "target": "IDen::deliver",
           "unresolved_reason": null,
@@ -179,10 +179,10 @@
           "kind": "call",
           "span": {
             "end_col": 63,
-            "end_line": 26,
+            "end_line": 27,
             "file_index": 1,
             "start_col": 9,
-            "start_line": 26
+            "start_line": 27
           },
           "target": "IHook::migrate",
           "unresolved_reason": null,
@@ -202,10 +202,10 @@
           "kind": "read",
           "span": {
             "end_col": 62,
-            "end_line": 26,
+            "end_line": 27,
             "file_index": 1,
             "start_col": 52,
-            "start_line": 26
+            "start_line": 27
           },
           "target": "IHook::fee",
           "unresolved_reason": null,
@@ -213,6 +213,34 @@
         }
       ],
       "contract": "Hook"
+    },
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "library",
+              "contract": "Payout",
+              "function": "Payout::pay",
+              "tag": "TYPE_RESOLVED"
+            }
+          ],
+          "function": "Curve::buy",
+          "in_context": "Curve",
+          "kind": "library",
+          "span": {
+            "end_col": 33,
+            "end_line": 41,
+            "file_index": 1,
+            "start_col": 9,
+            "start_line": 41
+          },
+          "target": "Payout::pay",
+          "unresolved_reason": null,
+          "via": null
+        }
+      ],
+      "contract": "Payout"
     },
     {
       "calls": [
@@ -230,14 +258,37 @@
           "kind": "call",
           "span": {
             "end_col": 34,
-            "end_line": 34,
+            "end_line": 35,
             "file_index": 1,
             "start_col": 9,
-            "start_line": 34
+            "start_line": 35
           },
           "target": "IToken::mint",
           "unresolved_reason": null,
           "via": "CurveBase::token"
+        },
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Token",
+              "function": "Token::transfer",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "Payout::pay",
+          "in_context": "Curve",
+          "kind": "call",
+          "span": {
+            "end_col": 35,
+            "end_line": 8,
+            "file_index": 4,
+            "start_col": 9,
+            "start_line": 8
+          },
+          "target": "IToken::transfer",
+          "unresolved_reason": null,
+          "via": null
         }
       ],
       "contract": "Token"

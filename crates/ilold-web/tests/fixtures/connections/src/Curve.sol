@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ICurve, IDen, IHook, IToken} from "./Interfaces.sol";
+import {Payout} from "./Payout.sol";
 
 abstract contract CurveBase is ICurve {
     IHook public hook;
@@ -37,5 +38,6 @@ contract Curve is CurveBase {
             migrate();
         }
         payable(to).transfer(1);
+        Payout.pay(token, to, 1);
     }
 }

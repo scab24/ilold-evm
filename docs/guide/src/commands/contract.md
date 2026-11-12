@@ -203,14 +203,17 @@ ilold[Curve]> links
 
   Curve → calls
     DenA  1 call
-      buy → 2 possible: DenA::deliver, DenB::deliver  line 35  via CurveBase::den  AMBIGUOUS
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
     DenB  1 call
-      buy → 2 possible: DenA::deliver, DenB::deliver  line 35  via CurveBase::den  AMBIGUOUS
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
     Hook  2 calls
-      CurveBase::_graduate → Hook::migrate  line 26  via CurveBase::hook
-      CurveBase::_graduate → Hook::fee  read  line 26  via CurveBase::hook
-    Token  1 call
-      buy → Token::mint  line 34  via CurveBase::token
+      CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook
+      CurveBase::_graduate → Hook::fee  read  line 27  via CurveBase::hook
+    Payout  1 call
+      buy → Payout::pay  library  line 41
+    Token  2 calls
+      buy → Token::mint  line 35  via CurveBase::token
+      Payout::pay → Token::transfer  line 8
 
   Curve ← called by
     Router  2 calls
@@ -218,13 +221,16 @@ ilold[Curve]> links
       Router::quote → CurveBase::price  read  line 18  via Router::curve
 
   Addresses set at
-      CurveBase::den = den_  constructor_param  CurveBase::constructor  line 14
-      CurveBase::hook = hook_  constructor_param  CurveBase::constructor  line 12
-      CurveBase::token = token_  constructor_param  CurveBase::constructor  line 13
+      CurveBase::den = den_  constructor_param  CurveBase::constructor  line 15
+      CurveBase::hook = hook_  constructor_param  CurveBase::constructor  line 13
+      CurveBase::token = token_  constructor_param  CurveBase::constructor  line 14
 ```
 
 Functions of the contract itself are shown by name; inherited ones keep their
-declaring contract (`CurveBase::_graduate`).
+declaring contract (`CurveBase::_graduate`). The code of a project library the
+contract calls runs inside the contract, so its calls are listed as the
+contract's own (`Payout::pay`); a dependency library stays a single `library`
+row.
 
 ## route
 
@@ -246,7 +252,7 @@ ilold[Curve]> route Router Hook
     Router → Curve
       Router::buyWith → Curve::buy  line 14
     Curve → Hook
-      CurveBase::_graduate → Hook::migrate  line 26
+      CurveBase::_graduate → Hook::migrate  line 27
 ```
 
 ## value
@@ -265,11 +271,14 @@ the moves it runs or is a side of are listed.
 ```
 ilold[Curve]> value
 
-  Value flow  4 pair(s), 4 transfer(s)
+  Value flow  6 pair(s), 6 transfer(s)
     as Curve runs
       Curve → Hook  native  ×1  CurveBase::_graduate
       Curve → `payable(to)`  native  ×1  buy
+      Curve → `to`  erc20 token  ×1  Payout::pay
       Token → `to`  erc20 token  ×1  buy
+    as Hook runs
+      Hook → IPoolManager (outside the project)  native  ×1  migrate
     as Router runs
       Router → Curve  native  ×1  buyWith
 ```

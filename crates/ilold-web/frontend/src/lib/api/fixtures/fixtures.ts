@@ -18,6 +18,7 @@ import valueBalancesFunction from './value_balances_function.json';
 import phasesContractDetail from './phases_contract_detail.json';
 import phasesFunction from './phases_function.json';
 import connections from './connections.json';
+import connectionsHook from './connections_hook.json';
 import route from './route.json';
 import valueFlow from './value_flow.json';
 
@@ -41,5 +42,6 @@ valueBalancesFunction satisfies Json<FunctionNarrative>;
 phasesContractDetail satisfies Json<ContractDetail>;
 phasesFunction satisfies Json<FunctionNarrative>;
 connections satisfies Json<Connections>;
+connectionsHook satisfies Json<Connections>;
 route satisfies Json<Routes>;
 valueFlow satisfies Json<ValueFlowPairs>;

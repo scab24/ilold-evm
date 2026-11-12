@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::analysis::context_cfg;
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::model::common::{Param, SourceSpan};
-use crate::model::contract::ContractDef;
+use crate::model::contract::{ContractDef, ContractKind};
 use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::CallKind;
 use crate::model::function::FunctionDef;
@@ -207,7 +207,7 @@ pub(crate) struct Running<'p> {
     pub cfg: Cow<'p, CfgGraph>,
 }
 
-/// Each analysed function in its own contract, then in every project contract each base function it runs: base constructors, inherited code with private helpers, and overridden code its code still calls, as through `super`.
+/// Each analysed function in its own contract, then in every project contract each base and project library function it runs: base constructors, inherited code with private helpers, overridden code its code still calls, as through `super`, and the project library functions its code calls.
 fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGraph>) -> Vec<Running<'p>> {
     let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
     keys.sort();
@@ -223,11 +223,13 @@ fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGrap
             units.push(Running { context, owner, func, cfg });
         }
         let bases = &project.linearization(context)[1..];
+        // dependency libraries stay at their call site, where the value recognizers read them
+        let runs_here = |owner: &ContractDef| bases.iter().any(|b| std::ptr::eq(*b, owner)) || (owner.kind == ContractKind::Library && !owner.is_dependency);
         let mut pending: Vec<usize> = (0..units.len()).filter(|&i| std::ptr::eq(units[i].context, context)).collect();
         let mut runs: HashSet<(&str, &str)> = pending.iter().map(|&i| (units[i].owner.key(), units[i].func.key.as_str())).collect();
         while let Some(i) = pending.pop() {
             for (owner, func) in internal_callees(project, &units[i]) {
-                if !bases.iter().any(|b| std::ptr::eq(*b, owner)) || !runs.insert((owner.key(), func.key.as_str())) {
+                if !runs_here(owner) || !runs.insert((owner.key(), func.key.as_str())) {
                     continue;
                 }
                 let Some(cfg) = context_cfg(project, cfgs, context, owner, func) else { continue };

@@ -1,0 +1,106 @@
+{
+  "assignments": [
+    {
+      "expr_text": "manager_",
+      "function": "Hook::constructor",
+      "kind": "constructor_param",
+      "span": {
+        "end_col": 27,
+        "end_line": 31,
+        "file_index": 3,
+        "start_col": 9,
+        "start_line": 31
+      },
+      "state_var": "Hook::manager"
+    }
+  ],
+  "contract": "Hook",
+  "incoming": [
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Hook",
+              "function": "Hook::migrate",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "CurveBase::_graduate",
+          "in_context": "Curve",
+          "kind": "call",
+          "span": {
+            "end_col": 63,
+            "end_line": 27,
+            "file_index": 1,
+            "start_col": 9,
+            "start_line": 27
+          },
+          "target": "IHook::migrate",
+          "unresolved_reason": null,
+          "via": "CurveBase::hook"
+        },
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Hook",
+              "function": "Hook::fee",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "CurveBase::_graduate",
+          "in_context": "Curve",
+          "kind": "read",
+          "span": {
+            "end_col": 62,
+            "end_line": 27,
+            "file_index": 1,
+            "start_col": 52,
+            "start_line": 27
+          },
+          "target": "IHook::fee",
+          "unresolved_reason": null,
+          "via": "CurveBase::hook"
+        }
+      ],
+      "contract": "Curve"
+    }
+  ],
+  "outgoing": [],
+  "unresolved": [
+    {
+      "callees": [],
+      "function": "Hook::migrate",
+      "in_context": "Hook",
+      "kind": "call",
+      "span": {
+        "end_col": 43,
+        "end_line": 35,
+        "file_index": 3,
+        "start_col": 9,
+        "start_line": 35
+      },
+      "target": "IPoolManager::unlock",
+      "unresolved_reason": "out_of_scope_interface",
+      "via": "Hook::manager"
+    },
+    {
+      "callees": [],
+      "function": "Hook::migrate",
+      "in_context": "Hook",
+      "kind": "call",
+      "span": {
+        "end_col": 40,
+        "end_line": 36,
+        "file_index": 3,
+        "start_col": 9,
+        "start_line": 36
+      },
+      "target": "IPoolManager::settle",
+      "unresolved_reason": "out_of_scope_interface",
+      "via": "Hook::manager"
+    }
+  ]
+}

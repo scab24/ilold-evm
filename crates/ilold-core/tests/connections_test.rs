@@ -379,3 +379,75 @@ fn context_links_add_up_the_calls_each_running_contract_makes() {
     let (base, _) = relations.context_links("Base");
     assert_eq!(base, relations.outgoing("Base").cloned().collect::<Vec<_>>(), "a contract running only its own code adds up to its links");
 }
+
+const LIBRARIES: &[(&str, &str)] = &[
+    (SOURCES[0].0, SOURCES[0].1),
+    (SOURCES[1].0, SOURCES[1].1),
+    (
+        "lib/ext/Ext.sol",
+        "pragma solidity 0.8.28;
+interface IToken { function transfer(address to, uint256 a) external returns (bool); }
+library SafeERC20 {
+    function safeTransfer(IToken token, address to, uint256 a) internal { token.transfer(to, a); }
+}
+",
+    ),
+    (
+        "src/Libraries.sol",
+        "pragma solidity 0.8.28;
+import {IToken, SafeERC20} from '@ext/Ext.sol';
+contract Token is IToken { function transfer(address, uint256) external pure returns (bool) { return true; } }
+library Payout {
+    function send(IToken token, address to, uint256 a) internal { token.transfer(to, a); }
+    function safe(IToken token, address to, uint256 a) internal { SafeERC20.safeTransfer(token, to, a); }
+}
+abstract contract Shop {
+    IToken public token;
+    function sell(address to) public { Payout.send(token, to, 1); }
+}
+contract Store is Shop {
+    function refund(address to) external { Payout.safe(token, to, 2); }
+}
+",
+    ),
+];
+
+#[test]
+fn project_library_code_runs_in_the_calling_contract() {
+    let analysis = ProjectAnalysis::build(&parse("libraries", LIBRARIES), &AnalysisParams::new(1));
+    let transfer = vec![callee("Token::transfer", "Token", Tag::Inferred)];
+    let library = |function: &str, contract: &str| vec![callee(function, contract, Tag::TypeResolved)];
+    assert_eq!(
+        rows_of(&analysis, "Store"),
+        vec![
+            row("Payout::safe", ContractCallKind::Library, library("SafeERC20::safeTransfer", "SafeERC20"), None, None),
+            row("Payout::send", ContractCallKind::Call, transfer.clone(), None, None),
+            row("Shop::sell", ContractCallKind::Library, library("Payout::send", "Payout"), None, None),
+            row("Store::refund", ContractCallKind::Library, library("Payout::safe", "Payout"), None, None),
+        ],
+        "dependency library code stays at its call site"
+    );
+    assert_eq!(
+        rows_of(&analysis, "Payout"),
+        vec![
+            row("Payout::safe", ContractCallKind::Library, library("SafeERC20::safeTransfer", "SafeERC20"), None, None),
+            row("Payout::send", ContractCallKind::Call, transfer, None, None),
+        ],
+        "a library viewed directly keeps its own calls"
+    );
+    let relations = &analysis.relations;
+    let links: Vec<(&str, &str, usize)> = relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str(), l.calls.len())).collect();
+    assert_eq!(links, vec![("Payout", "Token", 1)], "links stay per declaring contract");
+    let into_token: Vec<(String, usize)> = relations.connections("Token").incoming.iter().map(|g| (g.contract.clone(), g.calls.len())).collect();
+    assert_eq!(into_token, vec![("Store".to_string(), 1)], "the library calls only inside the contract running it");
+
+    let moved: Vec<(&str, Option<&str>)> =
+        relations.values.transfers.iter().filter(|t| t.in_context == "Store").map(|t| (t.function.as_str(), t.via_library.as_deref())).collect();
+    assert_eq!(moved, vec![("Payout::safe", Some("SafeERC20::safeTransfer")), ("Payout::send", None)], "each move once, at its own call site");
+    let pairs: Vec<(&str, String, String, usize)> = relations
+        .value_pairs
+        .iter()
+        .map(|p| (p.in_context.as_str(), format!("{:?}", p.from), format!("{:?}", p.to), p.transfers.len()))
+        .collect();
+    assert_eq!(pairs, vec![("Store", "Contract([\"Store\"])".to_string(), "Expression(Some(\"to\"))".to_string(), 2)]);
+}
