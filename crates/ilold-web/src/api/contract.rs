@@ -41,7 +41,7 @@ pub struct ContractDetail {
     pub inherited_state_vars: Vec<StateVarSummary>,
     /// The calls of the code it runs, inherited code included.
     pub outgoing_links: Vec<ContractLink>,
-    /// The calls into it from every contract running the calling code.
+    /// The calls into it from every other deployed contract running the calling code.
     pub incoming_links: Vec<ContractLink>,
     /// The transfers of the code it runs, inherited and project library code included, summed by direction, asset and counterparty.
     pub value_flows: Vec<ValueFlow>,

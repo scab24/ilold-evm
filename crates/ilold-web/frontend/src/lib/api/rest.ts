@@ -41,11 +41,13 @@ export interface ContractDetail extends ContractIdentity, Bases {
   phase_candidates: PhaseCandidate[];
 }
 
-export type Basis = 'self' | 'inherits_interface' | 'selector_match';
+export type Basis = 'library' | 'self' | 'inherits_interface' | 'selector_match';
+/** Contract links leave library calls out. */
+export type LinkBasis = Exclude<Basis, 'library'>;
 export type RelationTag = 'INFERRED' | 'AMBIGUOUS' | 'EXTRACTED' | 'TYPE_RESOLVED';
 export type UnresolvedReason = 'out_of_scope_interface' | 'no_implementation' | 'dynamic_address';
 
-/** A deployable contract that may answer an external call; `function` is `<contract>::<function key>`. */
+/** A deployable contract that may answer an external call, or the library a call runs; `function` is `<contract>::<function key>`. */
 export interface DispatchCandidate {
   function: string;
   contract: string;
@@ -67,14 +69,11 @@ export interface ContractLink {
   to_contract: string;
   via_state_vars: string[];
   calls: { function: string; span: SourceSpan }[];
-  basis: Basis;
+  basis: LinkBasis;
   tag: RelationTag;
 }
 
 export type ContractCallKind = 'call' | 'read' | 'library' | 'self';
-
-/** A candidate of a call row; library calls name their library with basis `library`. */
-export type CallCallee = Omit<DispatchCandidate, 'basis'> & { basis: Basis | 'library' };
 
 /** A call to another contract, a library or `this`, as `in_context` runs the code making it; refs are `<contract>::<member>`. */
 export interface ContractCall {
@@ -84,7 +83,7 @@ export interface ContractCall {
   kind: ContractCallKind;
   target: string | null;
   /** Several are AMBIGUOUS; none carry `unresolved_reason`. */
-  callees: CallCallee[];
+  callees: DispatchCandidate[];
   unresolved_reason: UnresolvedReason | null;
   via: string | null;
   /** A try statement guards the call. */
@@ -117,7 +116,7 @@ export interface Connections {
 
 export interface RouteCall {
   call: ContractCall;
-  callee: CallCallee;
+  callee: DispatchCandidate;
   /** The first step, or the previous step's code reaches the call inside the contract. */
   recorded: boolean;
 }
@@ -438,7 +437,7 @@ export interface MapRelationship {
   call_count: number;
   dispatch_candidates?: DispatchCandidate[];
   unresolved_reason?: UnresolvedReason;
-  basis: Basis | null;
+  basis: LinkBasis | null;
   tag: RelationTag | null;
   via_state_vars: string[];
 }

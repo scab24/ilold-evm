@@ -1,10 +1,10 @@
-import type { Basis, ContractLink, RelationTag } from '$lib/api/rest';
+import type { Basis, ContractLink, LinkBasis, RelationTag } from '$lib/api/rest';
 
 export const LINK_COLOR = '#7ee787';
 export const AMBIGUOUS_COLOR = '#f0b72f';
 
-/** Stroke dash per basis: inheritance solid, selector match dashed, self dotted. */
-export const BASIS_DASH: Record<Basis, string> = {
+/** Stroke dash per link basis: inheritance solid, selector match dashed, self dotted. */
+export const BASIS_DASH: Record<LinkBasis, string> = {
   inherits_interface: '',
   selector_match: '6 4',
   self: '2 3',
@@ -14,6 +14,7 @@ export const BASIS_LABEL: Record<Basis, string> = {
   inherits_interface: 'inherits interface',
   selector_match: 'selector match',
   self: 'this call',
+  library: 'library',
 };
 
 export function tagColor(tag: RelationTag): string {

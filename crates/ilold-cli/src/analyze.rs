@@ -108,9 +108,8 @@ pub fn run_deps(path: &Path, contract: Option<&str>, include_dependencies: bool)
 
     if let Some(name) = contract {
         let name = resolve_contract(&project, name)?.key();
-        let deps = &all;
-        crate::deps_view::print_direction(name, false, crate::deps_view::dep_rows(&deps, name, false));
-        crate::deps_view::print_direction(name, true, crate::deps_view::dep_rows(&deps, name, true));
+        crate::deps_view::print_direction(name, false, crate::deps_view::dep_rows(&all, name, false));
+        crate::deps_view::print_direction(name, true, crate::deps_view::dep_rows(&all, name, true));
         return Ok(());
     }
 

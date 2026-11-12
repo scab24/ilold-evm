@@ -28,6 +28,32 @@ fn pairs(list: &[(&str, usize)]) -> Vec<(String, usize)> {
     list.iter().map(|(c, n)| (c.to_string(), *n)).collect()
 }
 
+/// Every field of the connections of Hook; `ROOT` is the fixture directory.
+const HOOK: &str = r#"{
+  "contract": "Hook",
+  "outgoing": [],
+  "incoming": [{"contract": "Curve", "calls": [
+        {"in_context": "Curve", "function": "CurveBase::_graduate", "span": {"file_index": 1, "start_line": 27, "start_col": 9, "end_line": 27, "end_col": 63}, "kind": "call", "target": "IHook::migrate", "callees": [{"function": "Hook::migrate", "contract": "Hook", "basis": "inherits_interface", "tag": "INFERRED"}],
+         "unresolved_reason": null, "via": "CurveBase::hook", "in_try": false, "transfers": ["CurveBase::_graduate#0"], "file": "ROOT/src/Curve.sol"},
+        {"in_context": "Curve", "function": "CurveBase::_graduate", "span": {"file_index": 1, "start_line": 27, "start_col": 52, "end_line": 27, "end_col": 62}, "kind": "read", "target": "IHook::fee", "callees": [{"function": "Hook::fee", "contract": "Hook", "basis": "inherits_interface", "tag": "INFERRED"}],
+         "unresolved_reason": null, "via": "CurveBase::hook", "in_try": false, "transfers": [], "file": "ROOT/src/Curve.sol"}]}],
+  "unresolved": [
+        {"in_context": "Hook", "function": "Hook::migrate", "span": {"file_index": 3, "start_line": 35, "start_col": 9, "end_line": 35, "end_col": 43}, "kind": "call", "target": "IPoolManager::unlock", "callees": [],
+         "unresolved_reason": "out_of_scope_interface", "via": "Hook::manager", "in_try": false, "transfers": [], "file": "ROOT/src/Parts.sol"},
+        {"in_context": "Hook", "function": "Hook::migrate", "span": {"file_index": 3, "start_line": 36, "start_col": 9, "end_line": 36, "end_col": 40}, "kind": "call", "target": "IPoolManager::settle", "callees": [],
+         "unresolved_reason": "out_of_scope_interface", "via": "Hook::manager", "in_try": false, "transfers": ["Hook::migrate#0"], "file": "ROOT/src/Parts.sol"}],
+  "assignments": [{"state_var": "Hook::manager", "function": "Hook::constructor", "span": {"file_index": 3, "start_line": 31, "start_col": 9, "end_line": 31, "end_col": 27}, "expr_text": "manager_", "kind": "constructor_param"}],
+  "transfers": [
+        {"id": "CurveBase::_graduate#0", "function": "CurveBase::_graduate", "in_context": "Curve", "modifier": null, "span": {"file_index": 1, "start_line": 27, "start_col": 9, "end_line": 27, "end_col": 63},
+         "asset_kind": "native", "asset_candidates": [], "operation": "call", "direction": "out", "token_expr": null, "from_expr": null, "to_expr": "hook",
+         "amount_expr": "address(this).balance", "id_expr": null, "call": "hook.migrate", "via_library": null, "tag": "EXTRACTED", "reason": null},
+        {"id": "Hook::migrate#0", "function": "Hook::migrate", "in_context": "Hook", "modifier": null, "span": {"file_index": 3, "start_line": 36, "start_col": 9, "end_line": 36, "end_col": 40},
+         "asset_kind": "native", "asset_candidates": [], "operation": "call", "direction": "out", "token_expr": null, "from_expr": null, "to_expr": "manager",
+         "amount_expr": "amount", "id_expr": null, "call": "manager.settle", "via_library": null, "tag": "EXTRACTED", "reason": null}],
+  "outgoing_calls": 0,
+  "incoming_calls": 2
+}"#;
+
 #[tokio::test]
 async fn connections_list_the_calls_of_the_running_contract_and_into_it() {
     let port = server().await;
@@ -52,9 +78,9 @@ async fn connections_list_the_calls_of_the_running_contract_and_into_it() {
     assert_eq!(curve["unresolved"], json!([]));
 
     let hook = ok(port, "/contract/Hook/connections").await;
-    assert_eq!(groups(&hook["incoming"]), pairs(&[("Curve", 2)]), "the abstract CurveBase runs only inside Curve");
-    let unresolved = &hook["unresolved"][0];
-    assert_eq!((&unresolved["target"], &unresolved["unresolved_reason"]), (&json!("IPoolManager::unlock"), &json!("out_of_scope_interface")));
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/connections").canonicalize().unwrap();
+    let expected: Value = serde_json::from_str(&HOOK.replace("ROOT", &root.display().to_string())).unwrap();
+    assert_eq!(hook, expected, "the abstract CurveBase calls Hook only inside Curve");
     assert_eq!(get(port, "/contract/Nope/connections").await.0, 404);
 }
 
@@ -113,10 +139,18 @@ async fn value_flow_pairs_the_parties_the_code_resolves() {
 
     let all = ok(port, "/project/value-flow").await;
     assert_eq!(all["contract"], Value::Null);
-    let found = flow(&all);
-    for expected in [row("Router", "Router", "Curve", "native"), row("Curve", "Token", "`to`", "erc20"), row("Curve", "Curve", "`to`", "erc20"), row("Curve", "Curve", "`payable(to)`", "native")] {
-        assert!(found.contains(&expected), "{expected:?} in {found:#?}");
-    }
+    assert_eq!(
+        flow(&all),
+        vec![
+            row("Curve", "Curve", "Hook", "native"),
+            row("Curve", "Curve", "`payable(to)`", "native"),
+            row("Curve", "Curve", "`to`", "erc20"),
+            row("Curve", "Token", "`to`", "erc20"),
+            row("Hook", "Hook", "declared IPoolManager", "native"),
+            row("Router", "Router", "Curve", "native"),
+        ],
+        "every pair of every deployed contract, no CurveBase or Payout context"
+    );
     assert_eq!(get(port, "/project/value-flow?contract=Nope").await.0, 404);
 }
 
