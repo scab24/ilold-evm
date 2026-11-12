@@ -66,4 +66,9 @@ impl ContractDef {
     pub fn is_deployable(&self) -> bool {
         self.kind == ContractKind::Contract && !self.is_free_functions()
     }
+
+    /// A project contract that gets deployed: only its code calls, pays and is routed through on its own.
+    pub fn is_project_deployable(&self) -> bool {
+        !self.is_dependency && self.is_deployable()
+    }
 }

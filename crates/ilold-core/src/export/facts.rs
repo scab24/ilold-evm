@@ -147,7 +147,7 @@ impl<'p> Builder<'p> {
         let (project, analysis) = (self.project, self.analysis);
         let mut units = Vec::new();
         let mut covered = BTreeSet::new();
-        for context in project.project_contracts().filter(|c| c.is_deployable()) {
+        for context in project.contracts.iter().filter(|c| c.is_project_deployable()) {
             let Some(sequence) = analysis.sequence_analyses.get(context.key()) else { continue };
             for behavior in &sequence.functions {
                 let Some(owner) = self.contract(&behavior.owner) else { continue };
@@ -192,7 +192,7 @@ impl<'p> Builder<'p> {
         }
         for c in self.project.contracts.iter().filter(|c| !c.is_free_functions()) {
             self.inherits(c);
-            if !c.is_dependency && c.is_deployable() {
+            if c.is_project_deployable() {
                 self.exposes(c);
                 self.phases(c);
             }

@@ -1347,27 +1347,7 @@
       "visibility": "Internal"
     }
   ],
-  "incoming_links": [
-    {
-      "basis": "self",
-      "calls": [
-        {
-          "function": "TryCatch::swallow",
-          "span": {
-            "end_col": 37,
-            "end_line": 46,
-            "file_index": 0,
-            "start_col": 13,
-            "start_line": 46
-          }
-        }
-      ],
-      "from_contract": "TryCatch",
-      "tag": "INFERRED",
-      "to_contract": "TryCatch",
-      "via_state_vars": []
-    }
-  ],
+  "incoming_links": [],
   "inherit_keys": [],
   "inherited_functions": [],
   "inherited_state_vars": [],

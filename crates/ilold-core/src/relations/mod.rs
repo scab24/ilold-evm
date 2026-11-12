@@ -173,7 +173,7 @@ pub struct Connections {
     pub contract: String,
     /// By key of the contract that may answer: `this` calls under the contract itself, library calls under the library.
     pub outgoing: Vec<ConnectionGroup>,
-    /// By key of every other running contract whose calls it may answer.
+    /// By key of every other deployed contract whose calls it may answer.
     pub incoming: Vec<ConnectionGroup>,
     /// Calls nothing in the project answers, with their reason.
     pub unresolved: Vec<ContractCall>,
@@ -193,8 +193,10 @@ pub struct Relations {
     pub calls: Vec<ContractCall>,
     /// Every function's facts in each contract that runs it, sorted by context, then function, then position.
     pub values: ValueFacts,
-    /// Project contracts only, sorted by context, then the parties.
+    /// Deployed project contracts only, sorted by context, then the parties.
     pub value_pairs: Vec<ValuePair>,
+    /// Keys of the project contracts that get deployed, sorted; only their calls reach other contracts.
+    pub deployed: Vec<String>,
 }
 
 /// `context` runs `func`, declared in `owner`, as `cfg`.
@@ -248,6 +250,8 @@ impl Relations {
     pub fn build(project: &Project, cfgs: &HashMap<(String, String), CfgGraph>) -> Self {
         let units = running(project, cfgs);
         let mut relations = dispatch::build(project, &units);
+        relations.deployed = project.contracts.iter().filter(|c| c.is_project_deployable()).map(|c| c.key().to_string()).collect();
+        relations.deployed.sort();
         (relations.values, relations.value_pairs) = value::build(project, &units, &relations);
         relations
     }
@@ -270,6 +274,10 @@ impl Relations {
 
     pub fn outgoing<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractLink> {
         self.links.iter().filter(move |l| l.from_contract == contract)
+    }
+
+    pub fn deploys(&self, contract: &str) -> bool {
+        self.deployed.binary_search_by(|k| k.as_str().cmp(contract)).is_ok()
     }
 
     /// The calls the code `context` runs makes, its inherited code included.
@@ -299,15 +307,15 @@ impl Relations {
         self.values(context.key(), &format!("{}::{}", owner.key(), func.key))
     }
 
-    /// The calls `contract` may answer, from every contract running the calling code.
+    /// The calls `contract` may answer, from every other deployed contract running the calling code.
     pub fn calls_into<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractCall> {
-        self.calls.iter().filter(move |c| c.callees.iter().any(|d| d.contract == contract))
+        self.calls.iter().filter(move |c| c.in_context != contract && self.deploys(&c.in_context) && c.callees.iter().any(|d| d.contract == contract))
     }
 
     pub fn connections(&self, contract: &str) -> Connections {
         let made = self.calls_from(contract);
         let outgoing = groups(made.iter().flat_map(|c| c.callees.iter().map(move |d| (d.contract.as_str(), c))));
-        let incoming = groups(self.calls_into(contract).filter(|c| c.in_context != contract).map(|c| (c.in_context.as_str(), c)));
+        let incoming = groups(self.calls_into(contract).map(|c| (c.in_context.as_str(), c)));
         let mut vias: Vec<&str> = made.iter().filter_map(|c| c.via.as_deref()).collect();
         vias.sort_unstable();
         vias.dedup();
@@ -320,7 +328,7 @@ impl Relations {
         }
     }
 
-    /// The links the calls of the code `contract` runs add up to, and those of the calls into it from every running contract.
+    /// The links the calls of the code `contract` runs add up to, and those of the calls into it from every other deployed contract.
     pub fn context_links(&self, contract: &str) -> (Vec<ContractLink>, Vec<ContractLink>) {
         let incoming = dispatch::links(self.calls_into(contract)).into_iter().filter(|l| l.to_contract == contract).collect();
         (dispatch::links(self.calls_from(contract)), incoming)

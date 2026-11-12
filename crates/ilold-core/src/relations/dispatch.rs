@@ -228,7 +228,7 @@ fn implementations(project: &Project, declared: &ContractDef, member: &str) -> V
     let Some(selector) = selector else { return Vec::new() };
     let mut inheriting = Vec::new();
     let mut matching = Vec::new();
-    for c in project.project_contracts().filter(|c| c.is_deployable()) {
+    for c in project.contracts.iter().filter(|c| c.is_project_deployable()) {
         let Some(answer) = answering(project, c, selector) else { continue };
         let inherits = project.linearization(c).iter().any(|base| base.key() == declared.key());
         let (list, basis) = if inherits { (&mut inheriting, Basis::InheritsInterface) } else { (&mut matching, Basis::SelectorMatch) };

@@ -50,7 +50,7 @@ async fn connections_list_the_calls_of_the_running_contract_and_into_it() {
     assert_eq!(curve["unresolved"], json!([]));
 
     let hook = ok(port, "/contract/Hook/connections").await;
-    assert_eq!(groups(&hook["incoming"]), pairs(&[("Curve", 2), ("CurveBase", 2)]));
+    assert_eq!(groups(&hook["incoming"]), pairs(&[("Curve", 2)]), "the abstract CurveBase runs only inside Curve");
     let unresolved = &hook["unresolved"][0];
     assert_eq!((&unresolved["target"], &unresolved["unresolved_reason"]), (&json!("IPoolManager::unlock"), &json!("out_of_scope_interface")));
     assert_eq!(get(port, "/contract/Nope/connections").await.0, 404);
@@ -104,9 +104,9 @@ async fn value_flow_pairs_the_parties_the_code_resolves() {
     let port = server().await;
     let row = |c: &str, from: &str, to: &str, asset: &str| (c.to_string(), from.to_string(), to.to_string(), asset.to_string(), 1);
     let hook = ok(port, "/project/value-flow?contract=Hook").await;
-    assert_eq!(flow(&hook), vec![row("Curve", "Curve", "Hook", "native"), row("CurveBase", "CurveBase", "Hook", "native")]);
+    assert_eq!(flow(&hook), vec![row("Curve", "Curve", "Hook", "native")]);
     let transfers: Vec<(&str, &str)> = hook["transfers"].as_array().unwrap().iter().map(|t| (t["in_context"].as_str().unwrap(), t["call"].as_str().unwrap())).collect();
-    assert_eq!(transfers, vec![("Curve", "hook.migrate"), ("CurveBase", "hook.migrate")]);
+    assert_eq!(transfers, vec![("Curve", "hook.migrate")]);
 
     let all = ok(port, "/project/value-flow").await;
     let found = flow(&all);
@@ -127,7 +127,7 @@ async fn the_contract_detail_reads_inherited_code_as_the_contract_runs_it() {
     assert_eq!(to, vec!["DenA", "DenB", "Hook", "Token"]);
     let hook = ok(port, "/contract/Hook").await;
     let from: Vec<&str> = hook["incoming_links"].as_array().unwrap().iter().map(|l| l["from_contract"].as_str().unwrap()).collect();
-    assert_eq!(from, vec!["Curve", "CurveBase"]);
+    assert_eq!(from, vec!["Curve"]);
     let narrative = ok(port, "/session/function/Curve/_graduate").await;
     assert_eq!(narrative["value_transfers"][0]["in_context"], "Curve");
 }

@@ -68,7 +68,8 @@ fn resolved_calls_mints_and_burns_name_the_contract_on_the_other_side() {
     }
     let analysis = analysis_of(&root);
     fs::remove_dir_all(&root).unwrap();
-    for context in ["Payer", "Shop"] {
+    assert_eq!(pairs(&analysis, "Payer"), vec![], "the abstract Payer is never deployed, so it pays no one");
+    for context in ["Shop"] {
         let (me, sink, token) = (contract(context), contract("Sink"), contract("Token"));
         let (payee, minted_to) = (expression("payable(msg.sender)"), expression("msg.sender"));
         let mut expected = vec![
@@ -172,12 +173,13 @@ fn value_flow_lists_the_pairs_touching_a_contract_with_their_transfers() {
 
     let sink = relations.value_flow(Some("Sink"));
     let sides: Vec<(&str, &Party, &Party)> = sink.pairs.iter().map(|p| (p.in_context.as_str(), &p.from, &p.to)).collect();
-    assert_eq!(sides, vec![("Payer", &contract("Payer"), &contract("Sink")), ("Shop", &contract("Shop"), &contract("Sink"))]);
-    assert_eq!(sink.transfers.len(), 2);
+    assert_eq!(sides, vec![("Shop", &contract("Shop"), &contract("Sink"))]);
+    assert_eq!(sink.transfers.len(), 1);
     assert!(sink.transfers.iter().all(|t| t.call == "sink.fund"), "{:#?}", sink.transfers);
 
     let shop = relations.value_flow(Some("Shop"));
     assert!(shop.pairs.iter().all(|p| p.in_context == "Shop") && shop.pairs.len() == 4, "{:#?}", shop.pairs);
-    assert_eq!(relations.value_flow(Some("Token")).pairs.len(), 4, "paid and minting in both running contracts");
+    assert_eq!(relations.value_flow(Some("Token")).pairs.len(), 2, "paid and minting in the deployed contract");
+    assert!(relations.value_flow(Some("Payer")).pairs.is_empty(), "the abstract Payer runs only inside Shop");
     assert!(relations.value_flow(Some("Nobody")).pairs.is_empty());
 }

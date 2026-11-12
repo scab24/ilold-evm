@@ -181,7 +181,9 @@ interactive graph on the web canvas.
 Lists the calls between a contract — the current one, or the named one — and
 other contracts, function to function, as the contract runs its code: inherited
 functions and base constructors are included, so a call an abstract base makes
-is listed under every contract that inherits it.
+is listed under every contract that inherits it. Only deployed contracts call
+others on their own: an abstract contract or a library is never listed under
+`called by`, though `links` on it still lists its own calls.
 
 - **calls** — the calls it makes, grouped by the contract that may answer. A
   call through an interface several contracts implement is one row, listed under
@@ -228,8 +230,8 @@ declaring contract (`CurveBase::_graduate`).
 
 `route <from> <to> [--reads]`
 
-Prints the shortest chains of calls from one contract to another, step by step,
-with every call of each step. Library and `this` calls are not followed; reads
+Prints the shortest chains of calls from one contract to another through
+deployed contracts, step by step, with every call of each step. Library and `this` calls are not followed; reads
 are followed only with `--reads`. A call marked `not recorded from the previous
 step` joins the route by contract only: nothing records the previous step's
 callee reaching it inside the contract. When more than 32 routes are equally
@@ -251,8 +253,8 @@ ilold[Curve]> route Router Hook
 
 `value [contract]`
 
-Who pays whom: the value moves of every project contract, grouped per running
-contract by the two sides, the asset and the token. A side is a contract only
+Who pays whom: the value moves of every deployed project contract, grouped per
+running contract by the two sides, the asset and the token. A side is a contract only
 where the code resolves one — the contract running the code, the contract a
 call with value or a mint or burn goes to, or a contract outside the project
 the call is typed as, such as a pool manager (`(outside the project)`); any
@@ -263,13 +265,11 @@ the moves it runs or is a side of are listed.
 ```
 ilold[Curve]> value
 
-  Value flow  5 pair(s), 5 transfer(s)
+  Value flow  4 pair(s), 4 transfer(s)
     as Curve runs
       Curve → Hook  native  ×1  CurveBase::_graduate
       Curve → `payable(to)`  native  ×1  buy
       Token → `to`  erc20 token  ×1  buy
-    as CurveBase runs
-      CurveBase → Hook  native  ×1  _graduate
     as Router runs
       Router → Curve  native  ×1  buyWith
 ```

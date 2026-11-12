@@ -142,18 +142,17 @@ fn dependency_code_is_no_running_context_of_its_own() {
 }
 
 #[test]
-fn incoming_calls_come_from_every_contract_running_the_caller() {
+fn incoming_calls_come_from_every_deployed_contract_running_the_caller() {
     let into_vault: Vec<(&str, &str, ContractCallKind)> =
         analysis().relations.calls_into("Vault").map(|c| (c.in_context.as_str(), c.function.as_str(), c.kind)).collect();
     assert_eq!(
         into_vault,
-        vec![
-            ("Base", "Base::pay", ContractCallKind::Call),
-            ("Base", "Base::pay", ContractCallKind::Read),
-            ("Router", "Base::pay", ContractCallKind::Call),
-            ("Router", "Base::pay", ContractCallKind::Read),
-        ]
+        vec![("Router", "Base::pay", ContractCallKind::Call), ("Router", "Base::pay", ContractCallKind::Read)],
+        "the abstract Base is never deployed, so it calls nothing on its own"
     );
+    assert_eq!(rows("Base").len(), 6, "an abstract contract viewed directly keeps its own calls");
+    assert!(routes(&analysis().relations, &analysis().call_graphs, "Base", "Vault", true).routes.is_empty());
+    assert_eq!(routes(&analysis().relations, &analysis().call_graphs, "Router", "Vault", false).routes.len(), 1);
 }
 
 #[test]
@@ -340,7 +339,9 @@ fn connections_group_the_running_contract_calls_by_the_other_contract() {
 
     let vault = analysis().relations.connections("Vault");
     assert!(vault.outgoing.is_empty() && vault.unresolved.is_empty());
-    assert_eq!(groups(&vault.incoming), vec![("Base", 2), ("Router", 2)]);
+    assert_eq!(groups(&vault.incoming), vec![("Router", 2)]);
+    let base = analysis().relations.connections("Base");
+    assert_eq!(groups(&base.outgoing), vec![("Base", 1), ("ExtLib", 1), ("Fees", 1), ("HookA", 1), ("HookB", 1), ("Vault", 2)]);
 }
 
 #[test]
@@ -372,9 +373,9 @@ fn context_links_add_up_the_calls_each_running_contract_makes() {
             ("Router".into(), "Vault".into(), 2, Tag::Inferred),
         ]
     );
-    assert_eq!(summary(incoming), vec![("Router".into(), "Router".into(), 1, Tag::Inferred)]);
+    assert_eq!(summary(incoming), vec![], "its own self call is not incoming");
     let (_, into_vault) = relations.context_links("Vault");
-    assert_eq!(summary(into_vault), vec![("Base".into(), "Vault".into(), 2, Tag::Inferred), ("Router".into(), "Vault".into(), 2, Tag::Inferred)]);
+    assert_eq!(summary(into_vault), vec![("Router".into(), "Vault".into(), 2, Tag::Inferred)]);
     let (base, _) = relations.context_links("Base");
     assert_eq!(base, relations.outgoing("Base").cloned().collect::<Vec<_>>(), "a contract running only its own code adds up to its links");
 }

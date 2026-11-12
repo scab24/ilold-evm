@@ -73,30 +73,6 @@
       "from": {
         "kind": "contract",
         "name": [
-          "CurveBase"
-        ]
-      },
-      "functions": [
-        "CurveBase::_graduate"
-      ],
-      "in_context": "CurveBase",
-      "reason": null,
-      "to": {
-        "kind": "contract",
-        "name": [
-          "Hook"
-        ]
-      },
-      "token_expr": null,
-      "transfers": [
-        "CurveBase::_graduate#0"
-      ]
-    },
-    {
-      "asset_kind": "native",
-      "from": {
-        "kind": "contract",
-        "name": [
           "Router"
         ]
       },
@@ -181,32 +157,6 @@
       "id": "CurveBase::_graduate#0",
       "id_expr": null,
       "in_context": "Curve",
-      "modifier": null,
-      "operation": "call",
-      "reason": null,
-      "span": {
-        "end_col": 63,
-        "end_line": 26,
-        "file_index": 1,
-        "start_col": 9,
-        "start_line": 26
-      },
-      "tag": "EXTRACTED",
-      "to_expr": "hook",
-      "token_expr": null,
-      "via_library": null
-    },
-    {
-      "amount_expr": "address(this).balance",
-      "asset_candidates": [],
-      "asset_kind": "native",
-      "call": "hook.migrate",
-      "direction": "out",
-      "from_expr": null,
-      "function": "CurveBase::_graduate",
-      "id": "CurveBase::_graduate#0",
-      "id_expr": null,
-      "in_context": "CurveBase",
       "modifier": null,
       "operation": "call",
       "reason": null,

@@ -44,11 +44,11 @@ pub struct Routes {
     pub truncated: bool,
 }
 
-/// The shortest routes from `from` to `to` following calls, and reads when asked; library and self calls stay out.
+/// The shortest routes from `from` to `to` through deployed contracts following calls, and reads when asked; library and self calls stay out.
 pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, from: &str, to: &str, include_reads: bool) -> Routes {
     let follows = |c: &ContractCall| c.kind == ContractCallKind::Call || (include_reads && c.kind == ContractCallKind::Read);
     let mut graph: DiGraphMap<&str, ()> = DiGraphMap::new();
-    for call in relations.calls.iter().filter(|c| follows(c)) {
+    for call in relations.calls.iter().filter(|c| follows(c) && relations.deploys(&c.in_context)) {
         for callee in call.callees.iter().filter(|d| d.contract != call.in_context) {
             graph.add_edge(call.in_context.as_str(), callee.contract.as_str(), ());
         }

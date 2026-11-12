@@ -280,27 +280,7 @@
       "visibility": "External"
     }
   ],
-  "incoming_links": [
-    {
-      "basis": "self",
-      "calls": [
-        {
-          "function": "Router::run",
-          "span": {
-            "end_col": 53,
-            "end_line": 34,
-            "file_index": 3,
-            "start_col": 37,
-            "start_line": 34
-          }
-        }
-      ],
-      "from_contract": "Router",
-      "tag": "INFERRED",
-      "to_contract": "Router",
-      "via_state_vars": []
-    }
-  ],
+  "incoming_links": [],
   "inherit_keys": [],
   "inherited_functions": [],
   "inherited_state_vars": [],

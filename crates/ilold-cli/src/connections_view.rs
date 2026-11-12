@@ -220,7 +220,7 @@ mod tests {
         let flow = analysis().relations.value_flow(Some("Hook"));
         let text = value(Some("Hook"), &flow);
         assert_eq!(text, value(Some("Hook"), &attached!(flow)));
-        assert!(text.contains("Value flow of Hook") && text.contains("2 pair(s), 2 transfer(s)"), "{text}");
+        assert!(text.contains("Value flow of Hook") && text.contains("1 pair(s), 1 transfer(s)"), "{text}");
         assert!(text.contains("as Curve runs") && text.contains("Curve → Hook  native  ×1  CurveBase::_graduate"), "{text}");
         let all = value(None, &analysis().relations.value_flow(None));
         assert!(all.contains("Curve → `payable(to)`  native") && all.contains("Token → `to`  erc20"), "{all}");

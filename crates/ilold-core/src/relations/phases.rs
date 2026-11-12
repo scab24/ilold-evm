@@ -46,7 +46,7 @@ impl PhaseCandidate {
 
 /// The phase candidates of a deployable project contract, by state variable; `behaviors` are the contract's own.
 pub fn phase_candidates(project: &Project, context: &ContractDef, behaviors: &[FunctionBehavior]) -> Vec<PhaseCandidate> {
-    if context.is_dependency || !context.is_deployable() {
+    if !context.is_project_deployable() {
         return Vec::new();
     }
     let entries: Vec<(&ContractDef, &FunctionDef)> =
