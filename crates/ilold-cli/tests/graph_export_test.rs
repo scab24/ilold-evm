@@ -618,19 +618,23 @@ const V1_0_KINDS: &[&str] = &[
     "guards", "builtin_use", "unchecked_block", "uses_modifier", "opaque_assembly", "inherits", "exposes",
 ];
 
-#[test]
-fn existing_fixtures_keep_every_1_0_record() {
+/// The fixtures whose export differs from `pinned`, each with what it gives now.
+fn changed_exports(
+    pinned: &[(&str, i32, usize, &str, &str)],
+    kinds: &[&str],
+    as_pinned: fn(&Value) -> Value,
+) -> Vec<String> {
     let found: Vec<(&str, i32, usize, String, String)> = std::thread::scope(|scope| {
-        let runs: Vec<_> = V1_0_EXPORTS
+        let runs: Vec<_> = pinned
             .iter()
             .enumerate()
             .map(|(i, (path, code, ..))| {
                 scope.spawn(move || {
-                    let records: Vec<Value> = export(&repo().join(path), &format!("baseline-{i}"), *code)
+                    let records: Vec<Value> = export(&repo().join(path), &format!("baseline-{}-{i}", kinds[0]), *code)
                         .into_iter()
                         .skip(1)
-                        .filter(|r| V1_0_KINDS.contains(&r["kind"].as_str().unwrap_or_default()))
-                        .map(|r| as_1_0(&r))
+                        .filter(|r| kinds.contains(&r["kind"].as_str().unwrap_or_default()))
+                        .map(|r| as_pinned(&r))
                         .collect();
                     let mut ids: Vec<String> = records.iter().map(|r| r["id"].as_str().unwrap().to_string()).collect();
                     let mut lines: Vec<String> = records.iter().map(Value::to_string).collect();
@@ -642,13 +646,57 @@ fn existing_fixtures_keep_every_1_0_record() {
             .collect();
         runs.into_iter().map(|run| run.join().unwrap()).collect()
     });
-    let changed: Vec<String> = found
+    found
         .iter()
-        .zip(V1_0_EXPORTS)
+        .zip(pinned)
         .filter(|((p, c, n, i, r), e)| (*p, *c, *n, i.as_str(), r.as_str()) != **e)
         .map(|(f, _)| format!("{f:?}"))
-        .collect();
+        .collect()
+}
+
+#[test]
+fn existing_fixtures_keep_every_1_0_record() {
+    let changed = changed_exports(V1_0_EXPORTS, V1_0_KINDS, as_1_0);
     assert!(changed.is_empty(), "exports differ from schema 1.0:\n{}", changed.join("\n"));
+}
+
+/// Every fixture's records of the kinds schema 1.1 added, as 1.1 wrote them, pinned like `V1_0_EXPORTS`.
+const V1_1_EXPORTS: &[(&str, i32, usize, &str, &str)] = &[
+    ("tests/fixtures/erc20", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/foundry_config", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/governor", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/multi", 0, 1, "992153ace514f463f24d5a8deb985a3b891d18ba7c01b3f2bb85b35659e6db15", "c50b550bd122efbfdf59fbc8051003545f3fa3b9f87eed431d6e1bd988ea87dc"),
+    ("tests/fixtures/nested_remappings", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/simple_storage", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/access", 0, 1, "deebbc7445f38326e4cec6de434aacf4e804522e7bf6819075ffc13f55603a8a", "3767abcac57fc74feb668df8902767b74197d85253ea0099a5d4051bea0d4c95"),
+    ("tests/fixtures/solc/call_resolution", 0, 7, "b8028a93637f148f2aa1ec9dbe5e60619e09937ab43544dc6d99b86f43c66fbf", "ddc7e9cd27d42115042f540720ac0e0e36dd063cff2a51b4f562ac752b835a6a"),
+    ("tests/fixtures/solc/control_flow", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/cross", 0, 1, "039304fa4f77acb0772ba13ef6253901bd70a90a33b826bddf92e98c7356fbbf", "ea0fd983f0f1d12cbbb87697a0a7f93829181b3c5717b94e61edeef3550f171c"),
+    ("tests/fixtures/solc/dispatch", 0, 5, "4d5acf8d172bf3a96742102a60eb87872a71a14d195629142a5ce520f86e8660", "d349f618f9dc99466d6f340d7216725ed607269637a231e91fc7123dd5aed3ee"),
+    ("tests/fixtures/solc/entry_overload", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/export/broken_src", 4, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/export/kinds", 0, 1, "330a3b5057208a1b48e15420ab12e06b8145c03d1d01da4a28cd44a0a20aaa50", "07a523092cd814ed7f5e8376194ac58e0a3f610df4b57c8dc8055b3aad6002d9"),
+    ("tests/fixtures/solc/facts", 0, 6, "da4a5d431fe19e6976d123cae0693fe52381c7129f687c47d9689c2950408c56", "e88ca12908b8341b2f6e95853d2b2830af9c1b8d143100d407d29fd16ce42b58"),
+    ("tests/fixtures/solc/keys", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/model/broken_src", 4, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/model/default_pick", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/model/partial", 3, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/model/project", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/fixtures/solc/phases", 0, 4, "4a830990102e0b4c8d177b3d94171e0da26d82f78fa0275c9f3f22f0fcb29b83", "acda54ce140c9eec832272388dc8525c760951ae6d5ad0d8667a3e9f8cd87f6e"),
+    ("tests/fixtures/solc/state_flow", 0, 2, "69269f1dc0d0c195fbe686b62365b9124a3950f688d3b4ba6263d2bd29925508", "73b76a370d41f327211b4bf11dacfad91651f26306d4574807b9b3d54a0f8fcd"),
+    ("tests/fixtures/solc/statements", 0, 4, "c02f046d88ac63b7067c79753d83b34571bd15ade76cbd5e1ee96d97cb9964ca", "0a1b2efd7c142ffd1cd308419b59a5665d815c62ff5f8dadcd75646d0c69b7bd"),
+    ("tests/fixtures/solc/trycatch", 0, 9, "f91e21e38e7b4709f640ee035a3b16d1eee807e720a11f423405831f6b49ca54", "ea77cdfda5f66dc4e81d302919282bdf08b493cc27ab240eaddabee39f9b5cf4"),
+    ("tests/fixtures/solc/value", 0, 48, "2ddabd68e3532be5c2ca4366b46c13ab55b7c1c94989c34aa8b9a5d647e6dcc8", "2ceadee887df9f32b7f30b702bf25c5dfb2e7779cfea8728d4c681e9b49d52cc"),
+    ("tests/fixtures/staking", 0, 4, "a6179013e1045cca45291391b9897c4228640c905ed7796e0e7bab5bd9657db6", "92afd9795257c5a719fdd27465fe74c9589149b252b835b5a7e630118a9c18fb"),
+    ("tests/fixtures/uniswap_v2_pair", 0, 12, "72c8a98389ad4ff2d8c204576df644a15e8d2d5206c8c6d409234d1d8a2b9c25", "d4e3c38b9e55f2f593ef710e2aecdd2021c947b94fd14f1fc950fef889deef38"),
+];
+
+const V1_1_KINDS: &[&str] = &["contract_link", "try_catch", "value_transfer", "balance_read", "phase_candidate"];
+
+#[test]
+fn existing_fixtures_keep_every_1_1_record() {
+    let changed = changed_exports(V1_1_EXPORTS, V1_1_KINDS, Value::clone);
+    assert!(changed.is_empty(), "exports differ from schema 1.1:\n{}", changed.join("\n"));
 }
 
 const DISPATCH: &str = "tests/fixtures/solc/dispatch/src";
