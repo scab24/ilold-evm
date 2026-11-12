@@ -459,3 +459,37 @@ async fn phase_candidates_are_the_same_in_every_surface() {
     assert_eq!(mcp, exported, "ilold_contract_detail");
     assert_eq!(narrative, exported, "ilold_function_analysis");
 }
+
+/// The REPL reads these facts from the in-process analysis, or from the API when attached; the API and the MCP tools serialize the same values.
+#[tokio::test]
+async fn connections_routes_and_value_flow_are_the_same_in_every_surface() {
+    let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ilold-web/tests/fixtures/connections").canonicalize().unwrap();
+    let (state, port) = ilold_web::start_server(vec![project], 0, 2).await.unwrap();
+    let s = Surfaces { client: IloldClient::new(format!("http://127.0.0.1:{port}")), records: Vec::new() };
+    let relations = &state.relations;
+
+    let contracts: Vec<String> = s.web("/api/project").await["contracts"].as_array().unwrap().iter().map(|c| text(&c["name"])).collect();
+    let mut rows = 0;
+    for contract in &contracts {
+        let local = serde_json::to_value(relations.connections(contract)).unwrap();
+        assert_eq!(s.web(&format!("/api/contract/{contract}/connections")).await, local, "/connections {contract}");
+        assert_eq!(s.mcp("ilold_connections", serde_json::json!({"contract": contract})).await, local, "ilold_connections {contract}");
+        rows += local["outgoing"].as_array().unwrap().len();
+
+        let flow = serde_json::to_value(relations.value_flow(Some(contract))).unwrap();
+        assert_eq!(s.web(&format!("/api/project/value-flow?contract={contract}")).await, flow, "/value-flow {contract}");
+        assert_eq!(s.mcp("ilold_value_flow", serde_json::json!({"contract": contract})).await, flow, "ilold_value_flow {contract}");
+    }
+    assert!(rows > 0);
+    let flow = serde_json::to_value(relations.value_flow(None)).unwrap();
+    assert_eq!(flow["pairs"].as_array().unwrap().len(), relations.value_pairs.len());
+    assert_eq!(s.web("/api/project/value-flow").await, flow);
+    assert_eq!(s.mcp("ilold_value_flow", serde_json::json!({})).await, flow);
+
+    for (from, to, reads) in [("Router", "Hook", false), ("Router", "Hook", true), ("Hook", "Router", false)] {
+        let local = serde_json::to_value(ilold_core::relations::routes(relations, &state.call_graphs, from, to, reads)).unwrap();
+        assert_eq!(s.web(&format!("/api/project/route?from={from}&to={to}&reads={reads}")).await, local, "/route {from} {to} {reads}");
+        let args = serde_json::json!({"from": from, "to": to, "include_reads": reads});
+        assert_eq!(s.mcp("ilold_route", args).await, local, "ilold_route {from} {to} {reads}");
+    }
+}

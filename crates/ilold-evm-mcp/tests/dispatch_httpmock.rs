@@ -370,3 +370,48 @@ async fn dot_segments_are_rejected_before_any_request() {
     dispatch(&client, &current, "ilold_timeline", Some(&json!({ "variable": "x" }))).await;
     assert_eq!(any.hits(), 1, "a `..` query value is not a path segment");
 }
+
+#[tokio::test]
+async fn connection_route_and_value_flow_tools_route_to_their_endpoints() {
+    let server = MockServer::start();
+    let id = "src/a b/T&U.sol:T";
+    let connections = server.mock(|w, t| {
+        w.method(GET).path("/api/contract/src%2Fa%20b%2FT%26U.sol:T/connections");
+        t.status(200).json_body(json!({ "contract": id, "outgoing": [], "incoming": [], "unresolved": [], "assignments": [] }));
+    });
+    let route = server.mock(|w, t| {
+        w.method(GET).path("/api/project/route").query_param("from", id).query_param("to", "Hook").query_param("reads", "false");
+        t.status(200).json_body(json!({ "routes": [], "truncated": false }));
+    });
+    let route_reads = server.mock(|w, t| {
+        w.method(GET).path("/api/project/route").query_param("from", "Router").query_param("to", "Hook").query_param("reads", "true");
+        t.status(200).json_body(json!({ "routes": [], "truncated": false }));
+    });
+    let flow = server.mock(|w, t| {
+        w.method(GET).path("/api/project/value-flow").matches(|r| r.query_params.as_ref().is_none_or(Vec::is_empty));
+        t.status(200).json_body(json!({ "pairs": [], "transfers": [] }));
+    });
+    let flow_of = server.mock(|w, t| {
+        w.method(GET).path("/api/project/value-flow").query_param("contract", id);
+        t.status(200).json_body(json!({ "pairs": [], "transfers": [] }));
+    });
+    let client = IloldClient::new(server.base_url());
+    let current = Mutex::new(None::<String>);
+    let ok = |res: rmcp::model::CallToolResult| assert!(!res.is_error.unwrap_or(false), "{:?}", res.content);
+
+    ok(dispatch(&client, &current, "ilold_connections", Some(&json!({ "contract": id }))).await);
+    connections.assert();
+    ok(dispatch(&client, &current, "ilold_route", Some(&json!({ "from": id, "to": "Hook" }))).await);
+    route.assert();
+    ok(dispatch(&client, &current, "ilold_route", Some(&json!({ "from": "Router", "to": "Hook", "include_reads": true }))).await);
+    route_reads.assert();
+    ok(dispatch(&client, &current, "ilold_value_flow", None).await);
+    flow.assert();
+    ok(dispatch(&client, &current, "ilold_value_flow", Some(&json!({ "contract": id }))).await);
+    flow_of.assert();
+
+    for (tool, args) in [("ilold_connections", json!({})), ("ilold_route", json!({ "from": "Router" })), ("ilold_route", json!({ "to": "Hook" }))] {
+        assert_eq!(dispatch(&client, &current, tool, Some(&args)).await.is_error, Some(true), "{tool} {args}");
+    }
+    assert_eq!(connections.hits() + route.hits() + route_reads.hits(), 3, "no request without the required arguments");
+}

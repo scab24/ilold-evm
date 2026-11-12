@@ -26,8 +26,23 @@ pub fn build_tool_registry() -> Vec<Tool> {
             contract_schema(),
         ),
         tool(
+            "ilold_connections",
+            "Calls between one contract and others, function to function, as the contract runs its code (inherited functions and base constructors included). Each row: in_context, function (the caller as <contract>::<function key>), span, kind (call | read for a view or pure function or getter | library | self for this.f()), target (the member the source names), callees (candidates with function, contract, basis inherits_interface | selector_match | self | library and tag; several are AMBIGUOUS), unresolved_reason and via (the state variable holding the called address). outgoing groups its calls per contract that may answer (an ambiguous call is listed under each candidate), incoming the calls into it per calling running contract, unresolved the calls nothing in the project answers, assignments where the via variables are set.",
+            contract_schema(),
+        ),
+        tool(
+            "ilold_route",
+            "Shortest routes from one contract to another following calls (reads only with include_reads; library and this calls are not followed): routes, each a list of steps (from, to, calls with the call row, the callee of the step's target and recorded: false when nothing records the previous step's callee reaching the call inside the contract), and truncated when more than 32 equally short routes exist. An empty routes means no route.",
+            route_schema(),
+        ),
+        tool(
+            "ilold_value_flow",
+            "Who pays whom: pairs group the value transfers each project contract runs (in_context) by from and to, asset_kind, token_expr and reason, with the functions and transfer ids; transfers lists those transfers (identified by in_context and id). A side is {kind: contract, name: [keys]} for the running contract or the ones that may answer the call (several are AMBIGUOUS), {kind: declared, name} for a contract outside the project the call is typed as, or {kind: expression, name} for any other account as the source writes it; nothing is matched by variable name. With contract, only the pairs it runs or is a side of.",
+            optional_contract_schema(),
+        ),
+        tool(
             "ilold_contract_detail",
-            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, inherited members, and outgoing_links / incoming_links: the contracts it calls through interfaces and the ones that call it. Each function lists value_transfers (asset_kind native|erc20|erc721|erc1155|erc6909|unknown with asset_candidates, operation, direction in|out|other, token/from/to/amount/id expressions where a null from is the contract itself, via_library for a library helper called at that site, tag, reason) and balance_reads; value_flows sums the transfers by direction, asset, token and counterparty. phase_candidates lists the state variables (bool, enum, or uint compared with a constant) that two or more of its entry points test in a require, if or modifier condition and some entry point writes: state_var, type_name, guarded_functions, writers, condition_texts, span of the declaration, tag INFERRED.",
+            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, inherited members, and outgoing_links / incoming_links: the contract links of the calls the code it runs makes, inherited code included, and of the calls into it from every contract running the calling code. Each function lists, as this contract runs it, value_transfers (asset_kind native|erc20|erc721|erc1155|erc6909|unknown with asset_candidates, operation, direction in|out|other, token/from/to/amount/id expressions where a null from is the contract itself, via_library for a library helper called at that site, tag, reason) and balance_reads; value_flows sums the transfers by direction, asset, token and counterparty. phase_candidates lists the state variables (bool, enum, or uint compared with a constant) that two or more of its entry points test in a require, if or modifier condition and some entry point writes: state_var, type_name, guarded_functions, writers, condition_texts, span of the declaration, tag INFERRED.",
             contract_schema(),
         ),
         tool(
@@ -163,6 +178,27 @@ fn contract_schema() -> Value {
         "type": "object",
         "properties": { "contract": { "type": "string", "description": "Contract name, or its qualified id such as src/core/IToken.sol:IToken when several contracts share the name (an ambiguous name returns 409 with the candidate ids)" } },
         "required": ["contract"],
+        "additionalProperties": false
+    })
+}
+
+fn optional_contract_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "contract": { "type": "string", "description": "Contract name or qualified id; omit for the whole project" } },
+        "additionalProperties": false
+    })
+}
+
+fn route_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "from": { "type": "string", "description": "Contract the route starts at: name or qualified id" },
+            "to": { "type": "string", "description": "Contract the route ends at: name or qualified id" },
+            "include_reads": { "type": "boolean", "description": "Also follow calls to view and pure functions and getters (default false)" }
+        },
+        "required": ["from", "to"],
         "additionalProperties": false
     })
 }

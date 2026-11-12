@@ -37,12 +37,15 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 | `ilold_project_map` | — | Full topology: every contract, its functions and state variables, and the resolved cross-contract relationships, with dispatch candidates on external calls and the contract links (kind `ContractLink`). |
 | `ilold_dependency_graph` | — | Contract dependency graph (`inherits`, `calls`, `holds`, `dispatches` with its contract link) with topological layers and cycles. |
 | `ilold_contract_dependencies` | `contract` | Dependencies of one contract and its blast radius (what depends on it), contract links included. |
+| `ilold_route` | `from`, `to`, `include_reads` (optional) | Shortest routes from one contract to another following calls (reads only with `include_reads`), step by step with every call and its callee; `recorded: false` marks a call the previous step's code is not recorded to reach inside the contract. Same as [`GET /api/project/route`](./api-endpoints.md#get-apiprojectroute). |
+| `ilold_value_flow` | `contract` (optional) | Who pays whom: value pairs per running contract with their two sides (a project contract, a contract outside the project the call is typed as, or the account as the source writes it), asset and transfers; with `contract`, the pairs it runs or is a side of. Same as [`GET /api/project/value-flow`](./api-endpoints.md#get-apiprojectvalue-flow). |
 
 ### Structure (contract level)
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
 | `ilold_contract_detail` | `contract` | Functions (visibility, mutability, modifiers, params, path counts and `paths_truncated`), state variables, inheritance, inherited members. Each function lists `value_transfers` and `balance_reads`, and `value_flows` sums the transfers by direction, asset, token and counterparty, as [`GET /api/contract/{name}`](api-endpoints.md#get-apicontractname) returns them. `phase_candidates` lists the state variables that gate its entry points, with the functions they gate and their writers. |
+| `ilold_connections` | `contract` | Calls between the contract and others, function to function, as it runs its code (inherited functions and base constructors included): outgoing grouped per contract that may answer, incoming per calling contract, unresolved calls with their reason, and where the called addresses are set. Same as [`GET /api/contract/{name}/connections`](./api-endpoints.md#get-apicontractnameconnections). |
 | `ilold_entry_points` | `contract` | Functions the contract runs, own and inherited (`origin`, `is_inherited`), with their access level (`Public`, `Restricted`, `Special`, or `Internal` for the ones not callable from outside) and guards read from code: `kind` (`CallerEquals`, `RoleCheck`, `TxOrigin`, or `AccessByName` when only a modifier name was available; `Pause`, `Reentrancy`, `Initializer` for state guards), `condition`, `via`, `span`, `heuristic`, `scope` (`Conditional` for a check on some paths only, which never restricts), `negated` (a deny-list, which never restricts), `requires_caller` (every way to pass needs a caller test that must hold), `compared_against`, `checked_by`, `role`, `role_implied_by`, `account`, `alternatives` and `conjuncts` (the parts of an `||` or `&&` access check, which carry these fields; the compound guard leaves them empty) and `ambiguous`. |
 | `ilold_search` | `contract` | Searchable names in a contract: functions, state variables, events, external-call targets. |
 
@@ -92,7 +95,7 @@ Because the MCP drives the same server, the web canvas reflects what the agent d
 2. `ilold_entry_points` per contract to find the externally callable surface and what is access-gated.
 3. `ilold_function_analysis` and `ilold_trace` to study a function: its paths and its resolved external calls.
 4. `ilold_use` to focus on a contract, then `ilold_slice` and `ilold_session_call` to trace the data flow of inputs and build attack sequences.
-5. `ilold_contract_dependencies` to check the blast radius before judging a change.
+5. `ilold_contract_dependencies` and `ilold_connections` to check the blast radius before judging a change, `ilold_route` to see how one contract reaches another and `ilold_value_flow` to see who pays whom.
 6. `ilold_record_finding` and `ilold_export` to produce the deliverable.
 
 ## Notes
