@@ -14,18 +14,19 @@
   }
 
   let { icon, tone = '', title, meta, line = null, on = false, onclick, onsource }: Props = $props();
+  const parts = $derived(title.split(/(?<=[.,(])/));
 </script>
 
 <li class="li" class:on>
   {#if onclick}
     <button class="rb" type="button" {onclick} aria-pressed={on}>
       <Icon name={icon} class={tone} />
-      <span class="rb-body"><span class="rt" {title}>{title}</span>{#if meta}<span class="rs">{@render meta()}</span>{/if}</span>
+      <span class="rb-body"><span class="rt" {title}>{#each parts as part}{part}<wbr />{/each}</span>{#if meta}<span class="rs">{@render meta()}</span>{/if}</span>
     </button>
   {:else}
     <span class="rb">
       <Icon name={icon} class={tone} />
-      <span class="rb-body"><span class="rt" {title}>{title}</span>{#if meta}<span class="rs">{@render meta()}</span>{/if}</span>
+      <span class="rb-body"><span class="rt" {title}>{#each parts as part}{part}<wbr />{/each}</span>{#if meta}<span class="rs">{@render meta()}</span>{/if}</span>
     </span>
   {/if}
   {#if line !== null}
