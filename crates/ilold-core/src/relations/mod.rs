@@ -272,10 +272,6 @@ impl Relations {
         self.links.iter().filter(move |l| l.from_contract == contract)
     }
 
-    pub fn incoming<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractLink> {
-        self.links.iter().filter(move |l| l.to_contract == contract)
-    }
-
     /// The calls the code `context` runs makes, its inherited code included.
     pub fn calls_from(&self, context: &str) -> &[ContractCall] {
         let start = self.calls.partition_point(|c| c.in_context.as_str() < context);
