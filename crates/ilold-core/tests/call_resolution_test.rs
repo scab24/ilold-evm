@@ -406,6 +406,7 @@ fn clash_data() -> ilold_core::exploration::commands::AnalysisData<'static> {
         path_trees: &a.path_trees,
         behaviors: &sa.functions,
         all_sequence_analyses: &a.sequence_analyses,
+        relations: &a.relations,
     }
 }
 
@@ -444,6 +445,7 @@ fn session_call_by_bare_name_picks_the_callable_overload() {
         path_trees: &a.path_trees,
         behaviors: &a.sequence_analyses["EntryOverload"].functions,
         all_sequence_analyses: &a.sequence_analyses,
+        relations: &a.relations,
     };
     let mut session = ExplorationSession::new("EntryOverload", "t");
     let call = SessionCommand::Call { func: "add".into(), trace_config: None };

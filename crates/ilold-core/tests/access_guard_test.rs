@@ -355,6 +355,7 @@ fn session_lists_do_not_trust_behaviors_without_guards() {
         path_trees: &a.path_trees,
         behaviors: &behaviors,
         all_sequence_analyses: &a.sequence_analyses,
+        relations: &a.relations,
     };
     let mut session = ExplorationSession::new("Guards", "access");
     let CommandResult::FunctionList { functions } = execute_command(SessionCommand::Functions, &mut session, &data, "0") else {

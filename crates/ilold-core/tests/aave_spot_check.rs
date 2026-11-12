@@ -320,6 +320,7 @@ fn aave_state_flow() {
             path_trees: &analysis.path_trees,
             behaviors: &analysis.sequence_analyses["Pool"].functions,
             all_sequence_analyses: &analysis.sequence_analyses,
+            relations: &analysis.relations,
         };
         let mut session = ilold_core::exploration::session::ExplorationSession::new("Pool", "aave");
         execute_command(SessionCommand::Call { func: "supply".into(), trace_config: None }, &mut session, &data, "0");

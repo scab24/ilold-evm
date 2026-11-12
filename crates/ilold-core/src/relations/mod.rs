@@ -28,7 +28,7 @@ pub use phases::{phase_candidates, PhaseCandidate};
 pub use route::{routes, Route, RouteCall, RouteStep, Routes};
 pub use trycatch::{try_catches, CatchClauseFact, CatchEffects, CatchKind, EffectSite, GuardedCall, TryCatchFact, TryReason};
 pub use value::{
-    value_facts, value_flows, AssetKind, BalanceRead, Direction, Operation, Party, ValueFacts, ValueFlow, ValuePair, ValueReason, ValueTransfer,
+    value_flows, AssetKind, BalanceRead, Direction, Operation, Party, ValueFacts, ValueFlow, ValuePair, ValueReason, ValueTransfer,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

@@ -45,6 +45,7 @@ fn build_analysis_data<'a>(
         path_trees: &state.path_trees,
         behaviors: &seq_analysis.functions,
         all_sequence_analyses: &state.sequence_analyses,
+        relations: &state.relations,
     })
 }
 

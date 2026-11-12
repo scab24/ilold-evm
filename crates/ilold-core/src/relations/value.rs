@@ -423,12 +423,7 @@ fn balance_read(place: &Place, found: &Match, operands: &Operands, owner: Arg) -
     }
 }
 
-/// What `func`'s reachable code moves and reads, as `context` runs it, in source order.
-pub fn value_facts(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef, cfg: &CfgGraph) -> ValueFacts {
-    typed_value_facts(project, context, owner, func, cfg).0
-}
-
-/// The facts, and for each transfer the contracts outside the project its sender and receiver are typed as.
+/// What `func`'s reachable code moves and reads as `context` runs it, in source order, with the outside contracts each transfer's sides are typed as.
 fn typed_value_facts(
     project: &Project,
     context: &ContractDef,

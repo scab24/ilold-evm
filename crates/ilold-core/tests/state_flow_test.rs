@@ -538,6 +538,7 @@ fn session_state_lists_writes_made_through_library_calls() {
         path_trees: &a.path_trees,
         behaviors: &a.sequence_analyses["Pool"].functions,
         all_sequence_analyses: &a.sequence_analyses,
+        relations: &a.relations,
     };
     let mut session = ExplorationSession::new("Pool", "state_flow");
     let call = |func: &str| SessionCommand::Call { func: func.into(), trace_config: None };
@@ -583,6 +584,7 @@ fn session_state_does_not_repeat_call_writes_the_flow_tree_shows() {
             path_trees: &a.path_trees,
             behaviors: &a.sequence_analyses[name].functions,
             all_sequence_analyses: &a.sequence_analyses,
+            relations: &a.relations,
         };
         let mut session = ExplorationSession::new(name, "state_flow");
         let call = SessionCommand::Call { func: func.into(), trace_config: None };
