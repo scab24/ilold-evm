@@ -42,6 +42,8 @@ async fn ambiguous_contract_name_is_409_and_qualified_ids_select_one() {
             BTreeSet::from(["src/core/Token.sol:Token".to_string(), "src/ext/Token.sol:Token".to_string()]),
             "{route}"
         );
+        let listed = body["candidates"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect::<Vec<_>>().join(", ");
+        assert_eq!(body["error"], format!("Contract name 'Token' is ambiguous; use one of: {listed}"), "the REPL says the same: {route}");
     }
 
     let (status, core) = get(&client, format!("{base}/contract/{}", encode("src/core/IToken.sol:IToken"))).await;

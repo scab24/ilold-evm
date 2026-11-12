@@ -98,16 +98,11 @@ pub struct StateVarSummary {
 
 /// A key, a qualified id or an unambiguous bare name; an ambiguous name is a 409 with candidates.
 pub(crate) fn route_contract<'a>(state: &'a AppState, name: &str) -> Result<&'a ContractDef, ApiError> {
-    state.project.lookup_contract(name).map_err(|e| ApiError::from(match e {
-        ContractLookupError::NotFound => {
-            (StatusCode::NOT_FOUND, format!("Contract '{name}' not found")).into_response()
-        }
+    state.project.lookup_contract(name).map_err(|e| ApiError::from(match &e {
+        ContractLookupError::NotFound => (StatusCode::NOT_FOUND, e.message(name)).into_response(),
         ContractLookupError::Ambiguous(candidates) => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({
-                "error": format!("contract name '{name}' is ambiguous; use a qualified id"),
-                "candidates": candidates,
-            })),
+            Json(serde_json::json!({ "error": e.message(name), "candidates": candidates })),
         )
             .into_response(),
     }))

@@ -74,7 +74,7 @@ async fn a_route_follows_calls_and_reads_only_when_asked() {
     let port = server().await;
     let route = ok(port, "/project/route?from=Router&to=Hook").await;
     assert_eq!(hops(&route), vec![vec![vec![hop("Router::buyWith", "Curve::buy")], vec![hop("CurveBase::_graduate", "Hook::migrate")]]]);
-    assert_eq!(route["truncated"], false);
+    assert_eq!((&route["from"], &route["to"], &route["truncated"]), (&json!("Router"), &json!("Hook"), &json!(false)));
     let reads = ok(port, "/project/route?from=Router&to=Hook&reads=true").await;
     assert_eq!(
         hops(&reads),
@@ -83,7 +83,7 @@ async fn a_route_follows_calls_and_reads_only_when_asked() {
             vec![hop("CurveBase::_graduate", "Hook::migrate"), hop("CurveBase::_graduate", "Hook::fee")],
         ]]
     );
-    assert_eq!(ok(port, "/project/route?from=Hook&to=Router").await["routes"], json!([]), "calls run one way");
+    assert_eq!(ok(port, "/project/route?from=Hook&to=Router").await, json!({"from": "Hook", "to": "Router", "routes": [], "truncated": false}), "calls run one way");
     assert_eq!(get(port, "/project/route?from=Router&to=Nope").await.0, 404);
     assert_eq!(get(port, "/project/route?from=Router").await.0, 400);
 }
@@ -106,11 +106,13 @@ async fn value_flow_pairs_the_parties_the_code_resolves() {
     let port = server().await;
     let row = |c: &str, from: &str, to: &str, asset: &str| (c.to_string(), from.to_string(), to.to_string(), asset.to_string(), 1);
     let hook = ok(port, "/project/value-flow?contract=Hook").await;
+    assert_eq!(hook["contract"], "Hook");
     assert_eq!(flow(&hook), vec![row("Curve", "Curve", "Hook", "native"), row("Hook", "Hook", "declared IPoolManager", "native")]);
     let transfers: Vec<(&str, &str)> = hook["transfers"].as_array().unwrap().iter().map(|t| (t["in_context"].as_str().unwrap(), t["call"].as_str().unwrap())).collect();
     assert_eq!(transfers, vec![("Curve", "hook.migrate"), ("Hook", "manager.settle")]);
 
     let all = ok(port, "/project/value-flow").await;
+    assert_eq!(all["contract"], Value::Null);
     let found = flow(&all);
     for expected in [row("Router", "Router", "Curve", "native"), row("Curve", "Token", "`to`", "erc20"), row("Curve", "Curve", "`to`", "erc20"), row("Curve", "Curve", "`payable(to)`", "native")] {
         assert!(found.contains(&expected), "{expected:?} in {found:#?}");

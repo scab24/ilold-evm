@@ -166,6 +166,8 @@ impl Party {
 /// Value pairs with the transfers they group.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValueFlowPairs {
+    /// Key of the contract the pairs touch; none for the whole project.
+    pub contract: Option<String>,
     pub pairs: Vec<ValuePair>,
     /// Sorted by context, then function, then position.
     pub transfers: Vec<ValueTransfer>,

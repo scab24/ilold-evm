@@ -1,4 +1,5 @@
 {
+  "from": "Router",
   "routes": [
     {
       "steps": [
@@ -161,5 +162,6 @@
       ]
     }
   ],
+  "to": "Hook",
   "truncated": false
 }

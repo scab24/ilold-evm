@@ -36,8 +36,12 @@ pub struct Route {
     pub steps: Vec<RouteStep>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Routes {
+    /// Key of the contract the routes start at.
+    pub from: String,
+    /// Key of the contract the routes end at.
+    pub to: String,
     /// Sorted by the contracts they pass.
     pub routes: Vec<Route>,
     /// More than `MAX_ROUTES` were equally short.
@@ -53,11 +57,12 @@ pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, f
             graph.add_edge(call.in_context.as_str(), callee.contract.as_str(), ());
         }
     }
+    let none = || Routes { from: from.to_string(), to: to.to_string(), routes: Vec::new(), truncated: false };
     if from == to || !graph.contains_node(from) || !graph.contains_node(to) {
-        return Routes::default();
+        return none();
     }
     let ahead = dijkstra(&graph, from, Some(to), |_| 1usize);
-    let Some(&length) = ahead.get(to) else { return Routes::default() };
+    let Some(&length) = ahead.get(to) else { return none() };
     let behind = dijkstra(Reversed(&graph), to, Some(from), |_| 1usize);
     let mut paths = Vec::new();
     let on_route = |n: &str, depth: usize| ahead.get(n) == Some(&depth) && behind.get(n) == Some(&(length - depth));
@@ -69,7 +74,7 @@ pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, f
         nodes.entry(contract).or_insert_with(|| (graph, graph.node_indices().map(|n| (graph[n].id(), n)).collect()));
     }
     let routes = paths.iter().map(|contracts| route(relations, &nodes, contracts, &follows)).collect();
-    Routes { routes, truncated: !complete }
+    Routes { routes, truncated: !complete, ..none() }
 }
 
 /// Each path through contracts `on_route` at their depth, in key order; false once `MAX_ROUTES` stops it.

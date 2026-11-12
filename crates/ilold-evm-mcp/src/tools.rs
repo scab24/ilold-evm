@@ -32,12 +32,12 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_route",
-            "Shortest routes from one contract to another through deployed contracts following calls (reads only with include_reads; library and this calls are not followed): routes, each a list of steps (from, to, calls with the call row, the callee of the step's target and recorded: false when nothing records the previous step's callee reaching the call inside the contract), and truncated when more than 32 equally short routes exist. An empty routes means no route.",
+            "Shortest routes from one contract to another through deployed contracts following calls (reads only with include_reads; library and this calls are not followed): from and to (the contract keys), routes, each a list of steps (from, to, calls with the call row, the callee of the step's target and recorded: false when nothing records the previous step's callee reaching the call inside the contract), and truncated when more than 32 equally short routes exist. An empty routes means no route.",
             route_schema(),
         ),
         tool(
             "ilold_value_flow",
-            "Who pays whom: pairs group the value transfers each deployed project contract runs (in_context) by from and to, asset_kind, token_expr and reason, with the functions and transfer ids; transfers lists those transfers (identified by in_context and id). A side is {kind: contract, name: [keys]} for the running contract or the ones that may answer the call (several are AMBIGUOUS), {kind: declared, name} for a contract outside the project the call is typed as, or {kind: expression, name} for any other account as the source writes it; nothing is matched by variable name. With contract, only the pairs it runs or is a side of.",
+            "Who pays whom: contract (the key asked for, null for the project), pairs group the value transfers each deployed project contract runs (in_context) by from and to, asset_kind, token_expr and reason, with the functions and transfer ids; transfers lists those transfers (identified by in_context and id). A side is {kind: contract, name: [keys]} for the running contract or the ones that may answer the call (several are AMBIGUOUS), {kind: declared, name} for a contract outside the project the call is typed as, or {kind: expression, name} for any other account as the source writes it; nothing is matched by variable name. With contract, only the pairs it runs or is a side of.",
             optional_contract_schema(),
         ),
         tool(

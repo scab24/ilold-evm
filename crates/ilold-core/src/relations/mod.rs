@@ -367,7 +367,7 @@ impl Relations {
         let pairs: Vec<ValuePair> = self.value_pairs.iter().filter(|p| touches(p)).cloned().collect();
         let ids: HashSet<(&str, &str)> = pairs.iter().flat_map(|p| p.transfers.iter().map(|id| (p.in_context.as_str(), id.as_str()))).collect();
         let transfers = self.values.transfers.iter().filter(|t| ids.contains(&(t.in_context.as_str(), t.id.as_str()))).cloned().collect();
-        ValueFlowPairs { pairs, transfers }
+        ValueFlowPairs { contract: contract.map(str::to_string), pairs, transfers }
     }
 }
 

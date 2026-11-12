@@ -126,6 +126,9 @@ export interface RouteStep {
 
 /** `GET /api/project/route`: the shortest routes between two contracts. */
 export interface Routes {
+  /** Keys of the contracts the routes start and end at. */
+  from: string;
+  to: string;
   routes: { steps: RouteStep[] }[];
   truncated: boolean;
 }
@@ -228,6 +231,8 @@ export interface ValuePair {
 
 /** `GET /api/project/value-flow`: the pairs and the transfers they group, by `in_context` and `id`. */
 export interface ValueFlowPairs {
+  /** Key of the contract asked for; null for the whole project. */
+  contract: string | null;
   pairs: ValuePair[];
   transfers: ValueTransfer[];
 }

@@ -48,6 +48,16 @@ pub enum ContractLookupError {
     Ambiguous(Vec<String>),
 }
 
+impl ContractLookupError {
+    /// What to tell whoever asked for `query`.
+    pub fn message(&self, query: &str) -> String {
+        match self {
+            ContractLookupError::NotFound => format!("Contract '{query}' not found"),
+            ContractLookupError::Ambiguous(ids) => format!("Contract name '{query}' is ambiguous; use one of: {}", ids.join(", ")),
+        }
+    }
+}
+
 impl Project {
     pub fn new(source_files: Vec<SourceFile>, contracts: Vec<ContractDef>, decl_table: DeclTable) -> Self {
         let mut project = Self {
@@ -164,14 +174,7 @@ impl Project {
 
     pub fn find_contract(&self, filter: Option<&str>) -> Result<&ContractDef, String> {
         if let Some(name) = filter {
-            return self.lookup_contract(name).map_err(|e| match e {
-                ContractLookupError::NotFound => format!("Contract '{}' not found", name),
-                ContractLookupError::Ambiguous(ids) => format!(
-                    "Contract name '{}' is ambiguous; use one of: {}",
-                    name,
-                    ids.join(", ")
-                ),
-            });
+            return self.lookup_contract(name).map_err(|e| e.message(name));
         }
 
         let non_interface: Vec<&ContractDef> = self

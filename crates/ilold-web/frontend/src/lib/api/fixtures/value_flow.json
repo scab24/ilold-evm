@@ -1,4 +1,5 @@
 {
+  "contract": null,
   "pairs": [
     {
       "asset_kind": "native",
