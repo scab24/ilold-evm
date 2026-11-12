@@ -482,6 +482,10 @@ export async function getProjectDepgraph(): Promise<ProjectDepGraph> {
   return body(await fetch(`${BASE}/api/project/depgraph`), 'Dependency graph unavailable');
 }
 
+export async function getValueFlow(): Promise<ValueFlowPairs> {
+  return body(await fetch(`${BASE}/api/project/value-flow`), 'Value flow unavailable');
+}
+
 export async function getProject(): Promise<ProjectSummary> {
   return body(await fetch(`${BASE}/api/project`), 'Project unavailable');
 }

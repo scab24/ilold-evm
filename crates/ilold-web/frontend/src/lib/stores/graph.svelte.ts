@@ -1,5 +1,6 @@
 import type { Node, Edge } from '@xyflow/svelte';
 import type { CatchClauseFact, SourceSpan, StorageAccess, TryCatchFact, ValueTransfer } from '$lib/api/rest';
+import type { BoxNodeData } from '$lib/components/project/BoxNode.svelte';
 
 
 export interface FunctionNodeData {
@@ -66,7 +67,7 @@ export interface ContractNodeData {
   _dimmed?: boolean;
 }
 
-export type GraphNodeData = FunctionNodeData | BlockNodeData | SequenceNodeData | ContractNodeData;
+export type GraphNodeData = FunctionNodeData | BlockNodeData | SequenceNodeData | ContractNodeData | BoxNodeData;
 
 
 let nodes = $state<Node<GraphNodeData>[]>([]);

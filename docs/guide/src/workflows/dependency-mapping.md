@@ -83,6 +83,16 @@ view). Contracts are laid out left-to-right in the same topological order:
 Click a contract to drop into its functions, where the per-function analysis
 (`trace`, `slice`, `info`) takes over.
 
+The header tabs switch the project page between **Map** and **Value flow**;
+the tab and everything picked in it live in the URL, so a link
+reopens the same view.
+
+- **Value flow** draws who pays whom, left to right: who pays in, the project
+  contracts, and what leaves the project. One arrow per pair and direction
+  names its assets; Uniswap v4 `Currency` moves read "ETH or token, set by the
+  pool" on amber dashed lanes. The asset buttons filter the arrows, a click on
+  an arrow or a box lists its transfers (with their ids) in the side panel.
+
 ## Practical workflow
 
 1. Run `analyze <project> --deps` to get the reading order.

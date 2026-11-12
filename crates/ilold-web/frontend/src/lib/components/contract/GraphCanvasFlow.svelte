@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { SvelteFlow, SvelteFlowProvider, Background, Controls, Panel, SelectionMode, useSvelteFlow, type FitViewOptions, type NodeTypes } from '@xyflow/svelte';
+  import { SvelteFlow, SvelteFlowProvider, Background, Controls, Panel, SelectionMode, useSvelteFlow, type EdgeTypes, type FitViewOptions, type NodeTypes } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
 
@@ -26,21 +26,25 @@
     onnodemouseleave?: (node: Node<GraphNodeData>) => void;
     onedgemouseenter?: (edge: Edge, event: MouseEvent) => void;
     onedgemouseleave?: (edge: Edge) => void;
+    onedgetap?: (edge: Edge) => void;
+    extraNodeTypes?: NodeTypes;
+    edgeTypes?: EdgeTypes;
     /** Fit once, after the pane has a size and every visible node is measured. */
     initialFit?: FitViewOptions;
     minZoom?: number;
   }
 
-  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, onedgemouseenter, onedgemouseleave, initialFit, minZoom = 0.1 }: Props = $props();
+  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, onedgemouseenter, onedgemouseleave, onedgetap, extraNodeTypes, edgeTypes, initialFit, minZoom = 0.1 }: Props = $props();
 
   const deleteKeysProp = $derived<string[] | null>(canDeleteNodes ? ['Delete', 'Backspace'] : null);
 
-  const nodeTypes: NodeTypes = {
+  const nodeTypes = $derived({
     function: FunctionNode,
     block: BlockNode,
     sequence: SequenceNode,
     contract: ContractNode,
-  } as unknown as NodeTypes;
+    ...extraNodeTypes,
+  } as unknown as NodeTypes);
 
 
   let flowNodes = $state<Node[]>([]);
@@ -135,8 +139,10 @@
       bind:nodes={flowNodes}
       bind:edges={flowEdges}
       {nodeTypes}
+      {edgeTypes}
       onnodeclick={({ event, node }) => onnodetap?.(node as Node<GraphNodeData>, event as MouseEvent)}
       onpaneclick={() => onbackgroundtap?.()}
+      onedgeclick={({ edge }) => onedgetap?.(edge)}
       onnodecontextmenu={({ event, node }) => {
         (event as MouseEvent).preventDefault();
         oncontextmenu?.(event as MouseEvent, node as Node<GraphNodeData>);
