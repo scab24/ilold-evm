@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::relations::{routes, ContractCallKind, Relations, Tag, UnresolvedReason};
+use ilold_core::relations::{routes, AssignmentKind, ConnectionGroup, ContractCallKind, ContractLink, Relations, Tag, UnresolvedReason};
 
 const SOURCES: &[(&str, &str)] = &[
     ("foundry.toml", "[profile.default]\nsrc = 'src'\nlibs = ['lib']\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n"),
@@ -320,4 +320,61 @@ fn every_base_constructor_runs_in_the_deploying_contract() {
     let links: Vec<(&str, &str, usize)> =
         analysis.relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str(), l.calls.len())).collect();
     assert_eq!(links, vec![("Base", "Vault", 1)], "links stay per declaring contract");
+}
+
+fn groups(groups: &[ConnectionGroup]) -> Vec<(&str, usize)> {
+    groups.iter().map(|g| (g.contract.as_str(), g.calls.len())).collect()
+}
+
+#[test]
+fn connections_group_the_running_contract_calls_by_the_other_contract() {
+    let router = analysis().relations.connections("Router");
+    assert_eq!(router.contract, "Router");
+    assert_eq!(groups(&router.outgoing), vec![("ExtLib", 1), ("Fees", 1), ("HookA", 2), ("HookB", 2), ("Router", 1), ("Vault", 2)]);
+    let hook = &router.outgoing[2].calls[0];
+    assert_eq!(router.outgoing[3].calls[0], *hook, "an ambiguous call is one row under each candidate");
+    assert_eq!(hook.callees.len(), 2);
+    let unresolved: Vec<(&str, Option<UnresolvedReason>)> = router.unresolved.iter().map(|c| (c.function.as_str(), c.unresolved_reason)).collect();
+    assert_eq!(unresolved, vec![("ExtBase::poke", Some(UnresolvedReason::OutOfScopeInterface))]);
+    assert!(groups(&router.incoming).is_empty(), "its own self call is not incoming");
+
+    let vault = analysis().relations.connections("Vault");
+    assert!(vault.outgoing.is_empty() && vault.unresolved.is_empty());
+    assert_eq!(groups(&vault.incoming), vec![("Base", 2), ("Router", 2)]);
+}
+
+#[test]
+fn connections_carry_where_the_called_addresses_are_set() {
+    let analysis = ProjectAnalysis::build(&parse("connections-ctor", CONSTRUCTORS), &AnalysisParams::new(1));
+    let child = analysis.relations.connections("Child");
+    let sites: Vec<(&str, Option<&str>, AssignmentKind)> =
+        child.assignments.iter().map(|a| (a.state_var.as_str(), a.function.as_deref(), a.kind)).collect();
+    assert_eq!(
+        sites,
+        vec![
+            ("Base::vault", Some("Base::constructor"), AssignmentKind::ConstructorParam),
+            ("ExtBase::ext", Some("ExtBase::constructor"), AssignmentKind::ConstructorParam),
+        ]
+    );
+}
+
+#[test]
+fn context_links_add_up_the_calls_each_running_contract_makes() {
+    let relations = &analysis().relations;
+    let summary = |links: Vec<ContractLink>| links.into_iter().map(|l| (l.from_contract, l.to_contract, l.calls.len(), l.tag)).collect::<Vec<_>>();
+    let (outgoing, incoming) = relations.context_links("Router");
+    assert_eq!(
+        summary(outgoing),
+        vec![
+            ("Router".into(), "HookA".into(), 2, Tag::Ambiguous),
+            ("Router".into(), "HookB".into(), 2, Tag::Ambiguous),
+            ("Router".into(), "Router".into(), 1, Tag::Inferred),
+            ("Router".into(), "Vault".into(), 2, Tag::Inferred),
+        ]
+    );
+    assert_eq!(summary(incoming), vec![("Router".into(), "Router".into(), 1, Tag::Inferred)]);
+    let (_, into_vault) = relations.context_links("Vault");
+    assert_eq!(summary(into_vault), vec![("Base".into(), "Vault".into(), 2, Tag::Inferred), ("Router".into(), "Vault".into(), 2, Tag::Inferred)]);
+    let (base, _) = relations.context_links("Base");
+    assert_eq!(base, relations.outgoing("Base").cloned().collect::<Vec<_>>(), "a contract running only its own code adds up to its links");
 }

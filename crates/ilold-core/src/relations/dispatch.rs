@@ -56,10 +56,10 @@ pub(super) fn build(project: &Project, units: &[Running]) -> Relations {
     Relations { dispatches: dispatches.into_values().collect(), assignments, links, calls, ..Relations::default() }
 }
 
-/// One per ordered contract pair, from the calls to contracts that each contract's own code makes.
-fn links(calls: &[ContractCall]) -> Vec<ContractLink> {
+/// One per ordered contract pair, from the calls to contracts the running contracts make.
+pub(super) fn links<'a>(calls: impl IntoIterator<Item = &'a ContractCall>) -> Vec<ContractLink> {
     let mut links: BTreeMap<(String, String), ContractLink> = BTreeMap::new();
-    for made in calls.iter().filter(|c| c.kind != ContractCallKind::Library) {
+    for made in calls.into_iter().filter(|c| c.kind != ContractCallKind::Library) {
         let call = LinkCall { function: made.function.clone(), span: made.span };
         let only = made.callees.len() == 1;
         for candidate in &made.callees {

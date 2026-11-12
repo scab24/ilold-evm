@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::relations::{AssetKind, Party, ValuePair};
+use ilold_core::relations::{AssetKind, Party, ValueFlowPairs, ValuePair};
 
 const SOURCES: &[(&str, &str)] = &[
     ("foundry.toml", "[profile.default]\nsrc = 'src'\nlibs = []\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n"),
@@ -148,4 +148,36 @@ fn several_answering_contracts_sort_by_key_and_dependency_code_pairs_only_where_
     let contexts: Vec<&str> = analysis.relations.value_pairs.iter().map(|p| p.in_context.as_str()).collect();
     assert_eq!(contexts, vec!["Many", "Many"], "no pair for code only its dependency declares");
     assert!(analysis.relations.values.transfers.iter().any(|t| t.in_context == "ExtPayer"), "the dependency's own facts stay");
+}
+
+#[test]
+fn value_flow_lists_the_pairs_touching_a_contract_with_their_transfers() {
+    let root = std::env::temp_dir().canonicalize().unwrap().join(format!("ilold-value-flow-{}", std::process::id()));
+    for (path, text) in SOURCES {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, text).unwrap();
+    }
+    let analysis = analysis_of(&root);
+    fs::remove_dir_all(&root).unwrap();
+    let relations = &analysis.relations;
+
+    let all = relations.value_flow(None);
+    assert_eq!(all.pairs, relations.value_pairs);
+    let ids = |flow: &ValueFlowPairs| flow.transfers.iter().map(|t| (t.in_context.clone(), t.id.clone())).collect::<Vec<_>>();
+    let stored: Vec<(String, String)> = relations.values.transfers.iter().map(|t| (t.in_context.clone(), t.id.clone())).collect();
+    let paired: Vec<(String, String)> = all.pairs.iter().flat_map(|p| p.transfers.iter().map(|id| (p.in_context.clone(), id.clone()))).collect();
+    let in_order: Vec<(String, String)> = stored.into_iter().filter(|t| paired.contains(t)).collect();
+    assert_eq!((ids(&all), ids(&all).len()), (in_order, paired.len()), "each paired transfer once, in stored order");
+
+    let sink = relations.value_flow(Some("Sink"));
+    let sides: Vec<(&str, &Party, &Party)> = sink.pairs.iter().map(|p| (p.in_context.as_str(), &p.from, &p.to)).collect();
+    assert_eq!(sides, vec![("Payer", &contract("Payer"), &contract("Sink")), ("Shop", &contract("Shop"), &contract("Sink"))]);
+    assert_eq!(sink.transfers.len(), 2);
+    assert!(sink.transfers.iter().all(|t| t.call == "sink.fund"), "{:#?}", sink.transfers);
+
+    let shop = relations.value_flow(Some("Shop"));
+    assert!(shop.pairs.iter().all(|p| p.in_context == "Shop") && shop.pairs.len() == 4, "{:#?}", shop.pairs);
+    assert_eq!(relations.value_flow(Some("Token")).pairs.len(), 4, "paid and minting in both running contracts");
+    assert!(relations.value_flow(Some("Nobody")).pairs.is_empty());
 }

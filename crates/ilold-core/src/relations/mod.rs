@@ -7,7 +7,7 @@ mod trycatch;
 mod value;
 
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +28,7 @@ pub use phases::{phase_candidates, PhaseCandidate};
 pub use route::{routes, Route, RouteCall, RouteStep, Routes};
 pub use trycatch::{try_catches, CatchClauseFact, CatchEffects, CatchKind, EffectSite, GuardedCall, TryCatchFact, TryReason};
 pub use value::{
-    value_flows, AssetKind, BalanceRead, Direction, Operation, Party, ValueFacts, ValueFlow, ValuePair, ValueReason, ValueTransfer,
+    value_flows, AssetKind, BalanceRead, Direction, Operation, Party, ValueFacts, ValueFlow, ValueFlowPairs, ValuePair, ValueReason, ValueTransfer,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -158,6 +158,29 @@ pub struct ContractCall {
     pub via: Option<String>,
 }
 
+/// Calls between the running contract and one other contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionGroup {
+    /// The contract that may answer the outgoing calls, or the running contract making the incoming ones.
+    pub contract: String,
+    /// Sorted by calling function, then position; an AMBIGUOUS call is listed under each candidate.
+    pub calls: Vec<ContractCall>,
+}
+
+/// What the code a contract runs, its inherited code included, calls, and what calls it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Connections {
+    pub contract: String,
+    /// By key of the contract that may answer: `this` calls under the contract itself, library calls under the library.
+    pub outgoing: Vec<ConnectionGroup>,
+    /// By key of every other running contract whose calls it may answer.
+    pub incoming: Vec<ConnectionGroup>,
+    /// Calls nothing in the project answers, with their reason.
+    pub unresolved: Vec<ContractCall>,
+    /// Where the state variables holding the called addresses are set, sorted by variable, then position.
+    pub assignments: Vec<AssignmentSite>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Relations {
     /// Sorted by context, then target.
@@ -278,6 +301,46 @@ impl Relations {
     pub fn calls_into<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractCall> {
         self.calls.iter().filter(move |c| c.callees.iter().any(|d| d.contract == contract))
     }
+
+    pub fn connections(&self, contract: &str) -> Connections {
+        let made = self.calls_from(contract);
+        let outgoing = groups(made.iter().flat_map(|c| c.callees.iter().map(move |d| (d.contract.as_str(), c))));
+        let incoming = groups(self.calls_into(contract).filter(|c| c.in_context != contract).map(|c| (c.in_context.as_str(), c)));
+        let mut vias: Vec<&str> = made.iter().filter_map(|c| c.via.as_deref()).collect();
+        vias.sort_unstable();
+        vias.dedup();
+        Connections {
+            contract: contract.to_string(),
+            outgoing,
+            incoming,
+            unresolved: made.iter().filter(|c| c.callees.is_empty()).cloned().collect(),
+            assignments: vias.into_iter().flat_map(|v| self.assignments(v)).cloned().collect(),
+        }
+    }
+
+    /// The links the calls of the code `contract` runs add up to, and those of the calls into it from every running contract.
+    pub fn context_links(&self, contract: &str) -> (Vec<ContractLink>, Vec<ContractLink>) {
+        let incoming = dispatch::links(self.calls_into(contract)).into_iter().filter(|l| l.to_contract == contract).collect();
+        (dispatch::links(self.calls_from(contract)), incoming)
+    }
+
+    /// The pairs `contract` runs or is a party of, every pair without one, with the transfers they group.
+    pub fn value_flow(&self, contract: Option<&str>) -> ValueFlowPairs {
+        let touches = |p: &ValuePair| contract.is_none_or(|c| p.in_context == c || p.from.names(c) || p.to.names(c));
+        let pairs: Vec<ValuePair> = self.value_pairs.iter().filter(|p| touches(p)).cloned().collect();
+        let ids: HashSet<(&str, &str)> = pairs.iter().flat_map(|p| p.transfers.iter().map(|id| (p.in_context.as_str(), id.as_str()))).collect();
+        let transfers = self.values.transfers.iter().filter(|t| ids.contains(&(t.in_context.as_str(), t.id.as_str()))).cloned().collect();
+        ValueFlowPairs { pairs, transfers }
+    }
+}
+
+/// Calls by contract key, in key order.
+fn groups<'a>(calls: impl Iterator<Item = (&'a str, &'a ContractCall)>) -> Vec<ConnectionGroup> {
+    let mut groups: BTreeMap<&str, Vec<ContractCall>> = BTreeMap::new();
+    for (contract, call) in calls {
+        groups.entry(contract).or_default().push(call.clone());
+    }
+    groups.into_iter().map(|(contract, calls)| ConnectionGroup { contract: contract.to_string(), calls }).collect()
 }
 
 /// `<contract key>::<member key>` when the contract declares that function or state variable.

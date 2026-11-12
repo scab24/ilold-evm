@@ -152,6 +152,25 @@ pub enum Party {
     Expression(Option<String>),
 }
 
+impl Party {
+    /// Whether the side is `contract`, or one of the contracts it may be.
+    pub fn names(&self, contract: &str) -> bool {
+        match self {
+            Party::Contract(keys) => keys.iter().any(|k| k == contract),
+            Party::Declared(key) => key == contract,
+            Party::Expression(_) => false,
+        }
+    }
+}
+
+/// Value pairs with the transfers they group.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValueFlowPairs {
+    pub pairs: Vec<ValuePair>,
+    /// Sorted by context, then function, then position.
+    pub transfers: Vec<ValueTransfer>,
+}
+
 /// Transfers one running contract makes between the same two parties, of one asset, token and reason.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValuePair {
