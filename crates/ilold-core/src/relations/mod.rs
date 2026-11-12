@@ -38,6 +38,8 @@ pub enum Tag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Basis {
+    /// The library function the call names runs.
+    Library,
     /// `this.f()`: the calling contract answers.
     #[serde(rename = "self")]
     SelfCall,
@@ -121,6 +123,35 @@ pub struct ContractLink {
     pub tag: Tag,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkKind {
+    Call,
+    /// A call to a view or pure function or a getter.
+    Read,
+    Library,
+    #[serde(rename = "self")]
+    SelfCall,
+}
+
+/// A call to another contract, a library or `this`, as one contract runs the code making it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractCall {
+    /// Key of the contract running the code: the declaring one, or one inheriting it.
+    pub context: String,
+    /// `<contract key>::<function key>` making the call.
+    pub function: String,
+    pub span: SourceSpan,
+    pub kind: LinkKind,
+    /// `<contract key>::<member key>` the source names; a dependency member stays here when nothing answers it.
+    pub target: Option<String>,
+    /// Several are AMBIGUOUS; none carry the reason.
+    pub callees: Vec<DispatchCandidate>,
+    pub unresolved_reason: Option<UnresolvedReason>,
+    /// `<contract key>::<name>` of the state variable holding the called address.
+    pub via: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Relations {
     /// Sorted by context, then target.
@@ -129,6 +160,8 @@ pub struct Relations {
     pub assignments: Vec<AssignmentSite>,
     /// Sorted by source, then target contract.
     pub links: Vec<ContractLink>,
+    /// Sorted by context, then calling function, then position.
+    pub calls: Vec<ContractCall>,
 }
 
 impl Relations {
@@ -158,6 +191,18 @@ impl Relations {
 
     pub fn incoming<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractLink> {
         self.links.iter().filter(move |l| l.to_contract == contract)
+    }
+
+    /// The calls the code `context` runs makes, its inherited code included.
+    pub fn calls_from(&self, context: &str) -> &[ContractCall] {
+        let start = self.calls.partition_point(|c| c.context.as_str() < context);
+        let end = self.calls.partition_point(|c| c.context.as_str() <= context);
+        &self.calls[start..end]
+    }
+
+    /// The calls `contract` may answer, from every contract running the calling code.
+    pub fn calls_into<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractCall> {
+        self.calls.iter().filter(move |c| c.callees.iter().any(|d| d.contract == contract))
     }
 }
 

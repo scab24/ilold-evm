@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::analysis::{function_behavior, overrides_modifiers, ProjectAnalysis};
-use crate::cfg::builder::{modifier_code, CfgBuilder};
+use crate::analysis::{context_cfg, function_behavior, ProjectAnalysis};
+use crate::cfg::builder::modifier_code;
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::classify::guards::{GuardFact, GuardScope, GuardTerm};
 use crate::model::common::{Param, SourceSpan};
@@ -277,12 +277,7 @@ impl<'p> Builder<'p> {
         let site = Site { function: &function, owner, context, context_id: context_id.as_deref() };
         let b = unit.behavior.as_ref();
 
-        // a derived contract's modifier overrides change the code an inherited function runs
-        let cfg: Option<Cow<CfgGraph>> = if !std::ptr::eq(context, owner) && overrides_modifiers(project, context, owner, func) {
-            Some(Cow::Owned(CfgBuilder::build_with_project(func, context, Some(project))))
-        } else {
-            self.analysis.cfgs.get(&(owner.key().to_string(), func.key.clone())).map(Cow::Borrowed)
-        };
+        let cfg = context_cfg(project, &self.analysis.cfgs, context, owner, func);
         let mut call_spans = HashMap::new();
         if let Some(cfg) = &cfg {
             self.direct(&site, func, cfg, &mut call_spans);

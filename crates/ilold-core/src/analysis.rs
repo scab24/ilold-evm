@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::callgraph::builder::build_call_graph;
@@ -188,6 +189,20 @@ fn queue_dependency_callees<'p>(
             pending.push_back((owner, callee));
         }
     }
+}
+
+/// The code `context` runs for `func`, declared in `owner`: a derived contract's modifier overrides change it.
+pub(crate) fn context_cfg<'c>(
+    project: &Project,
+    cfgs: &'c HashMap<(String, String), CfgGraph>,
+    context: &ContractDef,
+    owner: &ContractDef,
+    func: &FunctionDef,
+) -> Option<Cow<'c, CfgGraph>> {
+    if !std::ptr::eq(context, owner) && overrides_modifiers(project, context, owner, func) {
+        return Some(Cow::Owned(CfgBuilder::build_with_project(func, context, Some(project))));
+    }
+    cfgs.get(&(owner.key().to_string(), func.key.clone())).map(Cow::Borrowed)
 }
 
 pub(crate) fn overrides_modifiers(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> bool {

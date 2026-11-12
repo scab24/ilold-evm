@@ -7,7 +7,7 @@ use crate::cfg::builder::{call_arguments, expr_to_string};
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::classify::code_facts::{builtin, walk_function, Builtin};
 use crate::model::common::SourceSpan;
-use crate::model::contract::{ContractDef, ContractKind};
+use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclKind};
 use crate::model::expression::{CallKind, CallType, Expression, ExpressionKind, LiteralType};
 use crate::model::function::FunctionDef;
@@ -15,7 +15,7 @@ use crate::model::project::Project;
 use crate::model::source::uncast;
 use crate::sequence::effects::reachable;
 
-use super::dispatch::contract;
+use super::dispatch::{contract, library_callee};
 use super::{call_text, Tag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -534,16 +534,7 @@ fn matches(project: &Project, stmt: &CfgStatement, operands: &Operands) -> Vec<M
 
 /// A call to a recognized library function, by the declaration it resolves to.
 fn library(project: &Project, stmt: &CfgStatement) -> Option<Match> {
-    let (contract_key, function_key) = match stmt {
-        CfgStatement::InternalCall { kind: CallKind::InternalLibrary, declaration: Some((c, f)), .. } => (c.as_str(), f.as_str()),
-        CfgStatement::ExternalCall { kind: CallKind::LibraryDelegatecall, resolved: Some(id), .. } => {
-            let t = project.decl_table.function(*id)?;
-            (t.contract.as_str(), t.function.as_str())
-        }
-        _ => return None,
-    };
-    let library = contract(project, contract_key).filter(|c| c.kind == ContractKind::Library)?;
-    let function = library.functions.iter().find(|f| f.key == function_key)?;
+    let (library, function) = library_callee(project, stmt)?;
     let recognizer = RECOGNIZERS.iter().find(|r| matches!(r.callee, Library(l, f) if l == library.name && f == function.name))?;
     let via_library = Some(format!("{}::{}", library.key(), function.key));
     Some(Match { recognizer: *recognizer, tag: Tag::TypeResolved, via_library, undecided: None })

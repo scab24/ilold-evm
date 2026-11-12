@@ -97,7 +97,7 @@ pub(crate) fn reachable(cfg: &CfgGraph) -> Vec<NodeIndex> {
     order
 }
 
-fn is_view_call(project: &Project, kind: CallKind, resolved: Option<DeclId>) -> bool {
+pub(crate) fn is_view_call(project: &Project, kind: CallKind, resolved: Option<DeclId>) -> bool {
     if kind == CallKind::LowLevelStaticcall {
         return true;
     }
