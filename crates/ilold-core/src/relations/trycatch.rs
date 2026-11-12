@@ -181,7 +181,6 @@ pub fn try_catches(project: &Project, context: &ContractDef, owner: &ContractDef
     facts
 }
 
-/// Whether the block ends in the call a try statement guards.
 pub(super) fn guards_call(cfg: &CfgGraph, n: NodeIndex) -> bool {
     cfg.edges(n).any(|e| matches!(e.weight(), BranchEdge::ExternalCallSuccess))
 }

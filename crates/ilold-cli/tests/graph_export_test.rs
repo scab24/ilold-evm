@@ -618,7 +618,6 @@ const V1_0_KINDS: &[&str] = &[
     "guards", "builtin_use", "unchecked_block", "uses_modifier", "opaque_assembly", "inherits", "exposes",
 ];
 
-/// The fixtures whose export differs from `pinned`, each with what it gives now.
 fn changed_exports(
     pinned: &[(&str, i32, usize, &str, &str)],
     kinds: &[&str],
@@ -660,7 +659,6 @@ fn existing_fixtures_keep_every_1_0_record() {
     assert!(changed.is_empty(), "exports differ from schema 1.0:\n{}", changed.join("\n"));
 }
 
-/// Every fixture's records of the kinds schema 1.1 added, as 1.1 wrote them, pinned like `V1_0_EXPORTS`.
 const V1_1_EXPORTS: &[(&str, i32, usize, &str, &str)] = &[
     ("tests/fixtures/erc20", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
     ("tests/fixtures/foundry_config", 0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),

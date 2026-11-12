@@ -1,4 +1,3 @@
-//! Shortest chains of calls from one contract to another, function to function.
 use std::collections::HashMap;
 
 use petgraph::algo::{dijkstra, has_path_connecting};
@@ -11,19 +10,15 @@ use crate::callgraph::types::CallGraph;
 
 use super::{ContractCall, ContractCallKind, DispatchCandidate, Relations};
 
-/// Beyond this many equally short routes the rest are left out.
 const MAX_ROUTES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteCall {
     pub call: ContractCall,
-    /// The candidate of the step's target contract.
     pub callee: DispatchCandidate,
-    /// The first step, or the code a call of the previous step runs reaches this call inside the contract.
     pub recorded: bool,
 }
 
-/// Every call from `from` that `to` may answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteStep {
     pub from: String,
@@ -38,17 +33,12 @@ pub struct Route {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Routes {
-    /// Key of the contract the routes start at.
     pub from: String,
-    /// Key of the contract the routes end at.
     pub to: String,
-    /// Sorted by the contracts they pass.
     pub routes: Vec<Route>,
-    /// More than `MAX_ROUTES` were equally short.
     pub truncated: bool,
 }
 
-/// The shortest routes from `from` to `to` through deployed contracts following calls, and reads when asked; library and self calls stay out.
 pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, from: &str, to: &str, include_reads: bool) -> Routes {
     let follows = |c: &ContractCall| c.kind == ContractCallKind::Call || (include_reads && c.kind == ContractCallKind::Read);
     let mut graph: DiGraphMap<&str, ()> = DiGraphMap::new();
@@ -77,7 +67,6 @@ pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, f
     Routes { routes, truncated: !complete, ..none() }
 }
 
-/// Each path through contracts `on_route` at their depth, in key order; false once `MAX_ROUTES` stops it.
 fn shortest<'a>(
     graph: &DiGraphMap<&'a str, ()>,
     on_route: &dyn Fn(&str, usize) -> bool,
@@ -109,7 +98,6 @@ fn shortest<'a>(
     true
 }
 
-/// Each contract's call graph and its nodes by function id.
 type Nodes<'a> = HashMap<&'a str, (&'a CallGraph, HashMap<String, NodeIndex>)>;
 
 fn route(relations: &Relations, nodes: &Nodes, contracts: &[&str], follows: &dyn Fn(&ContractCall) -> bool) -> Route {
@@ -132,7 +120,6 @@ fn route(relations: &Relations, nodes: &Nodes, contracts: &[&str], follows: &dyn
     Route { steps }
 }
 
-/// `entry` runs `function` itself or calls it through internal calls of the contract's call graph.
 fn reaches(graph: Option<&(&CallGraph, HashMap<String, NodeIndex>)>, entry: &str, function: &str) -> bool {
     if entry == function {
         return true;

@@ -460,7 +460,6 @@ async fn phase_candidates_are_the_same_in_every_surface() {
     assert_eq!(narrative, exported, "ilold_function_analysis");
 }
 
-/// The REPL reads these facts from the in-process analysis, or from the API when attached; the API and the MCP tools serialize the same values.
 #[tokio::test]
 async fn connections_routes_and_value_flow_are_the_same_in_every_surface() {
     let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ilold-web/tests/fixtures/connections").canonicalize().unwrap();

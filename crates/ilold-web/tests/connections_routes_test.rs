@@ -1,4 +1,3 @@
-//! Connections, routes and value flow on the API, as the running contract sees its inherited code. Fixture: tests/fixtures/connections.
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
@@ -28,7 +27,6 @@ fn pairs(list: &[(&str, usize)]) -> Vec<(String, usize)> {
     list.iter().map(|(c, n)| (c.to_string(), *n)).collect()
 }
 
-/// Every field of the connections of Hook; `ROOT` is the fixture directory.
 const HOOK: &str = r#"{
   "contract": "Hook",
   "outgoing": [],
@@ -84,7 +82,6 @@ async fn connections_list_the_calls_of_the_running_contract_and_into_it() {
     assert_eq!(get(port, "/contract/Nope/connections").await.0, 404);
 }
 
-/// Per route, per step: `caller -> callee` and whether the previous step's code reaches the caller.
 fn hops(routes: &Value) -> Vec<Vec<Vec<(String, String, bool)>>> {
     let call = |c: &Value| (c["call"]["function"].as_str().unwrap().to_string(), c["callee"]["function"].as_str().unwrap().to_string(), c["recorded"] == true);
     let steps = |r: &Value| r["steps"].as_array().unwrap().iter().map(|s| s["calls"].as_array().unwrap().iter().map(call).collect()).collect();

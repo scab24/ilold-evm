@@ -1,4 +1,3 @@
-//! Who pays whom: value moves grouped per running contract, with a contract on each side only where the code resolves one.
 use std::fs;
 use std::path::PathBuf;
 

@@ -1,4 +1,3 @@
-//! How one contract reaches another: shortest chains of calls, function to function.
 use std::fs;
 use std::sync::OnceLock;
 
@@ -63,7 +62,6 @@ fn route(from: &str, to: &str, include_reads: bool) -> Routes {
     routes(&analysis.relations, &analysis.call_graphs, from, to, include_reads)
 }
 
-/// Per route, per step: `caller -> callee`, and whether the previous step's code reaches the caller inside the contract.
 fn hops(found: &Routes) -> Vec<Vec<Vec<(&str, &str, bool)>>> {
     found
         .routes

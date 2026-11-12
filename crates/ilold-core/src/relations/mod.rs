@@ -45,7 +45,6 @@ pub enum Tag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Basis {
-    /// The library function the call names runs.
     Library,
     /// `this.f()`: the calling contract answers.
     #[serde(rename = "self")]
@@ -134,63 +133,42 @@ pub struct ContractLink {
 #[serde(rename_all = "snake_case")]
 pub enum ContractCallKind {
     Call,
-    /// A call to a view or pure function or a getter.
     Read,
     Library,
     #[serde(rename = "self")]
     SelfCall,
 }
 
-/// A call to another contract, a library or `this`, as one contract runs the code making it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractCall {
-    /// Key of the contract running the code: the declaring one, or one inheriting it.
     pub in_context: String,
-    /// `<contract key>::<function key>` making the call.
     pub function: String,
     pub span: SourceSpan,
     pub kind: ContractCallKind,
-    /// `<contract key>::<member key>` the source names; a dependency member stays here when nothing answers it.
     pub target: Option<String>,
-    /// Several are AMBIGUOUS; none carry the reason.
     pub callees: Vec<DispatchCandidate>,
     pub unresolved_reason: Option<UnresolvedReason>,
-    /// `<contract key>::<name>` of the state variable holding the called address.
     pub via: Option<String>,
-    /// A try statement guards the call: its failure is caught.
     pub in_try: bool,
-    /// Ids of the value transfers the call makes, as `in_context` runs it.
     pub transfers: Vec<String>,
-    /// Path of the source file holding the call.
     pub file: Option<String>,
 }
 
-/// Calls between the running contract and one other contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectionGroup {
-    /// The contract that may answer the outgoing calls, or the running contract making the incoming ones.
     pub contract: String,
-    /// Sorted by calling function, then position; an AMBIGUOUS call is listed under each candidate.
     pub calls: Vec<ContractCall>,
 }
 
-/// What the code a contract runs, its inherited code included, calls, and what calls it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Connections {
     pub contract: String,
-    /// By key of the contract that may answer: `this` calls under the contract itself, library calls under the library.
     pub outgoing: Vec<ConnectionGroup>,
-    /// By key of every other deployed contract whose calls it may answer.
     pub incoming: Vec<ConnectionGroup>,
-    /// Calls nothing in the project answers, with their reason.
     pub unresolved: Vec<ContractCall>,
-    /// Where the state variables holding the called addresses are set, sorted by variable, then position.
     pub assignments: Vec<AssignmentSite>,
-    /// The value transfers the listed calls make, sorted by context, then function, then position.
     pub transfers: Vec<ValueTransfer>,
-    /// Calls and reads it makes that other contracts may answer, an AMBIGUOUS one once.
     pub outgoing_calls: usize,
-    /// Calls and reads into it from other deployed contracts.
     pub incoming_calls: usize,
 }
 
@@ -202,17 +180,12 @@ pub struct Relations {
     pub assignments: Vec<AssignmentSite>,
     /// Sorted by source, then target contract.
     pub links: Vec<ContractLink>,
-    /// Sorted by context, then calling function, then position.
     pub calls: Vec<ContractCall>,
-    /// Every function's facts in each contract that runs it, sorted by context, then function, then position.
     pub values: ValueFacts,
-    /// Deployed project contracts only, sorted by context, then the parties.
     pub value_pairs: Vec<ValuePair>,
-    /// Keys of the project contracts that get deployed, sorted; only their calls reach other contracts.
     pub deployed: Vec<String>,
 }
 
-/// `context` runs `func`, declared in `owner`, as `cfg`.
 pub(crate) struct Running<'p> {
     pub context: &'p ContractDef,
     pub owner: &'p ContractDef,
@@ -220,7 +193,6 @@ pub(crate) struct Running<'p> {
     pub cfg: Cow<'p, CfgGraph>,
 }
 
-/// Each analysed function in its own contract, then in every project contract each base and project library function it runs: base constructors, inherited code with private helpers, overridden code its code still calls, as through `super`, and the project library functions its code calls.
 fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGraph>) -> Vec<Running<'p>> {
     let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
     keys.sort();
@@ -254,7 +226,6 @@ fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGrap
     units
 }
 
-/// The functions a unit's reachable code calls internally, resolved as its context runs them.
 fn internal_callees<'p>(project: &'p Project, unit: &Running<'p>) -> Vec<(&'p ContractDef, &'p FunctionDef)> {
     let statements = reachable(&unit.cfg).into_iter().flat_map(|n| unit.cfg[n].statements.iter());
     let sites = statements.filter_map(|stmt| CallSite::of(stmt, &project.decl_table));
@@ -297,28 +268,23 @@ impl Relations {
         self.deployed.binary_search_by(|k| k.as_str().cmp(contract)).is_ok()
     }
 
-    /// The calls the code `context` runs makes, its inherited code included.
     pub fn calls_from(&self, context: &str) -> &[ContractCall] {
         run_of(&self.calls, |c| c.in_context.as_str().cmp(context))
     }
 
-    /// The value transfers of the code `context` runs, its inherited and project library code included.
     pub fn values_of(&self, context: &str) -> &[ValueTransfer] {
         run_of(&self.values.transfers, |t| t.in_context.as_str().cmp(context))
     }
 
-    /// The calls `function` makes at `span` as `context` runs it.
     pub fn calls_at(&self, context: &str, function: &str, span: SourceSpan) -> &[ContractCall] {
         run_of(&self.calls, |c| (c.in_context.as_str(), c.function.as_str(), c.span).cmp(&(context, function, span)))
     }
 
-    /// The value transfers `call` makes.
     pub fn transfers_at(&self, call: &ContractCall) -> &[ValueTransfer] {
         let wanted = (call.in_context.as_str(), call.function.as_str(), call.span);
         run_of(&self.values.transfers, |t| (t.in_context.as_str(), t.function.as_str(), t.span).cmp(&wanted))
     }
 
-    /// What `function` (`<contract key>::<function key>`) moves and reads as `context` runs it.
     pub fn values(&self, context: &str, function: &str) -> ValueFacts {
         let wanted = (context, function);
         ValueFacts {
@@ -327,13 +293,11 @@ impl Relations {
         }
     }
 
-    /// What `func`, declared in `owner`, moves and reads as `contract` runs it; a dependency runs only its own code.
     pub fn values_in(&self, contract: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> ValueFacts {
         let context = if contract.is_dependency { owner } else { contract };
         self.values(context.key(), &format!("{}::{}", owner.key(), func.key))
     }
 
-    /// The calls `contract` may answer, from every other deployed contract running the calling code.
     pub fn calls_into<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractCall> {
         self.calls.iter().filter(move |c| c.in_context != contract && self.deploys(&c.in_context) && c.callees.iter().any(|d| d.contract == contract))
     }
@@ -360,13 +324,11 @@ impl Relations {
         }
     }
 
-    /// The links the calls of the code `contract` runs add up to, and those of the calls into it from every other deployed contract.
     pub fn context_links(&self, contract: &str) -> (Vec<ContractLink>, Vec<ContractLink>) {
         let incoming = dispatch::links(self.calls_into(contract)).into_iter().filter(|l| l.to_contract == contract).collect();
         (dispatch::links(self.calls_from(contract)), incoming)
     }
 
-    /// The pairs `contract` runs or is a party of, every pair without one, with the transfers they group.
     pub fn value_flow(&self, contract: Option<&str>) -> ValueFlowPairs {
         let touches = |p: &ValuePair| contract.is_none_or(|c| p.in_context == c || p.from.names(c) || p.to.names(c));
         let pairs: Vec<ValuePair> = self.value_pairs.iter().filter(|p| touches(p)).cloned().collect();
@@ -376,14 +338,12 @@ impl Relations {
     }
 }
 
-/// The facts of `sorted` that `order`, comparing a fact's key with the wanted one, finds equal.
 fn run_of<T>(sorted: &[T], order: impl Fn(&T) -> Ordering) -> &[T] {
     let start = sorted.partition_point(|f| order(f) == Ordering::Less);
     let end = sorted.partition_point(|f| order(f) != Ordering::Greater);
     &sorted[start..end]
 }
 
-/// Calls by contract key, in key order.
 fn groups<'a>(calls: impl Iterator<Item = (&'a str, &'a ContractCall)>) -> Vec<ConnectionGroup> {
     let mut groups: BTreeMap<&str, Vec<ContractCall>> = BTreeMap::new();
     for (contract, call) in calls {

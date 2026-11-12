@@ -8,12 +8,10 @@ use ilold_core::relations::{
 use crate::colors::*;
 use crate::fmt::api_name;
 
-/// `Contract::name` without the contract when it is `contract`.
 fn local<'a>(id: &'a str, contract: &str) -> &'a str {
     id.strip_prefix(contract).and_then(|rest| rest.strip_prefix("::")).unwrap_or(id)
 }
 
-/// The asset as the value views name it, with its token.
 fn asset(kind: AssetKind, reason: Option<ValueReason>, token: Option<&str>) -> String {
     let mut asset = match reason {
         Some(ValueReason::Currency) => "ETH or token, set by the pool".to_string(),
@@ -25,7 +23,6 @@ fn asset(kind: AssetKind, reason: Option<ValueReason>, token: Option<&str>) -> S
     asset
 }
 
-/// `caller → callee`, its kind, line, the state variable holding the address and the value it moves; one row per call, whatever its candidates.
 fn call_row(call: &ContractCall, contract: &str, transfers: &[ValueTransfer]) -> String {
     let callees: Vec<&str> = call.callees.iter().map(|d| d.function.as_str()).collect();
     let target = match callees.as_slice() {
@@ -72,7 +69,6 @@ fn groups(out: &mut String, title: String, empty: &str, groups: &[ConnectionGrou
     }
 }
 
-/// The connection rows in the order the API lists them.
 pub fn links(c: &Connections) -> String {
     let mut out = String::new();
     groups(&mut out, format!("{} → calls", c.contract), "calls no other contract", &c.outgoing, c);
@@ -113,7 +109,6 @@ fn route_call(call: &RouteCall) -> String {
     row
 }
 
-/// The shortest routes between the two contracts, step by step.
 pub fn route(reads: bool, found: &Routes) -> String {
     let (from, to) = (&found.from, &found.to);
     let mut out = String::new();
@@ -149,7 +144,6 @@ fn party(p: &Party) -> String {
     }
 }
 
-/// Who pays whom, per running contract, as the value pairs group the transfers.
 pub fn value(flow: &ValueFlowPairs) -> String {
     let mut out = String::new();
     let title = flow.contract.as_ref().map_or("Value flow".to_string(), |c| format!("Value flow of {c}"));

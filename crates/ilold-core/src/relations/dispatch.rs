@@ -32,7 +32,6 @@ pub fn call_target(project: &Project, stmt: &CfgStatement) -> Option<(CallKind, 
     Some((*kind, target))
 }
 
-/// Dispatches, the contract links of each contract's own code and every call as each contract runs it.
 pub(super) fn build(project: &Project, units: &[Running]) -> Relations {
     let mut dispatches = BTreeMap::new();
     let mut targeted = BTreeSet::new();
@@ -57,7 +56,6 @@ pub(super) fn build(project: &Project, units: &[Running]) -> Relations {
     Relations { dispatches: dispatches.into_values().collect(), assignments, links, calls, ..Relations::default() }
 }
 
-/// One per ordered contract pair, from the calls to contracts the running contracts make.
 pub(super) fn links<'a>(calls: impl IntoIterator<Item = &'a ContractCall>) -> Vec<ContractLink> {
     let mut links: BTreeMap<(String, String), ContractLink> = BTreeMap::new();
     for made in calls.into_iter().filter(|c| c.kind != ContractCallKind::Library) {
@@ -94,7 +92,6 @@ pub(super) fn links<'a>(calls: impl IntoIterator<Item = &'a ContractCall>) -> Ve
     links
 }
 
-/// Every call to another contract, a library or `this` in a function's reachable code, resolved as `context` runs it.
 fn contract_calls(
     project: &Project,
     context: &ContractDef,
@@ -152,7 +149,6 @@ fn contract_calls(
     calls
 }
 
-/// The library function a call runs, by the declaration it resolves to.
 pub(super) fn library_callee<'p>(project: &'p Project, stmt: &CfgStatement) -> Option<(&'p ContractDef, &'p FunctionDef)> {
     let (contract_key, function_key) = match stmt {
         CfgStatement::InternalCall { kind: CallKind::InternalLibrary, declaration: Some((c, f)), .. } => (c.as_str(), f.as_str()),

@@ -103,7 +103,6 @@ pub fn run_deps(path: &Path, contract: Option<&str>, include_dependencies: bool)
         .context(format!("Failed to parse {}", path.display()))?;
     project.rebuild_index();
 
-    // the graph the web serves: call graphs plus the contracts that may answer interface calls
     let all = ProjectAnalysis::load_or_build(&project, key.as_ref(), &AnalysisParams::new(crate::SHARED_SEQ_DEPTH)).dep_graph;
 
     if let Some(name) = contract {

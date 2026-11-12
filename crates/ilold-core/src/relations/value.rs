@@ -140,20 +140,15 @@ pub struct ValueFlow {
     pub transfers: Vec<String>,
 }
 
-/// One side of a value move.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "name")]
 pub enum Party {
-    /// Project contracts by key: the one running the code, or those that may answer the call; several are AMBIGUOUS.
     Contract(Vec<String>),
-    /// A contract outside the project, by key, that the call or a library parameter is typed as.
     Declared(String),
-    /// The account as the source writes it; none when the fact names no account.
     Expression(Option<String>),
 }
 
 impl Party {
-    /// Whether the side is `contract`, or one of the contracts it may be.
     pub fn names(&self, contract: &str) -> bool {
         match self {
             Party::Contract(keys) => keys.iter().any(|k| k == contract),
@@ -163,17 +158,13 @@ impl Party {
     }
 }
 
-/// Value pairs with the transfers they group.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValueFlowPairs {
-    /// Key of the contract the pairs touch; none for the whole project.
     pub contract: Option<String>,
     pub pairs: Vec<ValuePair>,
-    /// Sorted by context, then function, then position.
     pub transfers: Vec<ValueTransfer>,
 }
 
-/// Transfers one running contract makes between the same two parties, of one asset, token and reason.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValuePair {
     pub in_context: String,
@@ -183,7 +174,6 @@ pub struct ValuePair {
     pub token_expr: Option<String>,
     pub reason: Option<ValueReason>,
     pub functions: Vec<String>,
-    /// Ids of the transfers.
     pub transfers: Vec<String>,
 }
 
@@ -525,7 +515,6 @@ fn typed_value_facts(
     (facts, typed)
 }
 
-/// The contract outside the project that the library parameter read at `arg` is typed as.
 fn outside_parameter(project: &Project, stmt: &CfgStatement, arg: Arg) -> Option<String> {
     let At(index) = arg else { return None };
     let (_, function) = library_callee(project, stmt)?;
@@ -533,7 +522,6 @@ fn outside_parameter(project: &Project, stmt: &CfgStatement, arg: Arg) -> Option
     project.lookup_contract(&name).ok().filter(|found| found.is_dependency).map(|found| found.key().to_string())
 }
 
-/// Every running contract's facts, and the pairs a deployed project contract's transfers add up to.
 pub(super) fn build(project: &Project, units: &[Running], relations: &Relations) -> (ValueFacts, Vec<ValuePair>) {
     type Key = (String, Party, Party, AssetKind, Option<String>, Option<ValueReason>);
     let mut facts = ValueFacts::default();
@@ -568,7 +556,6 @@ pub(super) fn build(project: &Project, units: &[Running], relations: &Relations)
     (facts, pairs)
 }
 
-/// Sender and receiver: a contract only where the code resolves one, else the expression the fact holds.
 fn parties(project: &Project, relations: &Relations, t: &ValueTransfer, typed: &[Option<String>; 2]) -> (Party, Party) {
     let running = || Party::Contract(vec![t.in_context.clone()]);
     let target = || {

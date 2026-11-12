@@ -1096,7 +1096,6 @@ fn send_get(
     handle.block_on(json_body(client.get(url)))
 }
 
-/// The facts an attached server serves, read with `parse` into the analysis types.
 fn fetch<T>(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
@@ -1106,7 +1105,6 @@ fn fetch<T>(
     send_get(handle, client, url).and_then(|v| parse(v).map_err(|e| format!("Parse failed: {e}")))
 }
 
-/// `links`, `route` and `value` as the REPL prints them, from the in-process analysis or from the attached server.
 fn connection_view(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
@@ -1161,7 +1159,6 @@ async fn json_body(request: reqwest::RequestBuilder) -> Result<serde_json::Value
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        // a JSON error body carries its message under `error`
         let error = serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string));
         return Err(error.unwrap_or(if body.is_empty() { format!("Server error: {status}") } else { body }));
     }
@@ -2523,7 +2520,6 @@ mod tests {
         (rt, state, format!("http://127.0.0.1:{port}"))
     }
 
-    /// `line` as `connection_view` answers it from the in-process analysis and from the server serving it, active contract Curve.
     fn local_and_attached(fixture: &str, lines: &[&str]) -> Vec<(Result<String, String>, Result<String, String>)> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(fixture);
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();

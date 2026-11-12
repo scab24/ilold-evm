@@ -191,7 +191,6 @@ fn queue_dependency_callees<'p>(
     }
 }
 
-/// The code `context` runs for `func`, declared in `owner`: a derived contract's modifier overrides change it.
 pub(crate) fn context_cfg<'c>(
     project: &Project,
     cfgs: &'c HashMap<(String, String), CfgGraph>,

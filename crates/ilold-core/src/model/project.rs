@@ -49,7 +49,6 @@ pub enum ContractLookupError {
 }
 
 impl ContractLookupError {
-    /// What to tell whoever asked for `query`.
     pub fn message(&self, query: &str) -> String {
         match self {
             ContractLookupError::NotFound => format!("Contract '{query}' not found"),
@@ -75,7 +74,6 @@ impl Project {
         project
     }
 
-    /// The source file `span` points into.
     pub fn source_file(&self, span: SourceSpan) -> Option<&SourceFile> {
         self.source_files.get(span.file_index)
     }
@@ -295,7 +293,6 @@ impl Project {
         candidates().find(|(_, f)| f.body.is_some()).or_else(|| candidates().next())
     }
 
-    /// What a deployed contract runs from: every constructor in its linearization, each base's included, and the implementation of each signature.
     pub fn running_functions<'a>(&'a self, contract: &'a ContractDef) -> Vec<(&'a ContractDef, &'a FunctionDef)> {
         let linearization = self.linearization(contract);
         let implements = |c: &ContractDef, f: &FunctionDef| {

@@ -1,4 +1,3 @@
-//! Calls between contracts as each running contract makes them, inherited and dependency code included.
 use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -105,7 +104,6 @@ fn row(function: &str, kind: ContractCallKind, callees: Vec<(String, String, Tag
     (function.into(), kind, callees, reason, via.map(str::to_string))
 }
 
-/// The rows of `Base::pay` up to the self call, the same in every contract that runs it.
 fn pay(self_call: &str, self_contract: &str) -> Vec<Row> {
     let vault = Some("Base::vault");
     let hooks = vec![callee("HookA::onCall", "HookA", Tag::Ambiguous), callee("HookB::onCall", "HookB", Tag::Ambiguous)];

@@ -42,7 +42,6 @@ export interface ContractDetail extends ContractIdentity, Bases {
 }
 
 export type Basis = 'library' | 'self' | 'inherits_interface' | 'selector_match';
-/** Contract links leave library calls out. */
 export type LinkBasis = Exclude<Basis, 'library'>;
 export type RelationTag = 'INFERRED' | 'AMBIGUOUS' | 'EXTRACTED' | 'TYPE_RESOLVED';
 export type UnresolvedReason = 'out_of_scope_interface' | 'no_implementation' | 'dynamic_address';
@@ -75,22 +74,17 @@ export interface ContractLink {
 
 export type ContractCallKind = 'call' | 'read' | 'library' | 'self';
 
-/** A call to another contract, a library or `this`, as `in_context` runs the code making it; refs are `<contract>::<member>`. */
 export interface ContractCall {
   in_context: string;
   function: string;
   span: SourceSpan;
   kind: ContractCallKind;
   target: string | null;
-  /** Several are AMBIGUOUS; none carry `unresolved_reason`. */
   callees: DispatchCandidate[];
   unresolved_reason: UnresolvedReason | null;
   via: string | null;
-  /** A try statement guards the call. */
   in_try: boolean;
-  /** Ids of the value transfers the call makes, as `in_context` runs it. */
   transfers: string[];
-  /** Path of the source file holding the call. */
   file: string | null;
 }
 
@@ -99,25 +93,20 @@ export interface ConnectionGroup {
   calls: ContractCall[];
 }
 
-/** `GET /api/contract/{name}/connections`: the calls of the code the contract runs, inherited code included, and the calls into it. */
 export interface Connections {
   contract: string;
   outgoing: ConnectionGroup[];
   incoming: ConnectionGroup[];
   unresolved: ContractCall[];
   assignments: AssignmentSite[];
-  /** The value transfers the listed calls make, identified by `in_context` and `id`. */
   transfers: ValueTransfer[];
-  /** Calls and reads it makes that other contracts may answer, an AMBIGUOUS one once. */
   outgoing_calls: number;
-  /** Calls and reads into it from other deployed contracts. */
   incoming_calls: number;
 }
 
 export interface RouteCall {
   call: ContractCall;
   callee: DispatchCandidate;
-  /** The first step, or the previous step's code reaches the call inside the contract. */
   recorded: boolean;
 }
 
@@ -127,9 +116,7 @@ export interface RouteStep {
   calls: RouteCall[];
 }
 
-/** `GET /api/project/route`: the shortest routes between two contracts. */
 export interface Routes {
-  /** Keys of the contracts the routes start and end at. */
   from: string;
   to: string;
   routes: { steps: RouteStep[] }[];
@@ -215,7 +202,6 @@ export interface ValueFlow {
   transfers: string[];
 }
 
-/** A side of a value move: project contracts by key, a contract outside the project, or the account as the source writes it. */
 export type Party =
   | { kind: 'contract'; name: string[] }
   | { kind: 'declared'; name: string }
@@ -232,9 +218,7 @@ export interface ValuePair {
   transfers: string[];
 }
 
-/** `GET /api/project/value-flow`: the pairs and the transfers they group, by `in_context` and `id`. */
 export interface ValueFlowPairs {
-  /** Key of the contract asked for; null for the whole project. */
   contract: string | null;
   pairs: ValuePair[];
   transfers: ValueTransfer[];

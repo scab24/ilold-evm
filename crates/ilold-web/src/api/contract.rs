@@ -39,9 +39,7 @@ pub struct ContractDetail {
     pub state_vars: Vec<StateVarSummary>,
     pub inherited_functions: Vec<FunctionSummary>,
     pub inherited_state_vars: Vec<StateVarSummary>,
-    /// The calls of the code it runs, inherited code included.
     pub outgoing_links: Vec<ContractLink>,
-    /// The calls into it from every other deployed contract running the calling code.
     pub incoming_links: Vec<ContractLink>,
     /// The transfers of the code it runs, inherited and project library code included, summed by direction, asset and counterparty.
     pub value_flows: Vec<ValueFlow>,
@@ -72,7 +70,6 @@ pub struct FunctionSummary {
     pub accesses: Vec<StorageAccess>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub try_catches: Vec<TryCatchFact>,
-    /// As this contract runs the function.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub value_transfers: Vec<ValueTransfer>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
