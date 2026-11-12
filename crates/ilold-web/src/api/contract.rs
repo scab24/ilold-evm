@@ -15,7 +15,7 @@ use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
 use ilold_core::relations::{
-    declared_target, external_calls, key_kinds, phase_candidates, storage_accesses, try_catches, value_facts, value_flows, AssignmentSite,
+    declared_target, external_calls, key_kinds, phase_candidates, storage_accesses, try_catches, value_flows, AssignmentSite,
     BalanceRead, ContractLink, Dispatch, DispatchCandidate, KeyKind, PhaseCandidate, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow,
     ValueTransfer,
 };
@@ -121,7 +121,7 @@ pub async fn get_contract(
         let pt = state.path_trees.get(&(owner.key().to_string(), f.key.clone()));
         let (access, guards) = classify_in(&state.project, contract, owner, f);
         let cfg = state.cfgs.get(&(owner.key().to_string(), f.key.clone()));
-        let values = cfg.map(|cfg| value_facts(&state.project, owner, owner, f, cfg)).unwrap_or_default();
+        let values = state.relations.values(owner.key(), &format!("{}::{}", owner.key(), f.key));
         FunctionSummary {
             name: f.name.clone(),
             key: state.project.route_key(contract, f),

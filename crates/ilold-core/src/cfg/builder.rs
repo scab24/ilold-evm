@@ -1624,7 +1624,7 @@ fn option_strings(options: &[CallOption]) -> Vec<(String, String)> {
     options.iter().map(|o| (o.name.clone(), expr_to_string(&o.value))).collect()
 }
 
-fn type_contract_name(object_type: &str) -> Option<String> {
+pub(crate) fn type_contract_name(object_type: &str) -> Option<String> {
     let inner = object_type
         .strip_prefix("type(")
         .and_then(|t| t.strip_suffix(')'))

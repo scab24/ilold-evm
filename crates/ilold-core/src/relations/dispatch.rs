@@ -1,7 +1,6 @@
 //! Which in-scope contracts may answer each external call, where the called address comes from, and the contract map they add up to.
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::analysis::context_cfg;
 use crate::cfg::builder::expr_to_string;
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::model::common::SourceSpan;
@@ -16,7 +15,7 @@ use crate::sequence::effects::{is_view_call, reachable};
 
 use super::{
     param_source, state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractCall, ContractLink, Dispatch, DispatchCandidate, LinkCall,
-    LinkKind, Relations, Tag, UnresolvedReason,
+    LinkKind, Relations, Running, Tag, UnresolvedReason,
 };
 
 /// The kind and the declared `<contract key>::<member key>` of an external call to a contract, `this` included.
@@ -32,32 +31,29 @@ pub fn call_target(project: &Project, stmt: &CfgStatement) -> Option<(CallKind, 
     Some((*kind, target))
 }
 
-pub(super) fn build(project: &Project, cfgs: &HashMap<(String, String), CfgGraph>) -> Relations {
-    let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
-    keys.sort();
+/// Dispatches, the contract links of each contract's own code and every call as each contract runs it.
+pub(super) fn build(project: &Project, units: &[Running]) -> Relations {
     let mut dispatches = BTreeMap::new();
     let mut targeted = BTreeSet::new();
-    let mut calls = Vec::new();
-    for (owner_key, func_key) in keys {
-        let Some(owner) = contract(project, owner_key) else { continue };
-        let Some(func) = owner.functions.iter().find(|f| &f.key == func_key) else { continue };
-        let made = contract_calls(project, owner, owner, func, &cfgs[&(owner_key.clone(), func_key.clone())], &mut dispatches);
+    let (mut own, mut inherited) = (Vec::new(), Vec::new());
+    for Running { context, owner, func, cfg } in units {
+        let made = contract_calls(project, context, owner, func, cfg, &mut dispatches);
+        if !std::ptr::eq(*context, *owner) {
+            inherited.extend(made);
+            continue;
+        }
         targeted.extend(made.iter().filter_map(|c| c.via.clone()));
         if !owner.is_dependency {
-            calls.extend(made);
+            own.extend(made);
         }
     }
-    let links = links(&calls);
-    for context in project.project_contracts() {
-        for af in project.accessible_functions(context).into_iter().filter(|af| af.is_inherited) {
-            let Some(cfg) = context_cfg(project, cfgs, context, af.owner, af.function) else { continue };
-            calls.extend(contract_calls(project, context, af.owner, af.function, &cfg, &mut dispatches));
-        }
-    }
+    let links = links(&own);
+    let mut calls = own;
+    calls.extend(inherited);
     calls.sort_by(|a, b| (&a.context, &a.function, a.span).cmp(&(&b.context, &b.function, b.span)));
     let mut assignments: Vec<AssignmentSite> = targeted.iter().flat_map(|var| assignment_sites(project, var)).collect();
     assignments.sort_by(|a, b| (&a.state_var, a.span).cmp(&(&b.state_var, b.span)));
-    Relations { dispatches: dispatches.into_values().collect(), assignments, links, calls }
+    Relations { dispatches: dispatches.into_values().collect(), assignments, links, calls, ..Relations::default() }
 }
 
 /// One per ordered contract pair, from the calls to contracts that each contract's own code makes.

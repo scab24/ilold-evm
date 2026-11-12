@@ -19,7 +19,7 @@ use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
 use crate::pathtree::walker::normalize_path;
 use crate::relations::{
-    call_target, phase_candidates, state_var_ref, storage_accesses, try_catches, value_facts, AccessKey, AccessKind, ContractLink, EffectSite, KeySite,
+    call_target, phase_candidates, state_var_ref, storage_accesses, try_catches, AccessKey, AccessKind, ContractLink, EffectSite, KeySite,
     RecordKeys, TryCatchFact, ValueTransfer,
 };
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
@@ -371,7 +371,7 @@ impl<'p> Builder<'p> {
             let via = self.in_modifier(site, fact.modifier.as_deref());
             self.tries.push(AwaitingCalls { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });
         }
-        let values = value_facts(self.project, site.context, site.owner, func, cfg);
+        let values = self.analysis.relations.values(site.context.key(), &format!("{}::{}", site.owner.key(), func.key));
         for fact in values.transfers {
             let via = self.in_modifier(site, fact.modifier.as_deref());
             self.transfers.push(AwaitingCalls { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });

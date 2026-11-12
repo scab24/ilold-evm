@@ -10,11 +10,13 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::context_cfg;
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::CallKind;
+use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::sequence::effects::CallSite;
@@ -23,7 +25,9 @@ pub use dispatch::{call_target, external_calls, ExternalCallSite};
 pub use keys::{key_kinds, storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
 pub use phases::{phase_candidates, PhaseCandidate};
 pub use trycatch::{try_catches, CatchClauseFact, CatchEffects, CatchKind, EffectSite, GuardedCall, TryCatchFact, TryReason};
-pub use value::{value_facts, value_flows, AssetKind, BalanceRead, Direction, Operation, ValueFacts, ValueFlow, ValueReason, ValueTransfer};
+pub use value::{
+    value_facts, value_flows, AssetKind, BalanceRead, Direction, Operation, Party, ValueFacts, ValueFlow, ValuePair, ValueReason, ValueTransfer,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -162,11 +166,45 @@ pub struct Relations {
     pub links: Vec<ContractLink>,
     /// Sorted by context, then calling function, then position.
     pub calls: Vec<ContractCall>,
+    /// Every function's facts in each contract that runs it, sorted by context, then function, then position.
+    pub values: ValueFacts,
+    /// Sorted by context, then the parties.
+    pub value_pairs: Vec<ValuePair>,
+}
+
+/// `context` runs `func`, declared in `owner`, as `cfg`.
+pub(crate) struct Running<'p> {
+    pub context: &'p ContractDef,
+    pub owner: &'p ContractDef,
+    pub func: &'p FunctionDef,
+    pub cfg: Cow<'p, CfgGraph>,
+}
+
+/// Each analysed function in its own contract, then each inherited one in every project contract that runs it.
+fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGraph>) -> Vec<Running<'p>> {
+    let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
+    keys.sort();
+    let mut units = Vec::new();
+    for key in keys {
+        let Some(owner) = project.contract_index.get(&key.0).map(|&i| &project.contracts[i]) else { continue };
+        let Some(func) = owner.functions.iter().find(|f| f.key == key.1) else { continue };
+        units.push(Running { context: owner, owner, func, cfg: Cow::Borrowed(&cfgs[key]) });
+    }
+    for context in project.project_contracts() {
+        for af in project.accessible_functions(context).into_iter().filter(|af| af.is_inherited) {
+            let Some(cfg) = context_cfg(project, cfgs, context, af.owner, af.function) else { continue };
+            units.push(Running { context, owner: af.owner, func: af.function, cfg });
+        }
+    }
+    units
 }
 
 impl Relations {
     pub fn build(project: &Project, cfgs: &HashMap<(String, String), CfgGraph>) -> Self {
-        dispatch::build(project, cfgs)
+        let units = running(project, cfgs);
+        let mut relations = dispatch::build(project, &units);
+        (relations.values, relations.value_pairs) = value::build(project, &units, &relations);
+        relations
     }
 
     /// What may answer an external call to `target` made as `context` runs it; code no analysed function contains is resolved here.
@@ -198,6 +236,20 @@ impl Relations {
         let start = self.calls.partition_point(|c| c.context.as_str() < context);
         let end = self.calls.partition_point(|c| c.context.as_str() <= context);
         &self.calls[start..end]
+    }
+
+    /// What `function` (`<contract key>::<function key>`) moves and reads as `context` runs it.
+    pub fn values(&self, context: &str, function: &str) -> ValueFacts {
+        fn of<'a, T>(facts: &'a [T], key: impl Fn(&T) -> (&str, &str), wanted: (&str, &str)) -> &'a [T] {
+            let start = facts.partition_point(|f| key(f) < wanted);
+            let end = facts.partition_point(|f| key(f) <= wanted);
+            &facts[start..end]
+        }
+        let wanted = (context, function);
+        ValueFacts {
+            transfers: of(&self.values.transfers, |t| (&t.in_context, &t.function), wanted).to_vec(),
+            balance_reads: of(&self.values.balance_reads, |r| (&r.in_context, &r.function), wanted).to_vec(),
+        }
     }
 
     /// The calls `contract` may answer, from every contract running the calling code.

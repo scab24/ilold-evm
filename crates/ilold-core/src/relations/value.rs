@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::cfg::builder::{call_arguments, expr_to_string};
+use crate::cfg::builder::{call_arguments, expr_to_string, type_contract_name};
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::classify::code_facts::{builtin, walk_function, Builtin};
 use crate::model::common::SourceSpan;
@@ -16,7 +16,7 @@ use crate::model::source::uncast;
 use crate::sequence::effects::reachable;
 
 use super::dispatch::{contract, library_callee};
-use super::{call_text, Tag};
+use super::{call_text, LinkKind, Relations, Running, Tag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,7 +55,7 @@ pub enum Direction {
 }
 
 /// Why the asset of a fact is not decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValueReason {
     /// The call names no declaration, so only its name matches.
@@ -135,6 +135,32 @@ pub struct ValueFlow {
     pub token_expr: Option<String>,
     /// The sender of what comes in, the receiver of the rest.
     pub counterparty_expr: Option<String>,
+    pub functions: Vec<String>,
+    /// Ids of the transfers.
+    pub transfers: Vec<String>,
+}
+
+/// One side of a value move.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "name")]
+pub enum Party {
+    /// Project contracts by key: the one running the code, or those that may answer the call; several are AMBIGUOUS.
+    Contract(Vec<String>),
+    /// A contract outside the project, by key, that the call or a library parameter is typed as.
+    Declared(String),
+    /// The account as the source writes it; none when the fact names no account.
+    Expression(Option<String>),
+}
+
+/// Transfers one running contract makes between the same two parties, of one asset, token and reason.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValuePair {
+    pub in_context: String,
+    pub from: Party,
+    pub to: Party,
+    pub asset_kind: AssetKind,
+    pub token_expr: Option<String>,
+    pub reason: Option<ValueReason>,
     pub functions: Vec<String>,
     /// Ids of the transfers.
     pub transfers: Vec<String>,
@@ -399,6 +425,17 @@ fn balance_read(place: &Place, found: &Match, operands: &Operands, owner: Arg) -
 
 /// What `func`'s reachable code moves and reads, as `context` runs it, in source order.
 pub fn value_facts(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef, cfg: &CfgGraph) -> ValueFacts {
+    typed_value_facts(project, context, owner, func, cfg).0
+}
+
+/// The facts, and for each transfer the contracts outside the project its sender and receiver are typed as.
+fn typed_value_facts(
+    project: &Project,
+    context: &ContractDef,
+    owner: &ContractDef,
+    func: &FunctionDef,
+    cfg: &CfgGraph,
+) -> (ValueFacts, Vec<[Option<String>; 2]>) {
     let mut calls = HashMap::new();
     let mut balances = Vec::new();
     walk_function(Some(project), context, func, &mut |_| {}, &mut |modifier, e| match &e.kind {
@@ -408,6 +445,7 @@ pub fn value_facts(project: &Project, context: &ContractDef, owner: &ContractDef
     });
     let function = format!("{}::{}", owner.key(), func.key);
     let mut facts = ValueFacts::default();
+    let mut transfers = Vec::new();
     if let Some(&recognizer @ Recognizer { effect: Effect::Reads { owner: holder }, .. }) = RECOGNIZERS.iter().find(|r| matches!(r.callee, Balance)) {
         let found = Match { recognizer, tag: Tag::Extracted, via_library: None, undecided: None };
         for (modifier, span, object) in balances {
@@ -427,9 +465,10 @@ pub fn value_facts(project: &Project, context: &ContractDef, owner: &ContractDef
                     Effect::Reads { owner } => facts.balance_reads.push(balance_read(&place, &found, &operands, owner)),
                     Effect::Moves { operation, from, to, amount } => {
                         let (asset_kind, asset_candidates, tag, reason) = operands.asset(&found);
+                        let typed = [from, to].map(|arg| outside_parameter(project, stmt, arg));
                         let (from, to) = (operands.operand(from, true), operands.operand(to, false));
                         let direction = if to.this { Direction::In } else if from.this { Direction::Out } else { Direction::Other };
-                        facts.transfers.push(ValueTransfer {
+                        let transfer = ValueTransfer {
                             id: String::new(),
                             function: function.clone(),
                             in_context: context.key().to_string(),
@@ -448,14 +487,17 @@ pub fn value_facts(project: &Project, context: &ContractDef, owner: &ContractDef
                             via_library: found.via_library,
                             tag,
                             reason,
-                        });
+                        };
+                        transfers.push((transfer, typed));
                     }
                 }
             }
         }
     }
-    facts.transfers.sort_by(|a, b| (a.span, a.operation, a.asset_kind, &a.via_library).cmp(&(b.span, b.operation, b.asset_kind, &b.via_library)));
-    facts.transfers.dedup();
+    transfers.sort_by(|(a, _), (b, _)| (a.span, a.operation, a.asset_kind, &a.via_library).cmp(&(b.span, b.operation, b.asset_kind, &b.via_library)));
+    transfers.dedup_by(|(a, _), (b, _)| a == b);
+    let (mut sorted, typed): (Vec<ValueTransfer>, Vec<[Option<String>; 2]>) = transfers.into_iter().unzip();
+    facts.transfers.append(&mut sorted);
     facts.balance_reads.sort_by(|a, b| (a.span, a.asset_kind, &a.via_library).cmp(&(b.span, b.asset_kind, &b.via_library)));
     facts.balance_reads.dedup();
     for (n, t) in facts.transfers.iter_mut().enumerate() {
@@ -464,7 +506,77 @@ pub fn value_facts(project: &Project, context: &ContractDef, owner: &ContractDef
     for (n, r) in facts.balance_reads.iter_mut().enumerate() {
         r.id = format!("{function}#{n}");
     }
-    facts
+    (facts, typed)
+}
+
+/// The contract outside the project that the library parameter read at `arg` is typed as.
+fn outside_parameter(project: &Project, stmt: &CfgStatement, arg: Arg) -> Option<String> {
+    let At(index) = arg else { return None };
+    let (_, function) = library_callee(project, stmt)?;
+    let name = type_contract_name(&function.params.get(index)?.type_name)?;
+    project.lookup_contract(&name).ok().filter(|found| found.is_dependency).map(|found| found.key().to_string())
+}
+
+/// Every running contract's facts, and the pairs its transfers add up to.
+pub(super) fn build(project: &Project, units: &[Running], relations: &Relations) -> (ValueFacts, Vec<ValuePair>) {
+    type Key = (String, Party, Party, AssetKind, Option<String>, Option<ValueReason>);
+    let mut facts = ValueFacts::default();
+    let mut pairs: BTreeMap<Key, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
+    for Running { context, owner, func, cfg } in units {
+        let (mut found, typed) = typed_value_facts(project, context, owner, func, cfg);
+        for (t, typed) in found.transfers.iter().zip(&typed) {
+            let (from, to) = parties(project, relations, t, typed);
+            let (functions, ids) = pairs.entry((t.in_context.clone(), from, to, t.asset_kind, t.token_expr.clone(), t.reason)).or_default();
+            functions.insert(t.function.clone());
+            ids.insert(t.id.clone());
+        }
+        facts.transfers.append(&mut found.transfers);
+        facts.balance_reads.append(&mut found.balance_reads);
+    }
+    facts.transfers.sort_by(|a, b| (&a.in_context, &a.function).cmp(&(&b.in_context, &b.function)));
+    facts.balance_reads.sort_by(|a, b| (&a.in_context, &a.function).cmp(&(&b.in_context, &b.function)));
+    let pairs = pairs
+        .into_iter()
+        .map(|((in_context, from, to, asset_kind, token_expr, reason), (functions, ids))| ValuePair {
+            in_context,
+            from,
+            to,
+            asset_kind,
+            token_expr,
+            reason,
+            functions: functions.into_iter().collect(),
+            transfers: ids.into_iter().collect(),
+        })
+        .collect();
+    (facts, pairs)
+}
+
+/// Sender and receiver: a contract only where the code resolves one, else the expression the fact holds.
+fn parties(project: &Project, relations: &Relations, t: &ValueTransfer, typed: &[Option<String>; 2]) -> (Party, Party) {
+    let running = || Party::Contract(vec![t.in_context.clone()]);
+    let target = || {
+        let made = relations.calls_from(&t.in_context);
+        let call = made.iter().find(|c| c.function == t.function && c.span == t.span && c.kind != LinkKind::Library)?;
+        if !call.callees.is_empty() {
+            return Some(Party::Contract(call.callees.iter().map(|d| d.contract.clone()).collect()));
+        }
+        let (declared, _) = call.target.as_deref()?.rsplit_once("::")?;
+        contract(project, declared).filter(|found| found.is_dependency).map(|found| Party::Declared(found.key().to_string()))
+    };
+    let typed = |side: usize| typed[side].clone().map(Party::Declared);
+    let native_call = t.operation == Operation::Call && t.via_library.is_none();
+    let from = match () {
+        _ if t.operation == Operation::Mint => target(),
+        _ if t.direction == Direction::Out => Some(running()),
+        _ => typed(0),
+    };
+    let to = match () {
+        _ if t.operation == Operation::Burn => target(),
+        _ if t.direction == Direction::In => Some(running()),
+        _ if native_call => target(),
+        _ => typed(1),
+    };
+    (from.unwrap_or_else(|| Party::Expression(t.from_expr.clone())), to.unwrap_or_else(|| Party::Expression(t.to_expr.clone())))
 }
 
 /// Transfers grouped by direction, asset, token and counterparty, in that order.
