@@ -29,13 +29,17 @@ Dependency map · reading order (layer 0 = read first)
   library   SafeMath
 ── layer 1 ──
   contract  LendingPool   inherits→ BasePool, IPool
-  contract  Vault         calls→ IPool, SafeMath  ·  holds→ IPool
+── layer 2 ──
+  contract  Vault         calls→ IPool, SafeMath  ·  holds→ IPool  ·  dispatches→ LendingPool
 
-legend: inherits→  calls→  holds→
+legend: inherits→  calls→  holds→  dispatches→
 ```
 
 This tells you to read `IPool`, `BasePool` and `SafeMath` first, then
-`LendingPool` and `Vault`, which depend on them.
+`LendingPool`, then `Vault`. `dispatches→` names the deployable contracts that
+may answer the calls a contract makes through an interface: `Vault` calls
+`IPool`, which `LendingPool` implements, so `Vault` is read after it. This is
+the same graph the web canvas and the REPL `deps`/`usedby` show.
 
 ## Following one contract
 

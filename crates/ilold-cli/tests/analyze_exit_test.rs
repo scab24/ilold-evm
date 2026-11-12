@@ -89,3 +89,20 @@ fn sequence_depth_outside_the_served_range_is_a_usage_error() {
     }
     assert!(analyze(&["--max-seq-depth", "8", "--contract", "Vault"]).status.success());
 }
+
+#[test]
+fn deps_read_the_contracts_that_may_answer_interface_calls() {
+    let dispatch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/dispatch");
+    let run = |extra: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_ilold")).arg("analyze").arg(&dispatch).arg("--deps").args(extra).output().expect("run ilold analyze");
+        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let router = run(&["--contract", "Router"]);
+    let vault = router.lines().find(|l| l.trim_start().starts_with("Vault ")).unwrap_or_default();
+    assert!(vault.contains("dispatches inherits_interface×1 via vault"), "{router}");
+    assert!(router.lines().any(|l| l.contains("HookA") && l.contains("AMBIGUOUS")), "{router}");
+    let map = run(&[]);
+    let line = map.lines().find(|l| l.contains("Router") && l.contains("calls→")).unwrap_or_default();
+    assert!(line.contains("dispatches→") && line.contains("Vault"), "{map}");
+}

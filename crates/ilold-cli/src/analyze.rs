@@ -13,7 +13,6 @@ use ilold_core::model::contract::{ContractDef, ContractKind};
 use ilold_core::model::function::Visibility;
 use ilold_core::model::project::{ContractLookupError, Project};
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::parse::ProjectParser;
 use ilold_core::pathtree::config::PruningConfig;
 use ilold_core::pathtree::types::PathTree;
 use ilold_core::pathtree::walker::build_path_tree;
@@ -99,12 +98,13 @@ pub fn run(
 pub fn run_deps(path: &Path, contract: Option<&str>, include_dependencies: bool) -> Result<()> {
     let paths = vec![crate::foundry_root(path)?];
     let parser = SolcFrontend;
-    let mut project = parser
-        .parse(&paths)
+    let (mut project, key) = parser
+        .parse_keyed(&paths)
         .context(format!("Failed to parse {}", path.display()))?;
     project.rebuild_index();
 
-    let all = ContractDeps::build(&project);
+    // the graph the web serves: call graphs plus the contracts that may answer interface calls
+    let all = ProjectAnalysis::load_or_build(&project, key.as_ref(), &AnalysisParams::new(crate::SHARED_SEQ_DEPTH)).dep_graph;
 
     if let Some(name) = contract {
         let name = resolve_contract(&project, name)?.key();
@@ -157,11 +157,12 @@ pub fn run_deps(path: &Path, contract: Option<&str>, include_dependencies: bool)
         }
     }
     println!(
-        "\n{} {}  {}  {}",
+        "\n{} {}  {}  {}  {}",
         c_muted("legend:"),
         c_accent("inherits→"),
         c_warn("calls→"),
-        c_muted("holds→")
+        c_muted("holds→"),
+        c_ok("dispatches→")
     );
     Ok(())
 }
@@ -213,7 +214,11 @@ fn print_dep_line(deps: &ContractDeps, name: &str, kind: ContractKind, name_w: u
     let mut inherits = Vec::new();
     let mut calls = Vec::new();
     let mut holds = Vec::new();
+    let mut dispatches = Vec::new();
     for d in &outs {
+        if d.edge.link.is_some() {
+            dispatches.push(d.node.name.as_str());
+        }
         if d.edge.inherits {
             inherits.push(d.node.name.as_str());
         }
@@ -234,6 +239,9 @@ fn print_dep_line(deps: &ContractDeps, name: &str, kind: ContractKind, name_w: u
     }
     if !holds.is_empty() {
         parts.push(format!("{} {}", c_muted("holds→"), holds.join(", ")));
+    }
+    if !dispatches.is_empty() {
+        parts.push(format!("{} {}", c_ok("dispatches→"), dispatches.join(", ")));
     }
 
     let kind_str = format!("{:<9}", kind_word(kind));
