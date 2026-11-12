@@ -434,7 +434,6 @@ fn balance_read(place: &Place, found: &Match, operands: &Operands, owner: Arg) -
     }
 }
 
-/// What `func`'s reachable code moves and reads as `context` runs it, in source order, with the outside contracts each transfer's sides are typed as.
 fn typed_value_facts(
     project: &Project,
     context: &ContractDef,

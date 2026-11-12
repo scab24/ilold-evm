@@ -41,7 +41,6 @@ pub struct ContractDetail {
     pub inherited_state_vars: Vec<StateVarSummary>,
     pub outgoing_links: Vec<ContractLink>,
     pub incoming_links: Vec<ContractLink>,
-    /// The transfers of the code it runs, inherited and project library code included, summed by direction, asset and counterparty.
     pub value_flows: Vec<ValueFlow>,
     /// Variables that gate which of its entry points can run; none unless it is a deployable project contract.
     pub phase_candidates: Vec<PhaseCandidate>,
@@ -268,7 +267,6 @@ pub(crate) fn edge_dispatch(state: &AppState, context: &ContractDef, kind: CallK
     Some(state.relations.dispatch(&state.project, context, kind, declared.as_deref()).into_owned())
 }
 
-/// The assignments of every state variable `source` calls `dispatch`'s target through, as `context` runs it.
 fn edge_assignments(state: &AppState, context: &ContractDef, source: &CallNode, kind: CallKind, dispatch: &Dispatch) -> Vec<AssignmentSite> {
     let function = source.id();
     let self_call = kind == CallKind::ExternalSelf;

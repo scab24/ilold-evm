@@ -46,7 +46,6 @@ export type LinkBasis = Exclude<Basis, 'library'>;
 export type RelationTag = 'INFERRED' | 'AMBIGUOUS' | 'EXTRACTED' | 'TYPE_RESOLVED';
 export type UnresolvedReason = 'out_of_scope_interface' | 'no_implementation' | 'dynamic_address';
 
-/** A deployable contract that may answer an external call, or the library a call runs; `function` is `<contract>::<function key>`. */
 export interface DispatchCandidate {
   function: string;
   contract: string;

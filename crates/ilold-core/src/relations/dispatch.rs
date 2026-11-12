@@ -170,7 +170,6 @@ fn context_of(owner: &ContractDef, kind: CallKind) -> Option<String> {
     (kind == CallKind::ExternalSelf).then(|| owner.key().to_string())
 }
 
-/// An external call to a contract.
 struct ExternalCallSite {
     kind: CallKind,
     target: Option<String>,

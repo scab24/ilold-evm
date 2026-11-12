@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-/// Per fixture project, relative to this crate, the file name and route of each response.
 const RESPONSES: &[(&str, &[(&str, &str)])] = &[
     (
         "../../tests/fixtures/solc/dispatch",
