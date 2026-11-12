@@ -15,7 +15,7 @@ use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclEntry, DeclTable};
 use crate::model::project::{CompileFailure, Project, SourceFile};
 
-const VERSION: &str = "ilold-project-v12-foundry-0.21-sha256";
+const VERSION: &str = "ilold-project-v13-foundry-0.21-sha256";
 const MAGIC: &[u8; 8] = b"ILOLDV02";
 const HEADER: usize = 8 + 32 + 64 + 32 + 8;
 const MAX_SOURCES: usize = 20_000;
@@ -29,7 +29,7 @@ const MAX_COMPILER: u64 = 128 * 1024 * 1024;
 const MAX_SNAPSHOT: u64 = 64 * 1024 * 1024;
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
+pub fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 
 fn read_bounded(path: &Path, max: u64) -> Result<String, String> {
     if fs::symlink_metadata(path).map_err(|e| e.to_string())?.file_type().is_symlink() {

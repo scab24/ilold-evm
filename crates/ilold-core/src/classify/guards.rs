@@ -635,11 +635,7 @@ impl<'a> Walker<'a> {
 
     /// A public state variable's getter counts; unknown callees do not.
     fn is_view_call(&self, frame: &Frame<'a>, callee: &'a Expression, kind: Option<CallKind>) -> bool {
-        let resolved = match &callee.kind {
-            ExpressionKind::Identifier { resolved, .. } | ExpressionKind::MemberAccess { resolved, .. } => *resolved,
-            _ => None,
-        };
-        if let Some(view) = self.project.zip(resolved).and_then(|(project, id)| project.is_view_declaration(id)) {
+        if let Some(view) = self.project.zip(callee.resolved()).and_then(|(project, id)| project.is_view_declaration(id)) {
             return view;
         }
         self.resolve(frame, callee, kind).is_some_and(|(_, f)| f.mutability.is_view_or_pure())
@@ -855,7 +851,7 @@ impl<'a> Walker<'a> {
     }
 }
 
-fn check_call(expr: &Expression) -> Option<(&'static str, &[Expression])> {
+pub(crate) fn check_call(expr: &Expression) -> Option<(&'static str, &[Expression])> {
     let ExpressionKind::FunctionCall { callee, arguments, .. } = &expr.kind else { return None };
     let ExpressionKind::Identifier { name, .. } = &callee.kind else { return None };
     let check = match name.as_str() {

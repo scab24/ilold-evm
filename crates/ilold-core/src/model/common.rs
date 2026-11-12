@@ -9,6 +9,14 @@ pub struct SourceSpan {
     pub end_col: u32,
 }
 
+impl SourceSpan {
+    pub fn contains(&self, other: &SourceSpan) -> bool {
+        self.file_index == other.file_index
+            && (self.start_line, self.start_col) <= (other.start_line, other.start_col)
+            && (other.end_line, other.end_col) <= (self.end_line, self.end_col)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Param {
     pub name: String,

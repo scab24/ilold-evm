@@ -16,11 +16,12 @@ use crate::depgraph::{ContractDeps, DepEdge, DepNode};
 use crate::parse::cache::{digest, read_envelope, write_envelope, Store};
 use crate::parse::ProjectKey;
 use crate::pathtree::types::PathTree;
+use crate::relations::Relations;
 use crate::sequence::analysis::SequenceAnalysis;
 use crate::sequence::types::SequenceTree;
 
 /// Bump whenever an analysis algorithm or any persisted type changes shape or meaning.
-const VERSION: &str = concat!("ilold-analysis-v14-", env!("CARGO_PKG_VERSION"));
+const VERSION: &str = concat!("ilold-analysis-v16-", env!("CARGO_PKG_VERSION"));
 const MAX_SNAPSHOT: u64 = 256 * 1024 * 1024;
 /// Parameter sets map to a slot and keep only their latest result.
 const SLOTS: u8 = 4;
@@ -101,6 +102,7 @@ struct SnapshotRef<'a> {
     sequence_trees: Vec<(&'a String, &'a SequenceTree)>,
     sequence_analyses: Vec<(&'a String, &'a SequenceAnalysis)>,
     classifications: Vec<(&'a String, &'a Vec<(String, AccessLevel)>)>,
+    relations: &'a Relations,
 }
 
 #[derive(Deserialize)]
@@ -112,6 +114,7 @@ struct Snapshot {
     sequence_trees: Vec<(String, SequenceTree)>,
     sequence_analyses: Vec<(String, SequenceAnalysis)>,
     classifications: Vec<(String, Vec<(String, AccessLevel)>)>,
+    relations: Relations,
 }
 
 fn snapshot_ref(analysis: &ProjectAnalysis) -> Result<SnapshotRef<'_>, String> {
@@ -125,6 +128,7 @@ fn snapshot_ref(analysis: &ProjectAnalysis) -> Result<SnapshotRef<'_>, String> {
         sequence_trees: analysis.sequence_trees.iter().collect(),
         sequence_analyses: analysis.sequence_analyses.iter().collect(),
         classifications: analysis.classifications.iter().collect(),
+        relations: &analysis.relations,
     })
 }
 
@@ -149,6 +153,7 @@ impl Snapshot {
             sequence_trees: unique(self.sequence_trees)?,
             sequence_analyses: unique(self.sequence_analyses)?,
             classifications: unique(self.classifications)?,
+            relations: self.relations,
         })
     }
 }

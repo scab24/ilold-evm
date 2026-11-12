@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::StateVar;
 use super::contract::{ContractDef, ContractKind};
-use super::decl_id::{DeclId, DeclKind, DeclTable};
+use super::decl_id::{DeclId, DeclKind, DeclTable, DeclTarget};
 use super::function::{FunctionDef, FunctionKind, Visibility};
 use crate::util::compact;
 
@@ -100,6 +100,13 @@ impl Project {
 
     pub fn hidden_contracts(&self) -> usize {
         self.contracts.len() - self.listed_contracts().count()
+    }
+
+    /// The state variable a declaration id names, with its declaration entry.
+    pub fn state_var_by_id(&self, id: DeclId) -> Option<(&DeclTarget, &StateVar)> {
+        let target = self.decl_table.lookup(id).filter(|t| t.kind == DeclKind::StateVariable)?;
+        let owner = &self.contracts[*self.contract_index.get(&target.contract)?];
+        Some((target, owner.state_vars.iter().find(|v| v.name == target.name)?))
     }
 
     /// `None` when unknown.
@@ -392,6 +399,11 @@ impl Project {
                 c.state_vars.iter().map(move |sv| (sv.clone(), c.key().to_string(), inherited))
             })
             .collect()
+    }
+
+    /// State variables cannot be shadowed, so the name selects one declaration in the linearization.
+    pub fn state_var_owner<'a>(&'a self, context: &'a ContractDef, name: &str) -> Option<&'a ContractDef> {
+        self.linearization(context).into_iter().find(|c| c.state_vars.iter().any(|v| v.name == name))
     }
 
     pub fn resolve_modifier<'a>(

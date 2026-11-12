@@ -40,6 +40,11 @@ impl FunctionDef {
         if self.signature.is_empty() { &self.name } else { &self.signature }
     }
 
+    /// A transaction can call it from outside.
+    pub fn is_entry_point(&self) -> bool {
+        self.kind != FunctionKind::Constructor && matches!(self.visibility, Visibility::Public | Visibility::External)
+    }
+
     /// Every `return e` and every assignment to a named return variable, anywhere in the body.
     pub fn returned_values<'a>(&'a self) -> Vec<&'a Expression> {
         let names_return = |name: &str, resolved: Option<DeclId>| {

@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::common::StateVar;
-use super::decl_id::{DeclId, DeclKind};
+use super::decl_id::DeclId;
 use super::expression::{Expression, ExpressionKind};
 use super::project::Project;
 use crate::cfg::builder::expr_to_string;
@@ -72,9 +72,8 @@ pub fn value_source(
 fn state_source(project: Option<&Project>, vars: &[StateVar], name: &str, resolved: Option<DeclId>) -> Option<ValueSource> {
     let (var, key) = match (project, resolved) {
         (Some(project), Some(id)) => {
-            let target = project.decl_table.lookup(id).filter(|t| t.kind == DeclKind::StateVariable)?;
-            let owner = &project.contracts[*project.contract_index.get(&target.contract)?];
-            (owner.state_vars.iter().find(|v| v.name == target.name)?, Some(target.key.clone()))
+            let (target, var) = project.state_var_by_id(id)?;
+            (var, Some(target.key.clone()))
         }
         (_, Some(id)) => (vars.iter().find(|v| v.id == Some(id))?, None),
         (_, None) => (vars.iter().find(|v| v.name == name)?, None),

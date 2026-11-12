@@ -8,6 +8,8 @@ pub struct CatchClause {
     pub name: Option<String>,
     pub params: Vec<Param>,
     pub body: Vec<Statement>,
+    /// From `catch` or `returns` through the closing brace; the block alone for a success clause without returns.
+    pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,6 +10,14 @@ pub struct Expression {
 }
 
 impl Expression {
+    /// The declaration an identifier or member access names.
+    pub fn resolved(&self) -> Option<DeclId> {
+        match &self.kind {
+            ExpressionKind::Identifier { resolved, .. } | ExpressionKind::MemberAccess { resolved, .. } => *resolved,
+            _ => None,
+        }
+    }
+
     /// Itself, then every nested expression in source order.
     pub fn walk<'a>(&'a self, visit: &mut impl FnMut(&'a Expression)) {
         visit(self);

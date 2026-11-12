@@ -1,0 +1,445 @@
+{
+  "contracts": [
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "deposit",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [
+        "IVault"
+      ],
+      "inherits": [
+        "IVault"
+      ],
+      "kind": "Contract",
+      "name": "Vault",
+      "state_vars": [
+        {
+          "is_constant": false,
+          "name": "total",
+          "type_name": "uint256"
+        }
+      ]
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "Pure",
+          "name": "onCall",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [
+        "IHook"
+      ],
+      "inherits": [
+        "IHook"
+      ],
+      "kind": "Contract",
+      "name": "HookA",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "Pure",
+          "name": "onCall",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [
+        "IHook"
+      ],
+      "inherits": [
+        "IHook"
+      ],
+      "kind": "Contract",
+      "name": "HookB",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "Pure",
+          "name": "lookup",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Contract",
+      "name": "Registry",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 0,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "deposit",
+          "path_count": 0,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Interface",
+      "name": "IVault",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 0,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "onCall",
+          "path_count": 0,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Interface",
+      "name": "IHook",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 0,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "ping",
+          "path_count": 0,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Interface",
+      "name": "IOrphan",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 0,
+          "has_external_calls": false,
+          "mutability": "View",
+          "name": "lookup",
+          "path_count": 0,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Interface",
+      "name": "IRegistry",
+      "state_vars": []
+    },
+    {
+      "folder": "",
+      "functions": [
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "constructor",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "Public"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "initialize",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "NonPayable",
+          "name": "setHook",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": true,
+          "mutability": "NonPayable",
+          "name": "run",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": false,
+          "mutability": "Pure",
+          "name": "selfValue",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        },
+        {
+          "happy_paths": 1,
+          "has_external_calls": true,
+          "mutability": "NonPayable",
+          "name": "viaPointer",
+          "path_count": 1,
+          "paths_truncated": false,
+          "revert_paths": 0,
+          "visibility": "External"
+        }
+      ],
+      "inherit_keys": [],
+      "inherits": [],
+      "kind": "Contract",
+      "name": "Router",
+      "state_vars": [
+        {
+          "is_constant": false,
+          "name": "vault",
+          "type_name": "contract IVault"
+        },
+        {
+          "is_constant": false,
+          "name": "hook",
+          "type_name": "contract IHook"
+        },
+        {
+          "is_constant": false,
+          "name": "oracle",
+          "type_name": "contract IOracle"
+        },
+        {
+          "is_constant": false,
+          "name": "orphan",
+          "type_name": "contract IOrphan"
+        },
+        {
+          "is_constant": false,
+          "name": "registry",
+          "type_name": "contract IRegistry"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "basis": null,
+      "call_count": 1,
+      "dispatch_candidates": [
+        {
+          "basis": "inherits_interface",
+          "contract": "Vault",
+          "function": "Vault::deposit",
+          "tag": "INFERRED"
+        }
+      ],
+      "from_contract": "Router",
+      "from_function": "run",
+      "kind": "External",
+      "tag": null,
+      "to_contract": "IVault",
+      "to_function": "deposit",
+      "via_state_vars": []
+    },
+    {
+      "basis": null,
+      "call_count": 1,
+      "dispatch_candidates": [
+        {
+          "basis": "inherits_interface",
+          "contract": "HookA",
+          "function": "HookA::onCall",
+          "tag": "AMBIGUOUS"
+        },
+        {
+          "basis": "inherits_interface",
+          "contract": "HookB",
+          "function": "HookB::onCall",
+          "tag": "AMBIGUOUS"
+        }
+      ],
+      "from_contract": "Router",
+      "from_function": "run",
+      "kind": "External",
+      "tag": null,
+      "to_contract": "IHook",
+      "to_function": "onCall",
+      "via_state_vars": []
+    },
+    {
+      "basis": null,
+      "call_count": 1,
+      "dispatch_candidates": [],
+      "from_contract": "Router",
+      "from_function": "run",
+      "kind": "External",
+      "tag": null,
+      "to_contract": "IOrphan",
+      "to_function": "ping",
+      "unresolved_reason": "no_implementation",
+      "via_state_vars": []
+    },
+    {
+      "basis": null,
+      "call_count": 1,
+      "dispatch_candidates": [
+        {
+          "basis": "selector_match",
+          "contract": "Registry",
+          "function": "Registry::lookup",
+          "tag": "INFERRED"
+        }
+      ],
+      "from_contract": "Router",
+      "from_function": "run",
+      "kind": "External",
+      "tag": null,
+      "to_contract": "IRegistry",
+      "to_function": "lookup",
+      "via_state_vars": []
+    },
+    {
+      "basis": null,
+      "call_count": 1,
+      "dispatch_candidates": [],
+      "from_contract": "Router",
+      "from_function": "run",
+      "kind": "External",
+      "tag": null,
+      "to_contract": "IOracle",
+      "to_function": "price",
+      "unresolved_reason": "out_of_scope_interface",
+      "via_state_vars": []
+    },
+    {
+      "basis": null,
+      "call_count": 1,
+      "dispatch_candidates": [],
+      "from_contract": "Router",
+      "from_function": "viaPointer",
+      "kind": "External",
+      "tag": null,
+      "to_contract": "",
+      "to_function": "f",
+      "unresolved_reason": "dynamic_address",
+      "via_state_vars": []
+    },
+    {
+      "basis": "inherits_interface",
+      "call_count": 1,
+      "from_contract": "Router",
+      "from_function": null,
+      "kind": "ContractLink",
+      "tag": "AMBIGUOUS",
+      "to_contract": "HookA",
+      "to_function": null,
+      "via_state_vars": [
+        "hook"
+      ]
+    },
+    {
+      "basis": "inherits_interface",
+      "call_count": 1,
+      "from_contract": "Router",
+      "from_function": null,
+      "kind": "ContractLink",
+      "tag": "AMBIGUOUS",
+      "to_contract": "HookB",
+      "to_function": null,
+      "via_state_vars": [
+        "hook"
+      ]
+    },
+    {
+      "basis": "selector_match",
+      "call_count": 1,
+      "from_contract": "Router",
+      "from_function": null,
+      "kind": "ContractLink",
+      "tag": "INFERRED",
+      "to_contract": "Registry",
+      "to_function": null,
+      "via_state_vars": [
+        "registry"
+      ]
+    },
+    {
+      "basis": "self",
+      "call_count": 1,
+      "from_contract": "Router",
+      "from_function": null,
+      "kind": "ContractLink",
+      "tag": "INFERRED",
+      "to_contract": "Router",
+      "to_function": null,
+      "via_state_vars": []
+    },
+    {
+      "basis": "inherits_interface",
+      "call_count": 1,
+      "from_contract": "Router",
+      "from_function": null,
+      "kind": "ContractLink",
+      "tag": "INFERRED",
+      "to_contract": "Vault",
+      "to_function": null,
+      "via_state_vars": [
+        "vault"
+      ]
+    }
+  ]
+}

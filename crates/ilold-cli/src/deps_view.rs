@@ -1,4 +1,5 @@
 use ilold_core::depgraph::ContractDeps;
+use ilold_core::relations::{ContractLink, Tag};
 use serde_json::Value;
 
 use crate::colors::*;
@@ -10,6 +11,7 @@ pub struct DepRow {
     pub calls: bool,
     pub call_count: usize,
     pub holds: bool,
+    pub link: Option<ContractLink>,
 }
 
 pub fn dep_rows(deps: &ContractDeps, name: &str, reverse: bool) -> Option<Vec<DepRow>> {
@@ -27,6 +29,7 @@ pub fn dep_rows(deps: &ContractDeps, name: &str, reverse: bool) -> Option<Vec<De
                 calls: r.edge.calls,
                 call_count: r.edge.call_count,
                 holds: r.edge.holds,
+                link: r.edge.link.clone(),
             })
             .collect(),
     )
@@ -62,6 +65,7 @@ pub fn rows_from_depgraph_json(json: &Value, name: &str, reverse: bool) -> Vec<D
                         calls: has("calls"),
                         call_count: d["call_count"].as_u64().unwrap_or(0) as usize,
                         holds: has("holds"),
+                        link: serde_json::from_value(d["link"].clone()).ok(),
                     })
                 })
                 .collect()
@@ -96,19 +100,29 @@ pub fn print_direction(name: &str, reverse: bool, rows: Option<Vec<DepRow>>) {
 
     let max = rows.iter().map(|r| r.name.chars().count()).max().unwrap_or(0);
     for row in &rows {
-        let mut tags = Vec::new();
-        if row.inherits {
-            tags.push(c_accent("inherits").to_string());
-        }
-        if row.calls {
-            tags.push(c_warn(&format!("calls×{}", row.call_count)).to_string());
-        }
-        if row.holds {
-            tags.push(c_muted("holds").to_string());
-        }
-        println!("    {}  {}", c_accent(&fmt::pad_right(&row.name, max)), tags.join(" "));
+        println!("    {}  {}", c_accent(&fmt::pad_right(&row.name, max)), row_tags(row).join(" "));
     }
     println!();
+}
+
+pub fn row_tags(row: &DepRow) -> Vec<String> {
+    let mut tags = Vec::new();
+    if row.inherits {
+        tags.push(c_accent("inherits").to_string());
+    }
+    if row.calls {
+        tags.push(c_warn(&format!("calls×{}", row.call_count)).to_string());
+    }
+    if row.holds {
+        tags.push(c_muted("holds").to_string());
+    }
+    if let Some(link) = &row.link {
+        let basis = serde_json::to_value(link.basis).ok().and_then(|b| b.as_str().map(str::to_string)).unwrap_or_default();
+        let via = if link.via_state_vars.is_empty() { String::new() } else { format!(" via {}", link.via_state_vars.join(", ")) };
+        let text = format!("dispatches {basis}×{}{via}", link.calls.len());
+        tags.push(if link.tag == Tag::Ambiguous { c_danger(&format!("{text} AMBIGUOUS")) } else { c_ok(&text) }.to_string());
+    }
+    tags
 }
 
 #[cfg(test)]
@@ -142,6 +156,25 @@ mod tests {
         assert!(blast.iter().any(|r| r.name == "Vault"), "Vault is in IPool blast radius");
 
         assert!(dep_rows(&d, "Nope", false).is_none(), "missing contract => None");
+    }
+
+    #[test]
+    fn rows_show_the_contracts_that_may_answer_interface_calls() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc/dispatch");
+        let project = SolcFrontend.parse_project(&root).expect("parse dispatch fixture");
+        let analysis = ilold_core::analysis::ProjectAnalysis::build(&project, &ilold_core::analysis::AnalysisParams::new(1));
+        let rows = dep_rows(&analysis.dep_graph, "Router", false).unwrap();
+        let tags = |name: &str| row_tags(rows.iter().find(|r| r.name == name).unwrap()).join(" ");
+        assert!(tags("Vault").contains("dispatches inherits_interface") && tags("Vault").contains("via vault"), "{}", tags("Vault"));
+        assert!(tags("HookA").contains("AMBIGUOUS"), "{}", tags("HookA"));
+        assert!(tags("Registry").contains("selector_match"), "{}", tags("Registry"));
+        let blast = dep_rows(&analysis.dep_graph, "Vault", true).unwrap();
+        assert!(row_tags(&blast[0]).join(" ").contains("dispatches inherits_interface"), "used by Router through IVault");
+
+        let json = serde_json::json!({"edges": [{"data": {"source": "Router", "target": "Vault", "kinds": ["dispatches"], "call_count": 0,
+            "link": serde_json::to_value(rows.iter().find(|r| r.name == "Vault").unwrap().link.as_ref().unwrap()).unwrap()}}]});
+        let from_json = rows_from_depgraph_json(&json, "Router", false);
+        assert_eq!(row_tags(&from_json[0]), row_tags(rows.iter().find(|r| r.name == "Vault").unwrap()));
     }
 
     #[test]

@@ -1,0 +1,372 @@
+{
+  "edges": [
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e0",
+        "kind": "inherits",
+        "kinds": [
+          "inherits"
+        ],
+        "link": null,
+        "source": "Vault",
+        "target": "IVault"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e1",
+        "kind": "inherits",
+        "kinds": [
+          "inherits"
+        ],
+        "link": null,
+        "source": "HookA",
+        "target": "IHook"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e2",
+        "kind": "inherits",
+        "kinds": [
+          "inherits"
+        ],
+        "link": null,
+        "source": "HookB",
+        "target": "IHook"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e3",
+        "kind": "calls",
+        "kinds": [
+          "calls",
+          "holds"
+        ],
+        "link": null,
+        "source": "Router",
+        "target": "IVault"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e4",
+        "kind": "calls",
+        "kinds": [
+          "calls",
+          "holds"
+        ],
+        "link": null,
+        "source": "Router",
+        "target": "IHook"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e5",
+        "kind": "calls",
+        "kinds": [
+          "calls",
+          "holds"
+        ],
+        "link": null,
+        "source": "Router",
+        "target": "IOrphan"
+      }
+    },
+    {
+      "data": {
+        "call_count": 1,
+        "id": "e6",
+        "kind": "calls",
+        "kinds": [
+          "calls",
+          "holds"
+        ],
+        "link": null,
+        "source": "Router",
+        "target": "IRegistry"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e7",
+        "kind": "dispatches",
+        "kinds": [
+          "dispatches"
+        ],
+        "link": {
+          "basis": "inherits_interface",
+          "calls": [
+            {
+              "function": "Router::run",
+              "span": {
+                "end_col": 35,
+                "end_line": 31,
+                "file_index": 3,
+                "start_col": 21,
+                "start_line": 31
+              }
+            }
+          ],
+          "from_contract": "Router",
+          "tag": "AMBIGUOUS",
+          "to_contract": "HookA",
+          "via_state_vars": [
+            "hook"
+          ]
+        },
+        "source": "Router",
+        "target": "HookA"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e8",
+        "kind": "dispatches",
+        "kinds": [
+          "dispatches"
+        ],
+        "link": {
+          "basis": "inherits_interface",
+          "calls": [
+            {
+              "function": "Router::run",
+              "span": {
+                "end_col": 35,
+                "end_line": 31,
+                "file_index": 3,
+                "start_col": 21,
+                "start_line": 31
+              }
+            }
+          ],
+          "from_contract": "Router",
+          "tag": "AMBIGUOUS",
+          "to_contract": "HookB",
+          "via_state_vars": [
+            "hook"
+          ]
+        },
+        "source": "Router",
+        "target": "HookB"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e9",
+        "kind": "dispatches",
+        "kinds": [
+          "dispatches"
+        ],
+        "link": {
+          "basis": "selector_match",
+          "calls": [
+            {
+              "function": "Router::run",
+              "span": {
+                "end_col": 36,
+                "end_line": 33,
+                "file_index": 3,
+                "start_col": 9,
+                "start_line": 33
+              }
+            }
+          ],
+          "from_contract": "Router",
+          "tag": "INFERRED",
+          "to_contract": "Registry",
+          "via_state_vars": [
+            "registry"
+          ]
+        },
+        "source": "Router",
+        "target": "Registry"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e10",
+        "kind": "dispatches",
+        "kinds": [
+          "dispatches"
+        ],
+        "link": {
+          "basis": "self",
+          "calls": [
+            {
+              "function": "Router::run",
+              "span": {
+                "end_col": 53,
+                "end_line": 34,
+                "file_index": 3,
+                "start_col": 37,
+                "start_line": 34
+              }
+            }
+          ],
+          "from_contract": "Router",
+          "tag": "INFERRED",
+          "to_contract": "Router",
+          "via_state_vars": []
+        },
+        "source": "Router",
+        "target": "Router"
+      }
+    },
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e11",
+        "kind": "dispatches",
+        "kinds": [
+          "dispatches"
+        ],
+        "link": {
+          "basis": "inherits_interface",
+          "calls": [
+            {
+              "function": "Router::run",
+              "span": {
+                "end_col": 25,
+                "end_line": 30,
+                "file_index": 3,
+                "start_col": 9,
+                "start_line": 30
+              }
+            }
+          ],
+          "from_contract": "Router",
+          "tag": "INFERRED",
+          "to_contract": "Vault",
+          "via_state_vars": [
+            "vault"
+          ]
+        },
+        "source": "Router",
+        "target": "Vault"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "Vault",
+        "is_dependency": false,
+        "kind": "contract",
+        "label": "Vault",
+        "layer": 1,
+        "qualified_id": "src/Impls.sol:Vault"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "HookA",
+        "is_dependency": false,
+        "kind": "contract",
+        "label": "HookA",
+        "layer": 1,
+        "qualified_id": "src/Impls.sol:HookA"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "HookB",
+        "is_dependency": false,
+        "kind": "contract",
+        "label": "HookB",
+        "layer": 1,
+        "qualified_id": "src/Impls.sol:HookB"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "Registry",
+        "is_dependency": false,
+        "kind": "contract",
+        "label": "Registry",
+        "layer": 0,
+        "qualified_id": "src/Impls.sol:Registry"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "IVault",
+        "is_dependency": false,
+        "kind": "interface",
+        "label": "IVault",
+        "layer": 0,
+        "qualified_id": "src/Interfaces.sol:IVault"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "IHook",
+        "is_dependency": false,
+        "kind": "interface",
+        "label": "IHook",
+        "layer": 0,
+        "qualified_id": "src/Interfaces.sol:IHook"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "IOrphan",
+        "is_dependency": false,
+        "kind": "interface",
+        "label": "IOrphan",
+        "layer": 0,
+        "qualified_id": "src/Interfaces.sol:IOrphan"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "IRegistry",
+        "is_dependency": false,
+        "kind": "interface",
+        "label": "IRegistry",
+        "layer": 0,
+        "qualified_id": "src/Interfaces.sol:IRegistry"
+      }
+    },
+    {
+      "data": {
+        "focus": false,
+        "folder": "",
+        "id": "Router",
+        "is_dependency": false,
+        "kind": "contract",
+        "label": "Router",
+        "layer": 2,
+        "qualified_id": "src/Router.sol:Router"
+      }
+    }
+  ]
+}

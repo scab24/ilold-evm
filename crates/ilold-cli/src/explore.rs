@@ -1776,7 +1776,7 @@ fn print_result(result: &CommandResult, steps: &[String]) {
             println!("  Findings: {}", findings_count);
             println!();
         }
-        CommandResult::VariableInfo { variable, writers, readers } => {
+        CommandResult::VariableInfo { variable, writers, readers, accesses } => {
             println!();
             println!("  {} {}", c_bright("who:"), c_accent(variable));
             if !writers.is_empty() {
@@ -1790,6 +1790,10 @@ fn print_result(result: &CommandResult, steps: &[String]) {
                 for (name, access) in readers {
                     println!("      {} {}", access_colored(access), c_muted(name));
                 }
+            }
+            if !accesses.is_empty() {
+                println!("    {}:", c_muted("Keys"));
+                print!("{}", fmt::render_variable_keys(accesses));
             }
             if !writers.is_empty() {
                 let slice_hints: Vec<String> = writers.iter()
@@ -1881,7 +1885,9 @@ fn print_vars(val: &serde_json::Value) {
         };
 
         let padded_name = fmt::pad_right(name, max_name);
-        println!("  {} {}  {}", tag, c_accent(&padded_name), c_muted(type_name));
+        let kinds: Vec<&str> = v.get("key_kinds").and_then(|k| k.as_array()).into_iter().flatten().filter_map(|k| k.as_str()).collect();
+        let keys = if kinds.is_empty() { String::new() } else { format!("  keys: {}", kinds.join(", ")) };
+        println!("  {} {}  {}{}", tag, c_accent(&padded_name), c_muted(type_name), c_muted(&keys));
     }
     println!();
 }
@@ -1976,6 +1982,22 @@ fn print_narrative(val: &serde_json::Value) {
     let events = collect_strs("events");
     if !events.is_empty() {
         sections.push(Section::StringList { label: "Events", label_color: SectionColor::Accent, items: events });
+    }
+    let tries = val.get("try_catches")
+        .and_then(|v| serde_json::from_value::<Vec<ilold_core::relations::TryCatchFact>>(v.clone()).ok())
+        .unwrap_or_default();
+    if !tries.is_empty() {
+        sections.push(Section::StringList { label: "Try/catch", label_color: SectionColor::Warn, items: fmt::render_try_catches(&tries) });
+    }
+    let listed = |key: &str| val.get(key).cloned().unwrap_or_default();
+    let transfers: Vec<ilold_core::relations::ValueTransfer> = serde_json::from_value(listed("value_transfers")).unwrap_or_default();
+    let balance_reads: Vec<ilold_core::relations::BalanceRead> = serde_json::from_value(listed("balance_reads")).unwrap_or_default();
+    if !transfers.is_empty() || !balance_reads.is_empty() {
+        sections.push(Section::StringList { label: "Value", label_color: SectionColor::Danger, items: fmt::render_value_facts(&transfers, &balance_reads) });
+    }
+    let phases: Vec<ilold_core::relations::PhaseCandidate> = serde_json::from_value(listed("phase_candidates")).unwrap_or_default();
+    if !phases.is_empty() {
+        sections.push(Section::StringList { label: "Phases", label_color: SectionColor::Warn, items: fmt::render_phases(&phases) });
     }
 
     let collect_transitive = |key: &str| -> Vec<(Vec<String>, String)> {
@@ -2222,8 +2244,8 @@ const INLINE_HELP: &[(&[&str], &str, &str)] = &[
     (&["fa", "funcs-all"],"funcs-all",                       "List all accessible functions including inherited."),
     (&["va", "vars-all"], "vars-all",                        "List all accessible state variables including inherited."),
     (&["ct", "contracts"],"contracts [all]",                 "List the project contracts; `all` adds dependency contracts (lib/)."),
-    (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on. Example: deps Vault"),
-    (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it — the blast radius. Example: usedby IPool"),
+    (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on, with the ones that may answer its interface calls. Example: deps Vault"),
+    (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it or may be called through an interface — the blast radius. Example: usedby IPool"),
     (&["use"],            "use <contract>",                  "Switch the active contract; each contract keeps its own steps. Example: use Staking"),
     (&["status"],         "status <func> <status>",          "Change review status (reviewed, suspicious, vulnerable, clean, inprogress, notreviewed). Example: status deposit reviewed"),
     (&["save"],           "save <name>",                     "Save the contract's scenarios to ~/.ilold/sessions/<name>.json. Names are plain (letters, digits, - _ .). Example: save my-audit"),

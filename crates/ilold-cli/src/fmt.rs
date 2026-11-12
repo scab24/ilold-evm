@@ -1,9 +1,10 @@
 use colored::Colorize;
 
-use ilold_core::exploration::commands::ScenarioInfo;
+use ilold_core::exploration::commands::{ScenarioInfo, VariableAccess};
 use ilold_core::exploration::session::MutationScope;
 use ilold_core::exploration::timeline::{TimelineEntry, VariableTimeline};
 use ilold_core::narrative::trace::{FlowKind, FlowNode, FlowTree};
+use ilold_core::relations::{AccessKind, AssetKind, BalanceRead, CatchKind, KeysReason, PhaseCandidate, Tag, TryCatchFact, ValueReason, ValueTransfer};
 use ilold_core::slicing::{SliceDirection, SliceEntry, SliceResult, StatementOrigin};
 
 use crate::colors::{c_accent, c_bright, c_danger, c_muted, c_ok, c_warn};
@@ -459,6 +460,124 @@ fn render_slice_side(label: &str, entries: &[SliceEntry], var: &str, out: &mut S
 }
 
 
+/// A variant as the API spells it, from `serde_json::to_value`.
+fn api_name(value: serde_json::Result<serde_json::Value>) -> String {
+    value.ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+}
+
+/// One line per key site of `who`; an access in a callee has no keys to show.
+pub fn render_variable_keys(accesses: &[VariableAccess]) -> String {
+    let width = accesses.iter().map(|a| a.function.chars().count()).max().unwrap_or(0);
+    let mut out = String::new();
+    for access in accesses {
+        let kind = if access.kind == AccessKind::Write { c_warn("W") } else { c_muted("R") };
+        let name = pad_right(&access.function, width);
+        if access.keys.keys_reason == Some(KeysReason::Transitive) {
+            out.push_str(&format!("      {kind} {name}  {}\n", c_muted("in a callee: keys not tracked")));
+        }
+        for site in &access.keys.key_sites {
+            let texts: String = site.keys.iter().map(|k| format!("[{}]", k.text)).collect();
+            let kinds = site.keys.iter().map(|k| api_name(serde_json::to_value(k.kind))).collect::<Vec<_>>().join(" › ");
+            let keys = if site.keys.is_empty() { c_muted("no index").to_string() } else { format!("{} {}", c_accent(&texts), c_muted(&kinds)) };
+            out.push_str(&format!("      {kind} {name}  {keys}  {}\n", c_muted(&format!("line {}", site.span.start_line))));
+        }
+    }
+    out
+}
+
+/// One line per value transfer, then per balance read, for `info`.
+pub fn render_value_facts(transfers: &[ValueTransfer], reads: &[BalanceRead]) -> Vec<String> {
+    let asset = |kind: AssetKind, candidates: &[AssetKind], token: &Option<String>| {
+        let kind = if candidates.is_empty() { api_name(serde_json::to_value(kind)) } else { candidates.iter().map(|c| api_name(serde_json::to_value(c))).collect::<Vec<_>>().join("|") };
+        token.as_ref().map_or(kind.clone(), |t| format!("{kind} {t}"))
+    };
+    let id = |id: &Option<String>| id.as_ref().map(|i| format!(" #{i}")).unwrap_or_default();
+    let tail = |line: u32, modifier: &Option<String>, via: &Option<String>, reason: Option<String>| {
+        let mut out = format!(" (line {line})");
+        out.extend(modifier.as_ref().map(|m| format!(" in {m}")));
+        out.extend(via.as_ref().map(|v| format!(" via {v}")));
+        out.extend(reason.map(|r| format!(", ambiguous: {r}")));
+        out
+    };
+    let ambiguous = |tag: Tag, reason: Option<ValueReason>| (tag == Tag::Ambiguous).then(|| reason.map_or(String::new(), |r| api_name(serde_json::to_value(r))));
+    let moved = transfers.iter().map(|t| {
+        let amount = t.amount_expr.as_ref().map(|a| format!(" {a}")).unwrap_or_default();
+        format!(
+            "{} {}: {} → {}{amount}{}{}",
+            api_name(serde_json::to_value(t.operation)),
+            asset(t.asset_kind, &t.asset_candidates, &t.token_expr),
+            t.from_expr.as_deref().unwrap_or("this"),
+            t.to_expr.as_deref().unwrap_or("∅"),
+            id(&t.id_expr),
+            tail(t.span.start_line, &t.modifier, &t.via_library, ambiguous(t.tag, t.reason)),
+        )
+    });
+    let read = reads.iter().map(|r| {
+        format!(
+            "balance {} of {}{}{}",
+            asset(r.asset_kind, &r.asset_candidates, &r.token_expr),
+            r.owner_expr.as_deref().unwrap_or("this"),
+            id(&r.id_expr),
+            tail(r.span.start_line, &r.modifier, &r.via_library, ambiguous(r.tag, r.reason)),
+        )
+    });
+    moved.chain(read).collect()
+}
+
+/// One line per phase for `info`: the variable, the functions it gates, its writers and the conditions that test it.
+pub fn render_phases(phases: &[PhaseCandidate]) -> Vec<String> {
+    let members = |refs: &[String]| refs.iter().map(|r| r.rsplit_once("::").map_or(r.as_str(), |(_, m)| m)).collect::<Vec<_>>().join(", ");
+    phases
+        .iter()
+        .map(|p| {
+            format!(
+                "{} ({}, line {}) · gates {} · set by {} · when {}",
+                p.state_var,
+                p.type_name,
+                p.span.start_line,
+                members(&p.guarded_functions),
+                members(&p.writers),
+                p.condition_texts.join(" | "),
+            )
+        })
+        .collect()
+}
+
+/// One line per try statement for `info`: the guarded call, then what each clause does with the failure.
+pub fn render_try_catches(facts: &[TryCatchFact]) -> Vec<String> {
+    let texts = |sites: &[ilold_core::relations::EffectSite]| sites.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(", ");
+    facts
+        .iter()
+        .map(|fact| {
+            let clauses: Vec<String> = fact
+                .catch_clauses
+                .iter()
+                .map(|c| {
+                    let effects = &c.effects;
+                    let mut does = Vec::new();
+                    if c.empty {
+                        does.push("failure swallowed".to_string());
+                    }
+                    for (verb, sites) in [("writes", &effects.writes), ("calls", &effects.calls), ("emits", &effects.emits)] {
+                        if !sites.is_empty() {
+                            does.push(format!("{verb} {}", texts(sites)));
+                        }
+                    }
+                    if effects.reverts {
+                        does.push("reverts".to_string());
+                    }
+                    if does.is_empty() {
+                        does.push("no writes, calls or events".to_string());
+                    }
+                    format!("{}: {}", c.kind.map_or("catch ?", CatchKind::label), does.join(", "))
+                })
+                .collect();
+            let call = fact.guarded_call.as_ref().map_or("?", |c| c.text.as_str());
+            format!("try {call} (line {}) → {}", fact.span.start_line, clauses.join("; "))
+        })
+        .collect()
+}
+
 pub fn render_scenario_list(items: &[ScenarioInfo]) -> String {
     if items.is_empty() {
         return format!("  {}\n", c_muted("(no scenarios)"));
@@ -597,6 +716,158 @@ mod tests {
             !rendered.contains("\\\""),
             "rendered output must not contain backslash-escaped quotes.\nrendered:\n{}",
             rendered,
+        );
+    }
+
+    #[test]
+    fn variable_keys_show_each_site_and_accesses_in_callees() {
+        use ilold_core::exploration::commands::VariableAccess;
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::relations::{AccessKey, AccessKind, KeyKind, KeySite, RecordKeys};
+        let span = |line| SourceSpan { file_index: 0, start_line: line, start_col: 1, end_line: line, end_col: 9 };
+        let key = |text: &str, kind| AccessKey { text: text.into(), kind, reference: None };
+        let site = |keys, line| KeySite { keys, span: span(line) };
+        let accesses = [
+            VariableAccess { function: "deposit".into(), kind: AccessKind::Write, keys: RecordKeys::direct(vec![site(vec![key("msg.sender", KeyKind::MsgSender)], 22)]) },
+            VariableAccess { function: "creditLater".into(), kind: AccessKind::Write, keys: RecordKeys::transitive() },
+            VariableAccess {
+                function: "approve".into(),
+                kind: AccessKind::Read,
+                keys: RecordKeys::direct(vec![site(vec![key("owner", KeyKind::Parameter), key("spender", KeyKind::Parameter)], 34)]),
+            },
+        ];
+        let rendered = strip_ansi(&render_variable_keys(&accesses));
+        assert!(rendered.contains("W deposit      [msg.sender] msg_sender  line 22"), "{rendered}");
+        assert!(rendered.contains("W creditLater  in a callee: keys not tracked"), "{rendered}");
+        assert!(rendered.contains("R approve      [owner][spender] parameter › parameter  line 34"), "{rendered}");
+    }
+
+    #[test]
+    fn try_lines_name_the_guarded_call_and_what_each_clause_does() {
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::model::expression::CallKind;
+        use ilold_core::relations::{CatchClauseFact, CatchEffects, EffectSite, GuardedCall, Tag};
+        let span = |line| SourceSpan { file_index: 0, start_line: line, start_col: 1, end_line: line, end_col: 9 };
+        let site = |text: &str, line| EffectSite { text: text.into(), span: span(line) };
+        let clause = |kind, empty, effects| CatchClauseFact { kind, span: span(5), empty, effects, block: 2 };
+        let effects = CatchEffects { writes: vec![site("failures", 6)], calls: vec![site("pinger.ping", 7)], emits: vec![site("Rejected", 8)], reverts: false };
+        let fact = TryCatchFact {
+            id: "C::f#0".into(),
+            function: "C::f".into(),
+            in_context: "C".into(),
+            modifier: None,
+            span: span(4),
+            guarded_call: Some(GuardedCall { text: "pinger.quote".into(), kind: CallKind::External, span: span(4) }),
+            success_span: Some(span(4)),
+            catch_clauses: vec![
+                clause(Some(CatchKind::Error), false, effects),
+                clause(Some(CatchKind::All), true, CatchEffects::default()),
+                clause(Some(CatchKind::Bytes), false, CatchEffects { reverts: true, ..Default::default() }),
+                clause(None, false, CatchEffects::default()),
+            ],
+            tag: Tag::Ambiguous,
+            reason: None,
+            block: 1,
+            success_block: 2,
+        };
+        assert_eq!(
+            render_try_catches(&[fact]),
+            ["try pinger.quote (line 4) → catch Error: writes failures, calls pinger.ping, emits Rejected; catch (all): failure swallowed; catch (bytes): reverts; catch ?: no writes, calls or events"]
+        );
+    }
+
+    #[test]
+    fn value_lines_say_who_pays_whom_and_through_which_library() {
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::relations::{Direction, Operation, Tag, ValueReason};
+        let span = SourceSpan { file_index: 0, start_line: 88, start_col: 9, end_line: 88, end_col: 40 };
+        let sent = ValueTransfer {
+            id: "Payments::sendEth#0".into(),
+            function: "Payments::sendEth".into(),
+            in_context: "Payments".into(),
+            modifier: None,
+            span,
+            asset_kind: AssetKind::Native,
+            asset_candidates: Vec::new(),
+            operation: Operation::Call,
+            direction: Direction::Out,
+            token_expr: None,
+            from_expr: None,
+            to_expr: Some("to".into()),
+            amount_expr: Some("amount".into()),
+            id_expr: None,
+            call: "Address.sendValue".into(),
+            via_library: Some("Address::sendValue".into()),
+            tag: Tag::TypeResolved,
+            reason: None,
+        };
+        let burned = ValueTransfer {
+            asset_kind: AssetKind::Unknown,
+            asset_candidates: vec![AssetKind::Erc20, AssetKind::Erc721],
+            operation: Operation::Burn,
+            token_expr: Some("burnable".into()),
+            to_expr: None,
+            amount_expr: None,
+            modifier: Some("refund".into()),
+            via_library: None,
+            tag: Tag::Ambiguous,
+            reason: Some(ValueReason::NoStandard),
+            ..sent.clone()
+        };
+        let read = BalanceRead {
+            id: "Payments::balances#1".into(),
+            function: "Payments::balances".into(),
+            in_context: "Payments".into(),
+            modifier: None,
+            span,
+            asset_kind: AssetKind::Erc1155,
+            asset_candidates: Vec::new(),
+            token_expr: Some("multi".into()),
+            owner_expr: Some("who".into()),
+            id_expr: Some("id".into()),
+            via_library: None,
+            tag: Tag::TypeResolved,
+            reason: None,
+        };
+        assert_eq!(
+            render_value_facts(&[sent, burned], &[read]),
+            [
+                "call native: this → to amount (line 88) via Address::sendValue",
+                "burn erc20|erc721 burnable: this → ∅ (line 88) in refund, ambiguous: no_standard",
+                "balance erc1155 multi of who #id (line 88)",
+            ]
+        );
+    }
+
+    #[test]
+    fn phase_lines_name_the_gated_functions_the_writers_and_the_conditions() {
+        use ilold_core::model::common::SourceSpan;
+        use ilold_core::relations::Tag;
+        let span = SourceSpan { file_index: 0, start_line: 33, start_col: 5, end_line: 33, end_col: 23 };
+        let state = PhaseCandidate {
+            state_var: "Sale::state".into(),
+            in_context: "Sale".into(),
+            type_name: "enum Sale.State".into(),
+            guarded_functions: vec!["Sale::close".into(), "Sale::open".into()],
+            writers: vec!["Sale::close".into()],
+            condition_texts: vec!["state == State.Open".into(), "state == State.Setup".into()],
+            span,
+            tag: Tag::Inferred,
+        };
+        let paused = PhaseCandidate {
+            state_var: "Pausable::paused".into(),
+            type_name: "bool".into(),
+            guarded_functions: vec!["Sale::buy".into(), "Sale::refund".into()],
+            writers: vec!["Pausable::setPaused".into()],
+            condition_texts: vec!["!paused".into()],
+            ..state.clone()
+        };
+        assert_eq!(
+            render_phases(&[state, paused]),
+            [
+                "Sale::state (enum Sale.State, line 33) · gates close, open · set by close · when state == State.Open | state == State.Setup",
+                "Pausable::paused (bool, line 33) · gates buy, refund · set by setPaused · when !paused",
+            ]
         );
     }
 

@@ -6,7 +6,7 @@ Analysis commands query the contract model without modifying the session. Each c
 
 `w <variable>` or `who <variable>`
 
-Shows which functions read and write a state variable, with their access level. Searches across the active contract and its ancestors.
+Shows which functions read and write a state variable, with their access level. Searches across the active contract and its ancestors. `Keys` lists every site with the mapping keys it indexes with and their kind (`W` writes, `R` reads); an access made in a callee says its keys are not tracked.
 
 ```
 ilold[Staking]> who totalStaked
@@ -22,6 +22,19 @@ ilold[Staking]> who totalStaked
 ```
 
 The cross-reference hints suggest running [slice](#slice) for each writer and [timeline](#timeline) for the variable.
+
+For a mapping, the keys tell per-caller storage from shared storage (abridged):
+
+```
+ilold[Keys]> who balances
+    ...
+    Keys:
+      W credit        [account] parameter  line 26
+      W creditLater   in a callee: keys not tracked
+      W deposit       [msg.sender] msg_sender  line 22
+      W fundTreasury  [treasury] state_var  line 30
+      W selfCredit    [address(this)] this  line 42
+```
 
 ## info
 
@@ -52,6 +65,28 @@ ilold[Staking]> i withdraw
 Guards list each revert check that gates the function, with the chain that reaches it (`modifier m`, then each helper as `Contract::function`). The observation "Public function writes state without access control" appears only when no access guard (`caller`, `role`, `tx.origin`) holds on every path; conditional checks, and pause, reentrancy and initializer guards, do not count.
 
 When the path enumeration was cut short, a line under `Paths` names the causes, for example `truncated: 7518 depth cutoffs, 8 loop cutoffs, path cap reached (10 branches dropped)`; the happy and revert counts then cover only the paths found, and cut-off paths make up the rest of the total. `trace` shows the same line in its header. The function's own writes, reads, calls, events and reverts are read from every reachable block, so a cut never hides them.
+
+A function with try statements lists each under `Try/catch`: the guarded call and its line, then what every clause does with the failure (`failure swallowed` for an empty clause, its writes, calls and events, `reverts`):
+
+```
+  ├── Try/catch:
+  │      └── try pinger.quote (line 69) → catch Error: emits Rejected; catch Panic: writes panics[code]; catch (bytes): writes lastData, calls pinger.ping
+```
+
+A function that moves value or reads a balance lists each under `Value`: the operation, the asset and token, sender → receiver and amount (`this` is the contract itself), the line, the modifier holding it and the library helper behind it, and `ambiguous` with the reason when the asset is not decided:
+
+```
+  ├── Value:
+  │      ├── transfer native: this → payable(msg.sender) msg.value - price (line 31) in refundExcess
+  │      └── mint erc20 share: this → msg.sender price (line 48)
+```
+
+A function that tests or writes a phase of the contract lists each under `Phases`: the variable, its type and declaration line, the functions it gates, its writers and the conditions that test it:
+
+```
+  ├── Phases:
+  │      └── Sale::state (enum Sale.State, line 32) · gates buy, close, open, refund · set by close, open · when state != State.Closed | state == State.Open | state == State.Setup
+```
 
 The `info` command does not require the function to be in the session. It analyzes the function in isolation.
 

@@ -12,22 +12,22 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_project_map",
-            "Full project topology: every contract with its functions and state variables, plus the resolved cross-contract call relationships.",
+            "Full project topology: every contract with its functions and state variables, plus the resolved cross-contract call relationships. External calls list dispatch_candidates (in-scope contracts that may answer them, with basis inherits_interface | selector_match | self and tag INFERRED | AMBIGUOUS) or an unresolved_reason; rows of kind ContractLink are contract links with basis, tag, via_state_vars and call_count.",
             empty_schema(),
         ),
         tool(
             "ilold_dependency_graph",
-            "Contract dependency graph: inherits/calls/holds edges with topological reading-order layers. Shows which contracts are foundational and which depend on them.",
+            "Contract dependency graph: inherits/calls/holds/dispatches edges with topological reading-order layers. A dispatches edge carries its contract link: the deployable contract that may answer calls made through an interface, with basis, tag, via_state_vars and the calls. Shows which contracts are foundational and which depend on them.",
             empty_schema(),
         ),
         tool(
             "ilold_contract_dependencies",
-            "Dependencies of one contract and its blast radius: the contracts it depends on, and the contracts that depend on it.",
+            "Dependencies of one contract and its blast radius: the contracts it depends on, and the contracts that depend on it, including the contract links (dispatches edges with basis and tag) to the in-scope contracts that may answer its interface calls.",
             contract_schema(),
         ),
         tool(
             "ilold_contract_detail",
-            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, and inherited members.",
+            "Full detail of one contract: functions (visibility, mutability, modifiers, params, path counts with paths_truncated, access level and guards), state variables, inheritance, inherited members, and outgoing_links / incoming_links: the contracts it calls through interfaces and the ones that call it. Each function lists value_transfers (asset_kind native|erc20|erc721|erc1155|erc6909|unknown with asset_candidates, operation, direction in|out|other, token/from/to/amount/id expressions where a null from is the contract itself, via_library for a library helper called at that site, tag, reason) and balance_reads; value_flows sums the transfers by direction, asset, token and counterparty. phase_candidates lists the state variables (bool, enum, or uint compared with a constant) that two or more of its entry points test in a require, if or modifier condition and some entry point writes: state_var, type_name, guarded_functions, writers, condition_texts, span of the declaration, tag INFERRED.",
             contract_schema(),
         ),
         tool(
@@ -42,7 +42,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_function_analysis",
-            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations.",
+            "Narrative of one function: access level and guards, paths (happy/revert; path_stats has the cutoffs and whether the enumeration was truncated; the first 100 paths are narrated and paths_omitted counts the rest), state reads and writes, external calls resolved to their real target, require checks, events, transitive effects, revert sources, and observations. accesses lists the reads and writes of its own code with the mapping keys of each index level (text, kind: msg_sender|parameter|state_var|local|literal|this|expression, ref). try_catches lists its try statements as ilold_cfg does. value_transfers and balance_reads list the value its code moves and the balances it reads, as ilold_contract_detail does. phase_candidates lists the contract's phases this function tests or writes.",
             contract_function_schema(),
         ),
         tool(
@@ -52,12 +52,12 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_callgraph",
-            "Call graph of a contract as the most derived contract: own and inherited functions with super and virtual dispatch resolved. Edge kinds: Internal, InternalLibrary, LibraryDelegatecall, External, ExternalSelf (this.f), LowLevelCall, LowLevelDelegatecall, LowLevelStaticcall, Transfer, Send, Creation; node ids are Contract::name, or Contract::name(types) for overloads.",
+            "Call graph of a contract as the most derived contract: own and inherited functions with super and virtual dispatch resolved. Edge kinds: Internal, InternalLibrary, LibraryDelegatecall, External, ExternalSelf (this.f), LowLevelCall, LowLevelDelegatecall, LowLevelStaticcall, Transfer, Send, Creation; node ids are Contract::name, or Contract::name(types) for overloads. External and ExternalSelf edges carry dispatch_candidates (or unresolved_reason) and assigned_at, where the state variables holding the called address are set.",
             contract_schema(),
         ),
         tool(
             "ilold_cfg",
-            "Control flow graph of one function: basic blocks and branch edges.",
+            "Control flow graph of one function: basic blocks and branch edges. try_catches lists each try statement: the guarded call, the block ending in it (block) and the success branch (success_block), and every catch clause with its kind (Error|Panic|bytes|all), span, block, empty (the failure is swallowed) and effects of its own code (writes, calls, emits, reverts).",
             contract_function_schema(),
         ),
         tool(
@@ -72,7 +72,7 @@ pub fn build_tool_registry() -> Vec<Tool> {
         ),
         tool(
             "ilold_who_touches",
-            "Functions that read and write a state variable, with their access level.",
+            "Functions that read and write a state variable, with their access level. accesses gives, per function and read/write, the mapping keys of each site (key_sites; keys when all sites share one key set, else keys_reason several), or keys_reason transitive when the access happens in a callee.",
             contract_variable_schema(),
         ),
         tool(

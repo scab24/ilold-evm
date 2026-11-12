@@ -25,6 +25,13 @@ axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["fs"] }
 rmcp = { version = "1.6", features = ["server", "transport-io"] }
 
+# Line tables keep backtraces readable; full debug info made target/ grow past 19 GB
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

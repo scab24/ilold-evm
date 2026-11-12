@@ -14,6 +14,7 @@ use ilold_core::exploration::session::ExplorationSession;
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
 use ilold_core::pathtree::types::PathTree;
+use ilold_core::relations::Relations;
 use ilold_core::sequence::analysis::SequenceAnalysis;
 use ilold_core::sequence::types::SequenceTree;
 
@@ -252,6 +253,7 @@ pub struct AppState {
     pub sequence_trees: HashMap<String, SequenceTree>,
     pub sequence_analyses: HashMap<String, SequenceAnalysis>,
     pub classifications: HashMap<String, Vec<(String, AccessLevel)>>,
+    pub relations: Relations,
     pub annotations: RwLock<Vec<Annotation>>,
     pub scenarios: RwLock<ScenarioRegistry>,
     pub session_tx: broadcast::Sender<SessionBroadcast>,
@@ -304,6 +306,7 @@ impl AppState {
             sequence_trees,
             sequence_analyses,
             classifications,
+            relations,
         } = ProjectAnalysis::load_or_build(&project, key.as_ref(), &params);
 
         let (session_tx, _) = broadcast::channel(64);
@@ -321,6 +324,7 @@ impl AppState {
             sequence_trees,
             sequence_analyses,
             classifications,
+            relations,
             annotations: RwLock::new(Vec::new()),
             scenarios: RwLock::new(ScenarioRegistry::new(default_contract)),
             session_tx,

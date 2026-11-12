@@ -100,7 +100,7 @@ fn call_edges(graph: &mut DepGraph, index: &Index, from: NodeIndex, name: &str, 
     }
 }
 
-fn edge_mut(graph: &mut DepGraph, from: NodeIndex, to: NodeIndex) -> &mut DepEdge {
+pub(super) fn edge_mut(graph: &mut DepGraph, from: NodeIndex, to: NodeIndex) -> &mut DepEdge {
     let e = match graph.find_edge(from, to) {
         Some(e) => e,
         None => graph.add_edge(from, to, DepEdge::default()),

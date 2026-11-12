@@ -2,6 +2,7 @@
   import { Handle, Position } from '@xyflow/svelte';
   import type { FunctionNodeData } from '$lib/stores/graph.svelte';
   import { visibilityLabel, visibilityClass } from '$lib/utils/visibility';
+  import { describeTransfers } from '$lib/utils/value';
 
   let { data }: { data: FunctionNodeData } = $props();
 
@@ -18,8 +19,10 @@
     (data.modifiers?.length ?? 0) > 0
   );
 
+  let transfers = $derived(data.value_transfers?.length ? describeTransfers(data.value_transfers) : null);
+
   let hasBadges = $derived(
-    visLabel != null || mutIcon != null || (data.path_count != null && data.path_count > 0) || hasAccessControl
+    visLabel != null || mutIcon != null || (data.path_count != null && data.path_count > 0) || hasAccessControl || transfers != null
   );
 
   let scenarioName = $derived(data._scenario ?? null);
@@ -64,6 +67,9 @@
       {/if}
       {#if hasAccessControl}
         <span class="text-[9px]" title={data.modifiers?.join(', ')}>&#x1F512;</span>
+      {/if}
+      {#if transfers}
+        <span class="text-[9px] text-success-light" title={transfers} data-testid="node-value-mark">⇄</span>
       {/if}
     </div>
   {/if}

@@ -42,6 +42,21 @@ pub struct FunctionNarrative {
     pub revert_sources: Vec<TransitiveEffect>,
     #[serde(default)]
     pub guards: Vec<crate::classify::guards::GuardFact>,
+    /// Reads and writes of its own code and modifiers, with their keys; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accesses: Vec<crate::relations::StorageAccess>,
+    /// Its try statements; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub try_catches: Vec<crate::relations::TryCatchFact>,
+    /// The value its code moves; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub value_transfers: Vec<crate::relations::ValueTransfer>,
+    /// The balances its code reads; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub balance_reads: Vec<crate::relations::BalanceRead>,
+    /// The phases of the contract that runs it which it tests or writes; filled where the project is at hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phase_candidates: Vec<crate::relations::PhaseCandidate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

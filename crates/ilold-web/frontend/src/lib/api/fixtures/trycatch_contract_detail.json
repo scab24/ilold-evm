@@ -1,0 +1,1480 @@
+{
+  "display_name": "TryCatch",
+  "functions": [
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "count",
+          "span": {
+            "end_col": 19,
+            "end_line": 42,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 42
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "count",
+          "span": {
+            "end_col": 19,
+            "end_line": 42,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 42
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "step",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "step",
+      "params": [],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "step()",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "value",
+          "span": {
+            "end_col": 18,
+            "end_line": 47,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 47
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 2,
+      "key": "swallow",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "swallow",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "swallow()",
+      "try_catches": [
+        {
+          "block": 0,
+          "catch_clauses": [
+            {
+              "block": 3,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": false,
+                "writes": []
+              },
+              "empty": true,
+              "kind": "all",
+              "span": {
+                "end_col": 49,
+                "end_line": 46,
+                "file_index": 0,
+                "start_col": 41,
+                "start_line": 46
+              }
+            }
+          ],
+          "function": "TryCatch::swallow",
+          "guarded_call": {
+            "kind": "ExternalSelf",
+            "span": {
+              "end_col": 37,
+              "end_line": 46,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 46
+            },
+            "text": "this.step"
+          },
+          "id": "TryCatch::swallow#0",
+          "in_context": "TryCatch",
+          "modifier": null,
+          "reason": null,
+          "span": {
+            "end_col": 49,
+            "end_line": 46,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 46
+          },
+          "success_block": 2,
+          "success_span": {
+            "end_col": 40,
+            "end_line": 46,
+            "file_index": 0,
+            "start_col": 38,
+            "start_line": 46
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "pinger",
+          "span": {
+            "end_col": 26,
+            "end_line": 51,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 51
+          }
+        },
+        {
+          "block": 2,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "count",
+          "span": {
+            "end_col": 23,
+            "end_line": 52,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 52
+          }
+        },
+        {
+          "block": 2,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "count",
+          "span": {
+            "end_col": 23,
+            "end_line": 52,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 52
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "rethrow",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "rethrow",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "rethrow()",
+      "try_catches": [
+        {
+          "block": 0,
+          "catch_clauses": [
+            {
+              "block": 3,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": true,
+                "writes": []
+              },
+              "empty": false,
+              "kind": "all",
+              "span": {
+                "end_col": 10,
+                "end_line": 55,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 53
+              }
+            }
+          ],
+          "function": "TryCatch::rethrow",
+          "guarded_call": {
+            "kind": "External",
+            "span": {
+              "end_col": 26,
+              "end_line": 51,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 51
+            },
+            "text": "pinger.ping"
+          },
+          "id": "TryCatch::rethrow#0",
+          "in_context": "TryCatch",
+          "modifier": null,
+          "reason": null,
+          "span": {
+            "end_col": 10,
+            "end_line": 55,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 51
+          },
+          "success_block": 2,
+          "success_span": {
+            "end_col": 10,
+            "end_line": 53,
+            "file_index": 0,
+            "start_col": 27,
+            "start_line": 51
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "pinger",
+          "span": {
+            "end_col": 28,
+            "end_line": 59,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 59
+          }
+        },
+        {
+          "block": 2,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "value",
+          "span": {
+            "end_col": 22,
+            "end_line": 60,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 60
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 36,
+            "end_line": 64,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 62
+          }
+        },
+        {
+          "block": 3,
+          "keys": [
+            {
+              "kind": "msg_sender",
+              "ref": null,
+              "text": "msg.sender"
+            }
+          ],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "misses[msg.sender]",
+          "span": {
+            "end_col": 36,
+            "end_line": 64,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 62
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 26,
+            "end_line": 62,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 62
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "lastError",
+          "span": {
+            "end_col": 31,
+            "end_line": 63,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 63
+          }
+        },
+        {
+          "block": 3,
+          "keys": [
+            {
+              "kind": "msg_sender",
+              "ref": null,
+              "text": "msg.sender"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "misses[msg.sender]",
+          "span": {
+            "end_col": 36,
+            "end_line": 64,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 64
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 2,
+      "key": "record",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "record",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "record()",
+      "try_catches": [
+        {
+          "block": 0,
+          "catch_clauses": [
+            {
+              "block": 3,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": false,
+                "writes": [
+                  {
+                    "span": {
+                      "end_col": 26,
+                      "end_line": 62,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 62
+                    },
+                    "text": "failures"
+                  },
+                  {
+                    "span": {
+                      "end_col": 31,
+                      "end_line": 63,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 63
+                    },
+                    "text": "lastError"
+                  },
+                  {
+                    "span": {
+                      "end_col": 36,
+                      "end_line": 64,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 64
+                    },
+                    "text": "misses[msg.sender]"
+                  }
+                ]
+              },
+              "empty": false,
+              "kind": "Error",
+              "span": {
+                "end_col": 10,
+                "end_line": 65,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 61
+              }
+            }
+          ],
+          "function": "TryCatch::record",
+          "guarded_call": {
+            "kind": "External",
+            "span": {
+              "end_col": 28,
+              "end_line": 59,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 59
+            },
+            "text": "pinger.quote"
+          },
+          "id": "TryCatch::record#0",
+          "in_context": "TryCatch",
+          "modifier": null,
+          "reason": null,
+          "span": {
+            "end_col": 10,
+            "end_line": 65,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 59
+          },
+          "success_block": 2,
+          "success_span": {
+            "end_col": 10,
+            "end_line": 61,
+            "file_index": 0,
+            "start_col": 29,
+            "start_line": 59
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "pinger",
+          "span": {
+            "end_col": 33,
+            "end_line": 69,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 69
+          }
+        },
+        {
+          "block": 5,
+          "keys": [
+            {
+              "kind": "local",
+              "ref": null,
+              "text": "code"
+            }
+          ],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "panics[code]",
+          "span": {
+            "end_col": 30,
+            "end_line": 75,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 75
+          }
+        },
+        {
+          "block": 5,
+          "keys": [
+            {
+              "kind": "local",
+              "ref": null,
+              "text": "code"
+            }
+          ],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "panics[code]",
+          "span": {
+            "end_col": 30,
+            "end_line": 75,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 75
+          }
+        },
+        {
+          "block": 6,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "pinger",
+          "span": {
+            "end_col": 26,
+            "end_line": 78,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 77
+          }
+        },
+        {
+          "block": 6,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "lastData",
+          "span": {
+            "end_col": 28,
+            "end_line": 77,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 77
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 4,
+      "key": "clauses",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "clauses",
+      "params": [
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 4,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "clauses(uint256)",
+      "try_catches": [
+        {
+          "block": 0,
+          "catch_clauses": [
+            {
+              "block": 4,
+              "effects": {
+                "calls": [],
+                "emits": [
+                  {
+                    "span": {
+                      "end_col": 34,
+                      "end_line": 73,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 73
+                    },
+                    "text": "Rejected"
+                  }
+                ],
+                "reverts": false,
+                "writes": []
+              },
+              "empty": false,
+              "kind": "Error",
+              "span": {
+                "end_col": 10,
+                "end_line": 74,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 72
+              }
+            },
+            {
+              "block": 5,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": false,
+                "writes": [
+                  {
+                    "span": {
+                      "end_col": 30,
+                      "end_line": 75,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 75
+                    },
+                    "text": "panics[code]"
+                  }
+                ]
+              },
+              "empty": false,
+              "kind": "Panic",
+              "span": {
+                "end_col": 10,
+                "end_line": 76,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 74
+              }
+            },
+            {
+              "block": 6,
+              "effects": {
+                "calls": [
+                  {
+                    "span": {
+                      "end_col": 26,
+                      "end_line": 78,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 78
+                    },
+                    "text": "pinger.ping"
+                  }
+                ],
+                "emits": [],
+                "reverts": false,
+                "writes": [
+                  {
+                    "span": {
+                      "end_col": 28,
+                      "end_line": 77,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 77
+                    },
+                    "text": "lastData"
+                  }
+                ]
+              },
+              "empty": false,
+              "kind": "bytes",
+              "span": {
+                "end_col": 10,
+                "end_line": 79,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 76
+              }
+            }
+          ],
+          "function": "TryCatch::clauses",
+          "guarded_call": {
+            "kind": "External",
+            "span": {
+              "end_col": 33,
+              "end_line": 69,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 69
+            },
+            "text": "pinger.quote"
+          },
+          "id": "TryCatch::clauses#0",
+          "in_context": "TryCatch",
+          "modifier": null,
+          "reason": null,
+          "span": {
+            "end_col": 10,
+            "end_line": 79,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 69
+          },
+          "success_block": 2,
+          "success_span": {
+            "end_col": 10,
+            "end_line": 72,
+            "file_index": 0,
+            "start_col": 34,
+            "start_line": 69
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "pinger",
+          "span": {
+            "end_col": 28,
+            "end_line": 84,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 84
+          }
+        },
+        {
+          "block": 2,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "value",
+          "span": {
+            "end_col": 22,
+            "end_line": 85,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 85
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 26,
+            "end_line": 87,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 87
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 26,
+            "end_line": 87,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 87
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 3,
+      "key": "bare",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "bare",
+      "params": [],
+      "path_count": 3,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "bare()",
+      "try_catches": [
+        {
+          "block": 0,
+          "catch_clauses": [
+            {
+              "block": 3,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": false,
+                "writes": [
+                  {
+                    "span": {
+                      "end_col": 26,
+                      "end_line": 87,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 87
+                    },
+                    "text": "failures"
+                  }
+                ]
+              },
+              "empty": false,
+              "kind": "Error",
+              "span": {
+                "end_col": 10,
+                "end_line": 88,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 86
+              }
+            },
+            {
+              "block": 4,
+              "effects": {
+                "calls": [
+                  {
+                    "span": {
+                      "end_col": 20,
+                      "end_line": 89,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 89
+                    },
+                    "text": "_note"
+                  }
+                ],
+                "emits": [],
+                "reverts": false,
+                "writes": []
+              },
+              "empty": false,
+              "kind": "all",
+              "span": {
+                "end_col": 10,
+                "end_line": 90,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 88
+              }
+            }
+          ],
+          "function": "TryCatch::bare",
+          "guarded_call": {
+            "kind": "External",
+            "span": {
+              "end_col": 28,
+              "end_line": 84,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 84
+            },
+            "text": "pinger.quote"
+          },
+          "id": "TryCatch::bare#0",
+          "in_context": "TryCatch",
+          "modifier": null,
+          "reason": null,
+          "span": {
+            "end_col": 10,
+            "end_line": 90,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 84
+          },
+          "success_block": 2,
+          "success_span": {
+            "end_col": 10,
+            "end_line": 86,
+            "file_index": 0,
+            "start_col": 29,
+            "start_line": 84
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 2,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "child",
+          "span": {
+            "end_col": 22,
+            "end_line": 95,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 95
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 26,
+            "end_line": 97,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 97
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 26,
+            "end_line": 97,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 97
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 2,
+      "key": "create",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "create",
+      "params": [
+        {
+          "name": "s",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "create(uint256)",
+      "try_catches": [
+        {
+          "block": 0,
+          "catch_clauses": [
+            {
+              "block": 3,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": false,
+                "writes": [
+                  {
+                    "span": {
+                      "end_col": 26,
+                      "end_line": 97,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 97
+                    },
+                    "text": "failures"
+                  }
+                ]
+              },
+              "empty": false,
+              "kind": "all",
+              "span": {
+                "end_col": 10,
+                "end_line": 98,
+                "file_index": 0,
+                "start_col": 11,
+                "start_line": 96
+              }
+            }
+          ],
+          "function": "TryCatch::create",
+          "guarded_call": {
+            "kind": "Creation",
+            "span": {
+              "end_col": 25,
+              "end_line": 94,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 94
+            },
+            "text": "Child.constructor"
+          },
+          "id": "TryCatch::create#0",
+          "in_context": "TryCatch",
+          "modifier": null,
+          "reason": null,
+          "span": {
+            "end_col": 10,
+            "end_line": 98,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 94
+          },
+          "success_block": 2,
+          "success_span": {
+            "end_col": 10,
+            "end_line": 96,
+            "file_index": 0,
+            "start_col": 26,
+            "start_line": 94
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 4,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "count",
+          "span": {
+            "end_col": 23,
+            "end_line": 106,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 106
+          }
+        },
+        {
+          "block": 4,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "count",
+          "span": {
+            "end_col": 23,
+            "end_line": 106,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 106
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 7,
+      "key": "loop",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "loop",
+      "params": [
+        {
+          "name": "targets",
+          "type_name": "address[]"
+        }
+      ],
+      "path_count": 15,
+      "paths_truncated": true,
+      "revert_paths": 0,
+      "signature": "loop(address[])",
+      "try_catches": [
+        {
+          "block": 3,
+          "catch_clauses": [
+            {
+              "block": 6,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": false,
+                "writes": []
+              },
+              "empty": false,
+              "kind": "all",
+              "span": {
+                "end_col": 14,
+                "end_line": 105,
+                "file_index": 0,
+                "start_col": 47,
+                "start_line": 103
+              }
+            }
+          ],
+          "function": "TryCatch::loop",
+          "guarded_call": {
+            "kind": "External",
+            "span": {
+              "end_col": 43,
+              "end_line": 103,
+              "file_index": 0,
+              "start_col": 17,
+              "start_line": 103
+            },
+            "text": "IPinger(targets[i]).ping"
+          },
+          "id": "TryCatch::loop#0",
+          "in_context": "TryCatch",
+          "modifier": null,
+          "reason": null,
+          "span": {
+            "end_col": 14,
+            "end_line": 105,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 103
+          },
+          "success_block": 5,
+          "success_span": {
+            "end_col": 46,
+            "end_line": 103,
+            "file_index": 0,
+            "start_col": 44,
+            "start_line": 103
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": "pinged",
+          "param": null,
+          "path": "pinger",
+          "span": {
+            "end_col": 26,
+            "end_line": 35,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 35
+          }
+        },
+        {
+          "block": 1,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "value",
+          "span": {
+            "end_col": 18,
+            "end_line": 111,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 111
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "read",
+          "modifier": "pinged",
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 26,
+            "end_line": 36,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 36
+          }
+        },
+        {
+          "block": 3,
+          "keys": [],
+          "kind": "write",
+          "modifier": "pinged",
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 26,
+            "end_line": 36,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 36
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 2,
+      "key": "guarded",
+      "kind": "Function",
+      "modifiers": [
+        "pinged"
+      ],
+      "mutability": "NonPayable",
+      "name": "guarded",
+      "params": [],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "guarded()",
+      "try_catches": [
+        {
+          "block": 0,
+          "catch_clauses": [
+            {
+              "block": 3,
+              "effects": {
+                "calls": [],
+                "emits": [],
+                "reverts": false,
+                "writes": [
+                  {
+                    "span": {
+                      "end_col": 26,
+                      "end_line": 36,
+                      "file_index": 0,
+                      "start_col": 13,
+                      "start_line": 36
+                    },
+                    "text": "failures"
+                  }
+                ]
+              },
+              "empty": false,
+              "kind": "all",
+              "span": {
+                "end_col": 10,
+                "end_line": 37,
+                "file_index": 0,
+                "start_col": 30,
+                "start_line": 35
+              }
+            }
+          ],
+          "function": "TryCatch::guarded",
+          "guarded_call": {
+            "kind": "External",
+            "span": {
+              "end_col": 26,
+              "end_line": 35,
+              "file_index": 0,
+              "start_col": 13,
+              "start_line": 35
+            },
+            "text": "pinger.ping"
+          },
+          "id": "TryCatch::guarded#0",
+          "in_context": "TryCatch",
+          "modifier": "pinged",
+          "reason": null,
+          "span": {
+            "end_col": 10,
+            "end_line": 37,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 35
+          },
+          "success_block": 2,
+          "success_span": {
+            "end_col": 29,
+            "end_line": 35,
+            "file_index": 0,
+            "start_col": 27,
+            "start_line": 35
+          },
+          "tag": "EXTRACTED"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Internal",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 22,
+            "end_line": 115,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 115
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "write",
+          "modifier": null,
+          "param": null,
+          "path": "failures",
+          "span": {
+            "end_col": 22,
+            "end_line": 115,
+            "file_index": 0,
+            "start_col": 9,
+            "start_line": 115
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "_note",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "_note",
+      "params": [],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "_note()",
+      "visibility": "Internal"
+    }
+  ],
+  "incoming_links": [
+    {
+      "basis": "self",
+      "calls": [
+        {
+          "function": "TryCatch::swallow",
+          "span": {
+            "end_col": 37,
+            "end_line": 46,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 46
+          }
+        }
+      ],
+      "from_contract": "TryCatch",
+      "tag": "INFERRED",
+      "to_contract": "TryCatch",
+      "via_state_vars": []
+    }
+  ],
+  "inherit_keys": [],
+  "inherited_functions": [],
+  "inherited_state_vars": [],
+  "inherits": [],
+  "is_dependency": false,
+  "kind": "Contract",
+  "name": "TryCatch",
+  "outgoing_links": [
+    {
+      "basis": "self",
+      "calls": [
+        {
+          "function": "TryCatch::swallow",
+          "span": {
+            "end_col": 37,
+            "end_line": 46,
+            "file_index": 0,
+            "start_col": 13,
+            "start_line": 46
+          }
+        }
+      ],
+      "from_contract": "TryCatch",
+      "tag": "INFERRED",
+      "to_contract": "TryCatch",
+      "via_state_vars": []
+    }
+  ],
+  "phase_candidates": [],
+  "qualified_id": "src/TryCatch.sol:TryCatch",
+  "state_vars": [
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "pinger",
+      "type_name": "contract IPinger",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "child",
+      "type_name": "contract Child",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "failures",
+      "type_name": "uint256",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "value",
+      "type_name": "uint256",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "count",
+      "type_name": "uint256",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "lastError",
+      "type_name": "string",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "lastData",
+      "type_name": "bytes",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [
+        "local"
+      ],
+      "name": "panics",
+      "type_name": "mapping(uint256 => uint256)",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [
+        "msg_sender"
+      ],
+      "name": "misses",
+      "type_name": "mapping(address => uint256)",
+      "visibility": "Public"
+    }
+  ],
+  "value_flows": []
+}

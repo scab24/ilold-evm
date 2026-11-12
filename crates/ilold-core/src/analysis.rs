@@ -15,6 +15,7 @@ use crate::parse::ProjectKey;
 use crate::pathtree::config::PruningConfig;
 use crate::pathtree::types::PathTree;
 use crate::pathtree::walker::build_path_tree;
+use crate::relations::Relations;
 use crate::sequence::analysis::{apply_effects, direct_behavior, transitions, FunctionBehavior, SequenceAnalysis};
 use crate::sequence::effects::{summarize, CfgSummary, EffectEngine};
 use crate::sequence::builder::build_sequence_tree;
@@ -41,6 +42,7 @@ pub struct ProjectAnalysis {
     pub sequence_trees: HashMap<String, SequenceTree>,
     pub sequence_analyses: HashMap<String, SequenceAnalysis>,
     pub classifications: HashMap<String, Vec<(String, AccessLevel)>>,
+    pub relations: Relations,
 }
 
 impl ProjectAnalysis {
@@ -128,7 +130,9 @@ impl ProjectAnalysis {
             classifications.insert(contract_key, classify_contract(project, contract));
         }
 
-        let dep_graph = ContractDeps::from_call_graphs(project, &call_graphs);
+        let relations = Relations::build(project, &cfgs);
+        let mut dep_graph = ContractDeps::from_call_graphs(project, &call_graphs);
+        dep_graph.add_links(&relations.links);
 
         Self {
             cfgs,
@@ -138,6 +142,7 @@ impl ProjectAnalysis {
             sequence_trees,
             sequence_analyses,
             classifications,
+            relations,
         }
     }
 

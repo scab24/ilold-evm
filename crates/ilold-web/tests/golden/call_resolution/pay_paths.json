@@ -1,0 +1,123 @@
+{
+    "contract": "Caller",
+    "function": "pay",
+    "page": {
+        "limit": 100,
+        "offset": 0,
+        "total": 2,
+        "truncated": false
+    },
+    "paths": [
+        {
+            "annotations": {
+                "eth_transfers": [],
+                "events_emitted": [],
+                "external_calls": [
+                    {
+                        "function": "transfer",
+                        "kind": "Transfer",
+                        "target": "to"
+                    },
+                    {
+                        "function": "send",
+                        "kind": "Send",
+                        "target": "payable(other)"
+                    }
+                ],
+                "has_assembly": false,
+                "internal_call_targets": [],
+                "internal_calls": [],
+                "require_checks": [
+                    "sent"
+                ],
+                "state_read_paths": [],
+                "state_reads": [],
+                "state_write_paths": [],
+                "state_writes": []
+            },
+            "depth": 2,
+            "id": 0,
+            "nodes": [
+                {
+                    "block_id": 0,
+                    "block_kind": "Entry",
+                    "branch_taken": null
+                },
+                {
+                    "block_id": 1,
+                    "block_kind": "Normal",
+                    "branch_taken": {
+                        "ConditionalTrue": {
+                            "condition": "sent"
+                        }
+                    }
+                },
+                {
+                    "block_id": 3,
+                    "block_kind": "Return",
+                    "branch_taken": "Unconditional"
+                }
+            ],
+            "terminal": "Return"
+        },
+        {
+            "annotations": {
+                "eth_transfers": [],
+                "events_emitted": [],
+                "external_calls": [
+                    {
+                        "function": "transfer",
+                        "kind": "Transfer",
+                        "target": "to"
+                    },
+                    {
+                        "function": "send",
+                        "kind": "Send",
+                        "target": "payable(other)"
+                    }
+                ],
+                "has_assembly": false,
+                "internal_call_targets": [],
+                "internal_calls": [],
+                "require_checks": [
+                    "sent"
+                ],
+                "state_read_paths": [],
+                "state_reads": [],
+                "state_write_paths": [],
+                "state_writes": []
+            },
+            "depth": 1,
+            "id": 1,
+            "nodes": [
+                {
+                    "block_id": 0,
+                    "block_kind": "Entry",
+                    "branch_taken": null
+                },
+                {
+                    "block_id": 2,
+                    "block_kind": "Revert",
+                    "branch_taken": {
+                        "ConditionalFalse": {
+                            "condition": "sent"
+                        }
+                    }
+                }
+            ],
+            "terminal": "Revert"
+        }
+    ],
+    "stats": {
+        "cap_reached": false,
+        "depth_cutoff": 0,
+        "happy_paths": 1,
+        "loop_cutoff": 0,
+        "max_depth_reached": 2,
+        "paths_dropped": 0,
+        "revert_paths": 1,
+        "total_paths": 2,
+        "truncated": false
+    },
+    "truncation_note": null
+}

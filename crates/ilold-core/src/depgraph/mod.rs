@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::contract::ContractKind;
 use crate::model::project::Project;
+use crate::relations::ContractLink;
 
 pub use order::{layers, Layer, LayerGroup};
 
@@ -35,6 +36,9 @@ pub struct DepEdge {
     pub calls: bool,
     pub holds: bool,
     pub call_count: usize,
+    /// The deployable contract may answer calls the source makes through an interface.
+    #[serde(default)]
+    pub link: Option<ContractLink>,
 }
 
 impl DepEdge {
@@ -49,6 +53,9 @@ impl DepEdge {
         if self.holds {
             k.push(DepKind::Holds);
         }
+        if self.link.is_some() {
+            k.push(DepKind::Dispatches);
+        }
         k
     }
 }
@@ -58,6 +65,7 @@ pub enum DepKind {
     Inherits,
     Calls,
     Holds,
+    Dispatches,
 }
 
 impl DepKind {
@@ -66,6 +74,7 @@ impl DepKind {
             DepKind::Inherits => "inherits",
             DepKind::Calls => "calls",
             DepKind::Holds => "holds",
+            DepKind::Dispatches => "dispatches",
         }
     }
 }
@@ -102,6 +111,14 @@ impl ContractDeps {
             }
         }
         Some(ContractDeps { graph, index })
+    }
+
+    pub fn add_links(&mut self, links: &[ContractLink]) {
+        for link in links {
+            if let (Some(&from), Some(&to)) = (self.index.get(&link.from_contract), self.index.get(&link.to_contract)) {
+                build::edge_mut(&mut self.graph, from, to).link = Some(link.clone());
+            }
+        }
     }
 
     pub fn without_dependencies(&self) -> Self {

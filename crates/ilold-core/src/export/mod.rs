@@ -15,11 +15,12 @@ use crate::parse::error::ParseError;
 use crate::parse::solc_frontend::{project_layout, ProjectLayout, SolcFrontend};
 use crate::sequence::effects::MAX_ROUNDS;
 
+pub use facts::as_1_0;
 use ids::{Ids, Paths};
 use inventory::Repo;
 
 /// Changes whenever a record kind or field changes meaning.
-pub const SCHEMA_VERSION: &str = "1.0.0";
+pub const SCHEMA_VERSION: &str = "1.1.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {

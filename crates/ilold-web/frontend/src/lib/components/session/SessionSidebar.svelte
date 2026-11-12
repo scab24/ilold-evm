@@ -4,6 +4,7 @@
   import SessionTimeline from './SessionTimeline.svelte';
   import StatePanel from './StatePanel.svelte';
   import NodeInspector from '$lib/components/contract/NodeInspector.svelte';
+  import type { CytoscapeGraph } from '$lib/api/rest';
   import { getScenarios, getActiveScenario } from '$lib/stores/session.svelte';
   import { promptScenarioName } from '$lib/scenarios/name';
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
@@ -22,6 +23,8 @@
     onpathselect = () => {},
     onloadmorepaths = () => {},
     onexpandcfg = () => {},
+    callgraph = null,
+    onviewsource = () => {},
   }: {
     contract: string;
     selectedNode?: any;
@@ -36,6 +39,8 @@
     onpathselect?: (funcName: string, path: any) => void;
     onloadmorepaths?: (funcName: string) => void;
     onexpandcfg?: (funcName: string, nodeId?: string) => void;
+    callgraph?: CytoscapeGraph | null;
+    onviewsource?: (contract: string, func: string) => void;
   } = $props();
 
   let open = $state(true);
@@ -239,6 +244,8 @@
           {onpathselect}
           {onloadmorepaths}
           {onexpandcfg}
+          {callgraph}
+          {onviewsource}
         />
       {/if}
     </div>

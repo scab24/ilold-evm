@@ -1,0 +1,326 @@
+{
+  "access": "Public",
+  "accesses": [
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "asset",
+      "span": {
+        "end_col": 88,
+        "end_line": 111,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 109
+      }
+    },
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "nft",
+      "span": {
+        "end_col": 88,
+        "end_line": 111,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 109
+      }
+    },
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "multi",
+      "span": {
+        "end_col": 88,
+        "end_line": 111,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 109
+      }
+    },
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "manager",
+      "span": {
+        "end_col": 88,
+        "end_line": 111,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 109
+      }
+    },
+    {
+      "block": 0,
+      "keys": [],
+      "kind": "read",
+      "modifier": null,
+      "param": null,
+      "path": "quote",
+      "span": {
+        "end_col": 88,
+        "end_line": 111,
+        "file_index": 2,
+        "start_col": 9,
+        "start_line": 109
+      }
+    }
+  ],
+  "balance_reads": [
+    {
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "function": "Payments::balances",
+      "id": "Payments::balances#0",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": "address(this)",
+      "reason": null,
+      "span": {
+        "end_col": 38,
+        "end_line": 109,
+        "file_index": 2,
+        "start_col": 17,
+        "start_line": 109
+      },
+      "tag": "EXTRACTED",
+      "token_expr": null,
+      "via_library": null
+    },
+    {
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "function": "Payments::balances",
+      "id": "Payments::balances#1",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": "who",
+      "reason": null,
+      "span": {
+        "end_col": 52,
+        "end_line": 109,
+        "file_index": 2,
+        "start_col": 41,
+        "start_line": 109
+      },
+      "tag": "EXTRACTED",
+      "token_expr": null,
+      "via_library": null
+    },
+    {
+      "asset_candidates": [],
+      "asset_kind": "erc20",
+      "function": "Payments::balances",
+      "id": "Payments::balances#2",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": "who",
+      "reason": null,
+      "span": {
+        "end_col": 75,
+        "end_line": 109,
+        "file_index": 2,
+        "start_col": 55,
+        "start_line": 109
+      },
+      "tag": "TYPE_RESOLVED",
+      "token_expr": "asset",
+      "via_library": null
+    },
+    {
+      "asset_candidates": [],
+      "asset_kind": "erc721",
+      "function": "Payments::balances",
+      "id": "Payments::balances#3",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": "who",
+      "reason": null,
+      "span": {
+        "end_col": 96,
+        "end_line": 109,
+        "file_index": 2,
+        "start_col": 78,
+        "start_line": 109
+      },
+      "tag": "TYPE_RESOLVED",
+      "token_expr": "nft",
+      "via_library": null
+    },
+    {
+      "asset_candidates": [],
+      "asset_kind": "erc1155",
+      "function": "Payments::balances",
+      "id": "Payments::balances#4",
+      "id_expr": "id",
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": "who",
+      "reason": null,
+      "span": {
+        "end_col": 42,
+        "end_line": 110,
+        "file_index": 2,
+        "start_col": 18,
+        "start_line": 110
+      },
+      "tag": "TYPE_RESOLVED",
+      "token_expr": "multi",
+      "via_library": null
+    },
+    {
+      "asset_candidates": [],
+      "asset_kind": "erc6909",
+      "function": "Payments::balances",
+      "id": "Payments::balances#5",
+      "id_expr": "id",
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": "who",
+      "reason": null,
+      "span": {
+        "end_col": 71,
+        "end_line": 110,
+        "file_index": 2,
+        "start_col": 45,
+        "start_line": 110
+      },
+      "tag": "TYPE_RESOLVED",
+      "token_expr": "manager",
+      "via_library": null
+    },
+    {
+      "asset_candidates": [],
+      "asset_kind": "erc20",
+      "function": "Payments::balances",
+      "id": "Payments::balances#6",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": "who",
+      "reason": null,
+      "span": {
+        "end_col": 64,
+        "end_line": 111,
+        "file_index": 2,
+        "start_col": 18,
+        "start_line": 111
+      },
+      "tag": "TYPE_RESOLVED",
+      "token_expr": "address(asset)",
+      "via_library": "SafeTransferLib::balanceOf"
+    },
+    {
+      "asset_candidates": [
+        "native",
+        "erc20"
+      ],
+      "asset_kind": "unknown",
+      "function": "Payments::balances",
+      "id": "Payments::balances#7",
+      "id_expr": null,
+      "in_context": "Payments",
+      "modifier": null,
+      "owner_expr": null,
+      "reason": "currency",
+      "span": {
+        "end_col": 88,
+        "end_line": 111,
+        "file_index": 2,
+        "start_col": 67,
+        "start_line": 111
+      },
+      "tag": "AMBIGUOUS",
+      "token_expr": "quote",
+      "via_library": "CurrencyLibrary::balanceOfSelf"
+    }
+  ],
+  "can_revert": false,
+  "contract": "Payments",
+  "events": [],
+  "external_calls": [
+    "asset.balanceOf",
+    "manager.balanceOf",
+    "multi.balanceOf",
+    "nft.balanceOf"
+  ],
+  "guards": [],
+  "happy_paths": 1,
+  "internal_calls": [
+    "CurrencyLibrary.balanceOfSelf",
+    "SafeTransferLib.balanceOf"
+  ],
+  "modifiers": [],
+  "name": "balances",
+  "observations": [],
+  "path_stats": {
+    "cap_reached": false,
+    "depth_cutoff": 0,
+    "happy_paths": 1,
+    "loop_cutoff": 0,
+    "max_depth_reached": 1,
+    "paths_dropped": 0,
+    "revert_paths": 0,
+    "total_paths": 1,
+    "truncated": false
+  },
+  "paths": [
+    {
+      "id": 0,
+      "steps": [
+        {
+          "branch": null,
+          "description": "balances()",
+          "detail": null,
+          "step_type": "Entry"
+        },
+        {
+          "branch": null,
+          "description": "return",
+          "detail": null,
+          "step_type": "Return"
+        }
+      ],
+      "terminal": "Return"
+    }
+  ],
+  "paths_omitted": 0,
+  "revert_paths": 0,
+  "revert_sources": [],
+  "state_reads": [
+    "asset",
+    "manager",
+    "multi",
+    "nft",
+    "quote"
+  ],
+  "state_writes": [],
+  "total_paths": 1,
+  "transitive_events": [],
+  "transitive_external_calls": [
+    {
+      "item": "IERC20(Currency.unwrap(currency)).balanceOf",
+      "origin_contract": "CurrencyLibrary",
+      "via": [
+        "CurrencyLibrary::balanceOfSelf"
+      ]
+    }
+  ],
+  "transitive_state_reads": [],
+  "transitive_state_writes": []
+}

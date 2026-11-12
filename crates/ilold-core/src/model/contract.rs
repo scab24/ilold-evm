@@ -62,4 +62,8 @@ impl ContractDef {
     pub fn is_listed(&self) -> bool {
         !self.is_dependency && !self.is_free_functions()
     }
+
+    pub fn is_deployable(&self) -> bool {
+        self.kind == ContractKind::Contract && !self.is_free_functions()
+    }
 }

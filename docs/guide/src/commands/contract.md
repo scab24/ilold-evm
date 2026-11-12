@@ -75,7 +75,7 @@ ilold[Staking]> v
   immutable rewardToken   address
 ```
 
-Tags are `mutable`, `const`, or `immutable`.
+Tags are `mutable`, `const`, or `immutable`. A mapping or array also lists the kinds of key the contract's functions index it with, such as `keys: msg_sender, parameter`.
 
 ## vars-all
 
@@ -124,6 +124,7 @@ dependency is tagged with the kind of relationship:
 - **inherits** — the contract extends it (`is`).
 - **calls** — a function calls into it (resolved to the real target contract).
 - **holds** — it has a state variable of that contract/interface type.
+- **dispatches** — it calls an interface that this deployable contract implements, so the call may run here. The tag shows the basis (`inherits_interface`, `selector_match`, `self` for `this.f()`), the calls it covers and the state variable holding the address; `AMBIGUOUS` when other contracts may answer the same call.
 
 ```
 ilold[Vault]> deps
@@ -134,7 +135,23 @@ ilold[Vault]> deps
 ```
 
 Here `Vault` calls into `IPool` twice and keeps an `IPool` state variable
-(`holds`), and calls the `SafeMath` library through a `using` directive.
+(`holds`), and calls the `SafeMath` library through a `using` directive. A call through an interface also lists its implementations:
+
+```
+ilold[Router]> deps
+
+  Router → depends on
+    HookA      dispatches inherits_interface×1 via hook AMBIGUOUS
+    HookB      dispatches inherits_interface×1 via hook AMBIGUOUS
+    IHook      calls×1 holds
+    IOracle    calls×1 holds
+    IOrphan    calls×1 holds
+    IRegistry  calls×1 holds
+    IVault     calls×1 holds
+    Registry   dispatches selector_match×1 via registry
+    Router     dispatches self×1
+    Vault      dispatches inherits_interface×1 via vault
+```
 
 ## usedby
 

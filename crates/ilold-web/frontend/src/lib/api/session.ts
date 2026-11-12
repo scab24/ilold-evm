@@ -1,6 +1,6 @@
 
 import type { ScenarioInfo, AllScenariosResponse, FunctionNarrative } from './types';
-import { BASE, body, segment } from './rest';
+import { BASE, body, segment, type VariableInfo } from './rest';
 
 
 export interface CommandRequest {
@@ -53,6 +53,10 @@ export async function postCommand(command: SessionCommand, contract?: string) {
   return result;
 }
 
+
+export async function whoTouches(variable: string, contract: string): Promise<VariableInfo> {
+  return (await postCommand({ Who: { variable } }, contract)).VariableInfo;
+}
 
 export async function getSessionState(contract?: string) {
   return body<any>(await fetch(`${BASE}/api/session/state${contractQuery(contract)}`), 'Session state unavailable');

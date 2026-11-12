@@ -1,0 +1,2131 @@
+{
+  "display_name": "Payments",
+  "functions": [
+    {
+      "access": "Public",
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "payCall",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "payCall",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "payCall(address,uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "call": "to.call",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::payCall",
+          "id": "Payments::payCall#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "call",
+          "reason": null,
+          "span": {
+            "end_col": 48,
+            "end_line": 35,
+            "file_index": 2,
+            "start_col": 22,
+            "start_line": 35
+          },
+          "tag": "EXTRACTED",
+          "to_expr": "to",
+          "token_expr": null,
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "payTransfer",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "payTransfer",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address payable"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "payTransfer(address)",
+      "value_transfers": [
+        {
+          "amount_expr": "1",
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "call": "to.transfer",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::payTransfer",
+          "id": "Payments::payTransfer#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer",
+          "reason": null,
+          "span": {
+            "end_col": 29,
+            "end_line": 40,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 40
+          },
+          "tag": "EXTRACTED",
+          "to_expr": "to",
+          "token_expr": null,
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "paySend",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "paySend",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address payable"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "paySend(address)",
+      "value_transfers": [
+        {
+          "amount_expr": "1",
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "call": "to.send",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::paySend",
+          "id": "Payments::paySend#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "send",
+          "reason": null,
+          "span": {
+            "end_col": 32,
+            "end_line": 44,
+            "file_index": 2,
+            "start_col": 16,
+            "start_line": 44
+          },
+          "tag": "EXTRACTED",
+          "to_expr": "to",
+          "token_expr": null,
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "share",
+          "span": {
+            "end_col": 38,
+            "end_line": 48,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 48
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "buy",
+      "kind": "Function",
+      "modifiers": [
+        "refundExcess"
+      ],
+      "mutability": "Payable",
+      "name": "buy",
+      "params": [
+        {
+          "name": "price",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "buy(uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "msg.value - price",
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "call": "payable(msg.sender).transfer",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::buy",
+          "id": "Payments::buy#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": "refundExcess",
+          "operation": "transfer",
+          "reason": null,
+          "span": {
+            "end_col": 56,
+            "end_line": 31,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 31
+          },
+          "tag": "EXTRACTED",
+          "to_expr": "payable(msg.sender)",
+          "token_expr": null,
+          "via_library": null
+        },
+        {
+          "amount_expr": "price",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "share.mint",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::buy",
+          "id": "Payments::buy#1",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "mint",
+          "reason": null,
+          "span": {
+            "end_col": 38,
+            "end_line": 48,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 48
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "msg.sender",
+          "token_expr": "share",
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "asset",
+          "span": {
+            "end_col": 62,
+            "end_line": 52,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 52
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "deposit",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "deposit",
+      "params": [
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "deposit(uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "asset.transferFrom",
+          "direction": "in",
+          "from_expr": "msg.sender",
+          "function": "Payments::deposit",
+          "id": "Payments::deposit#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer_from",
+          "reason": null,
+          "span": {
+            "end_col": 62,
+            "end_line": 52,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 52
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "address(this)",
+          "token_expr": "asset",
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "asset",
+          "span": {
+            "end_col": 43,
+            "end_line": 56,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 56
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "withdraw",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "withdraw",
+      "params": [
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "withdraw(uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "asset.transfer",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::withdraw",
+          "id": "Payments::withdraw#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer",
+          "reason": null,
+          "span": {
+            "end_col": 43,
+            "end_line": 56,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 56
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "msg.sender",
+          "token_expr": "asset",
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "share",
+          "span": {
+            "end_col": 30,
+            "end_line": 62,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 60
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "burnable",
+          "span": {
+            "end_col": 30,
+            "end_line": 62,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 60
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "burnShares",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "burnShares",
+      "params": [
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "burnShares(uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "share.burn",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::burnShares",
+          "id": "Payments::burnShares#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "burn",
+          "reason": null,
+          "span": {
+            "end_col": 27,
+            "end_line": 60,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 60
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": null,
+          "token_expr": "share",
+          "via_library": null
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "share.burnFrom",
+          "direction": "other",
+          "from_expr": "msg.sender",
+          "function": "Payments::burnShares",
+          "id": "Payments::burnShares#1",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "burn",
+          "reason": null,
+          "span": {
+            "end_col": 43,
+            "end_line": 61,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 61
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": null,
+          "token_expr": "share",
+          "via_library": null
+        },
+        {
+          "amount_expr": null,
+          "asset_candidates": [
+            "erc20",
+            "erc721"
+          ],
+          "asset_kind": "unknown",
+          "call": "burnable.burn",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::burnShares",
+          "id": "Payments::burnShares#2",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "burn",
+          "reason": "no_standard",
+          "span": {
+            "end_col": 30,
+            "end_line": 62,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 62
+          },
+          "tag": "AMBIGUOUS",
+          "to_expr": null,
+          "token_expr": "burnable",
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "nft",
+          "span": {
+            "end_col": 25,
+            "end_line": 68,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 66
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "moveNft",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "moveNft",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address"
+        },
+        {
+          "name": "id",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "moveNft(address,uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": null,
+          "asset_candidates": [],
+          "asset_kind": "erc721",
+          "call": "nft.safeTransferFrom",
+          "direction": "out",
+          "from_expr": "address(this)",
+          "function": "Payments::moveNft",
+          "id": "Payments::moveNft#0",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "safe_transfer_from",
+          "reason": null,
+          "span": {
+            "end_col": 52,
+            "end_line": 66,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 66
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "nft",
+          "via_library": null
+        },
+        {
+          "amount_expr": null,
+          "asset_candidates": [],
+          "asset_kind": "erc721",
+          "call": "nft.transferFrom",
+          "direction": "in",
+          "from_expr": "msg.sender",
+          "function": "Payments::moveNft",
+          "id": "Payments::moveNft#1",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer_from",
+          "reason": null,
+          "span": {
+            "end_col": 56,
+            "end_line": 67,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 67
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "address(this)",
+          "token_expr": "nft",
+          "via_library": null
+        },
+        {
+          "amount_expr": null,
+          "asset_candidates": [],
+          "asset_kind": "erc721",
+          "call": "nft.mint",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::moveNft",
+          "id": "Payments::moveNft#2",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "mint",
+          "reason": null,
+          "span": {
+            "end_col": 25,
+            "end_line": 68,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 68
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "nft",
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "multi",
+          "span": {
+            "end_col": 66,
+            "end_line": 72,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 72
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "moveMulti",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "moveMulti",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address"
+        },
+        {
+          "name": "id",
+          "type_name": "uint256"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "moveMulti(address,uint256,uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc1155",
+          "call": "multi.safeTransferFrom",
+          "direction": "out",
+          "from_expr": "address(this)",
+          "function": "Payments::moveMulti",
+          "id": "Payments::moveMulti#0",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "safe_transfer_from",
+          "reason": null,
+          "span": {
+            "end_col": 66,
+            "end_line": 72,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 72
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "multi",
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "manager",
+          "span": {
+            "end_col": 48,
+            "end_line": 79,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 76
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "moveClaims",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "moveClaims",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address"
+        },
+        {
+          "name": "id",
+          "type_name": "uint256"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "moveClaims(address,uint256,uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc6909",
+          "call": "manager.transfer",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::moveClaims",
+          "id": "Payments::moveClaims#0",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer",
+          "reason": null,
+          "span": {
+            "end_col": 41,
+            "end_line": 76,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 76
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "manager",
+          "via_library": null
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc6909",
+          "call": "manager.transferFrom",
+          "direction": "other",
+          "from_expr": "msg.sender",
+          "function": "Payments::moveClaims",
+          "id": "Payments::moveClaims#1",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer_from",
+          "reason": null,
+          "span": {
+            "end_col": 57,
+            "end_line": 77,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 77
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "manager",
+          "via_library": null
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc6909",
+          "call": "manager.mint",
+          "direction": "in",
+          "from_expr": null,
+          "function": "Payments::moveClaims",
+          "id": "Payments::moveClaims#2",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "mint",
+          "reason": null,
+          "span": {
+            "end_col": 48,
+            "end_line": 78,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 78
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "address(this)",
+          "token_expr": "manager",
+          "via_library": null
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc6909",
+          "call": "manager.burn",
+          "direction": "out",
+          "from_expr": "address(this)",
+          "function": "Payments::moveClaims",
+          "id": "Payments::moveClaims#3",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "burn",
+          "reason": null,
+          "span": {
+            "end_col": 48,
+            "end_line": 79,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 79
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": null,
+          "token_expr": "manager",
+          "via_library": null
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "asset",
+          "span": {
+            "end_col": 66,
+            "end_line": 84,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 83
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "safePay",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "safePay",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "safePay(address,uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "SafeERC20.safeTransfer",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::safePay",
+          "id": "Payments::safePay#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer",
+          "reason": null,
+          "span": {
+            "end_col": 39,
+            "end_line": 83,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 83
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "asset",
+          "via_library": "SafeERC20::safeTransfer"
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "SafeERC20.safeTransferFrom",
+          "direction": "other",
+          "from_expr": "msg.sender",
+          "function": "Payments::safePay",
+          "id": "Payments::safePay#1",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer_from",
+          "reason": null,
+          "span": {
+            "end_col": 66,
+            "end_line": 84,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 84
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "asset",
+          "via_library": "SafeERC20::safeTransferFrom"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "sendEth",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "sendEth",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address payable"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "sendEth(address,uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "call": "Address.sendValue",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::sendEth",
+          "id": "Payments::sendEth#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "call",
+          "reason": null,
+          "span": {
+            "end_col": 38,
+            "end_line": 88,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 88
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": null,
+          "via_library": "Address::sendValue"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "callWithValue",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "Payable",
+      "name": "callWithValue",
+      "params": [
+        {
+          "name": "target",
+          "type_name": "address"
+        },
+        {
+          "name": "data",
+          "type_name": "bytes"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "callWithValue(address,bytes)",
+      "value_transfers": [
+        {
+          "amount_expr": "msg.value",
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "call": "Address.functionCallWithValue",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::callWithValue",
+          "id": "Payments::callWithValue#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "call",
+          "reason": null,
+          "span": {
+            "end_col": 63,
+            "end_line": 92,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 92
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "target",
+          "token_expr": null,
+          "via_library": "Address::functionCallWithValue"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "asset",
+          "span": {
+            "end_col": 65,
+            "end_line": 97,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 96
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "soladyPay",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "soladyPay",
+      "params": [
+        {
+          "name": "to",
+          "type_name": "address"
+        },
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "soladyPay(address,uint256)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "call": "SafeTransferLib.safeTransferETH",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::soladyPay",
+          "id": "Payments::soladyPay#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "call",
+          "reason": null,
+          "span": {
+            "end_col": 52,
+            "end_line": 96,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 96
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": null,
+          "via_library": "SafeTransferLib::safeTransferETH"
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "call": "SafeTransferLib.safeTransfer",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::soladyPay",
+          "id": "Payments::soladyPay#1",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer",
+          "reason": null,
+          "span": {
+            "end_col": 65,
+            "end_line": 97,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 97
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "to",
+          "token_expr": "address(asset)",
+          "via_library": "SafeTransferLib::safeTransfer"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "quote",
+          "span": {
+            "end_col": 41,
+            "end_line": 105,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 101
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "manager",
+          "span": {
+            "end_col": 41,
+            "end_line": 105,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 101
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "treasury",
+          "span": {
+            "end_col": 41,
+            "end_line": 105,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 101
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "settleQuote",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "settleQuote",
+      "params": [
+        {
+          "name": "amount",
+          "type_name": "uint256"
+        },
+        {
+          "name": "claims",
+          "type_name": "bool"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "settleQuote(uint256,bool)",
+      "value_transfers": [
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [
+            "native",
+            "erc20"
+          ],
+          "asset_kind": "unknown",
+          "call": "CurrencySettler.settle",
+          "direction": "out",
+          "from_expr": "address(this)",
+          "function": "Payments::settleQuote",
+          "id": "Payments::settleQuote#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "settle",
+          "reason": "currency",
+          "span": {
+            "end_col": 60,
+            "end_line": 101,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 101
+          },
+          "tag": "AMBIGUOUS",
+          "to_expr": "manager",
+          "token_expr": "quote",
+          "via_library": "CurrencySettler::settle"
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc6909",
+          "call": "CurrencySettler.settle",
+          "direction": "out",
+          "from_expr": "address(this)",
+          "function": "Payments::settleQuote",
+          "id": "Payments::settleQuote#1",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "settle",
+          "reason": null,
+          "span": {
+            "end_col": 59,
+            "end_line": 102,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 102
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "manager",
+          "token_expr": "quote",
+          "via_library": "CurrencySettler::settle"
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [
+            "native",
+            "erc20",
+            "erc6909"
+          ],
+          "asset_kind": "unknown",
+          "call": "CurrencySettler.take",
+          "direction": "other",
+          "from_expr": "manager",
+          "function": "Payments::settleQuote",
+          "id": "Payments::settleQuote#2",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "take",
+          "reason": "claims_flag",
+          "span": {
+            "end_col": 56,
+            "end_line": 103,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 103
+          },
+          "tag": "AMBIGUOUS",
+          "to_expr": "msg.sender",
+          "token_expr": "quote",
+          "via_library": "CurrencySettler::take"
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [],
+          "asset_kind": "erc6909",
+          "call": "CurrencySettler.take",
+          "direction": "in",
+          "from_expr": "manager",
+          "function": "Payments::settleQuote",
+          "id": "Payments::settleQuote#3",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "take",
+          "reason": null,
+          "span": {
+            "end_col": 57,
+            "end_line": 104,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 104
+          },
+          "tag": "TYPE_RESOLVED",
+          "to_expr": "address(this)",
+          "token_expr": "quote",
+          "via_library": "CurrencySettler::take"
+        },
+        {
+          "amount_expr": "amount",
+          "asset_candidates": [
+            "native",
+            "erc20"
+          ],
+          "asset_kind": "unknown",
+          "call": "CurrencyLibrary.transfer",
+          "direction": "out",
+          "from_expr": null,
+          "function": "Payments::settleQuote",
+          "id": "Payments::settleQuote#4",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "operation": "transfer",
+          "reason": "currency",
+          "span": {
+            "end_col": 41,
+            "end_line": 105,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 105
+          },
+          "tag": "AMBIGUOUS",
+          "to_expr": "treasury",
+          "token_expr": "quote",
+          "via_library": "CurrencyLibrary::transfer"
+        }
+      ],
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "asset",
+          "span": {
+            "end_col": 88,
+            "end_line": 111,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 109
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "nft",
+          "span": {
+            "end_col": 88,
+            "end_line": 111,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 109
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "multi",
+          "span": {
+            "end_col": 88,
+            "end_line": 111,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 109
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "manager",
+          "span": {
+            "end_col": 88,
+            "end_line": 111,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 109
+          }
+        },
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "quote",
+          "span": {
+            "end_col": 88,
+            "end_line": 111,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 109
+          }
+        }
+      ],
+      "balance_reads": [
+        {
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "function": "Payments::balances",
+          "id": "Payments::balances#0",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": "address(this)",
+          "reason": null,
+          "span": {
+            "end_col": 38,
+            "end_line": 109,
+            "file_index": 2,
+            "start_col": 17,
+            "start_line": 109
+          },
+          "tag": "EXTRACTED",
+          "token_expr": null,
+          "via_library": null
+        },
+        {
+          "asset_candidates": [],
+          "asset_kind": "native",
+          "function": "Payments::balances",
+          "id": "Payments::balances#1",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": "who",
+          "reason": null,
+          "span": {
+            "end_col": 52,
+            "end_line": 109,
+            "file_index": 2,
+            "start_col": 41,
+            "start_line": 109
+          },
+          "tag": "EXTRACTED",
+          "token_expr": null,
+          "via_library": null
+        },
+        {
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "function": "Payments::balances",
+          "id": "Payments::balances#2",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": "who",
+          "reason": null,
+          "span": {
+            "end_col": 75,
+            "end_line": 109,
+            "file_index": 2,
+            "start_col": 55,
+            "start_line": 109
+          },
+          "tag": "TYPE_RESOLVED",
+          "token_expr": "asset",
+          "via_library": null
+        },
+        {
+          "asset_candidates": [],
+          "asset_kind": "erc721",
+          "function": "Payments::balances",
+          "id": "Payments::balances#3",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": "who",
+          "reason": null,
+          "span": {
+            "end_col": 96,
+            "end_line": 109,
+            "file_index": 2,
+            "start_col": 78,
+            "start_line": 109
+          },
+          "tag": "TYPE_RESOLVED",
+          "token_expr": "nft",
+          "via_library": null
+        },
+        {
+          "asset_candidates": [],
+          "asset_kind": "erc1155",
+          "function": "Payments::balances",
+          "id": "Payments::balances#4",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": "who",
+          "reason": null,
+          "span": {
+            "end_col": 42,
+            "end_line": 110,
+            "file_index": 2,
+            "start_col": 18,
+            "start_line": 110
+          },
+          "tag": "TYPE_RESOLVED",
+          "token_expr": "multi",
+          "via_library": null
+        },
+        {
+          "asset_candidates": [],
+          "asset_kind": "erc6909",
+          "function": "Payments::balances",
+          "id": "Payments::balances#5",
+          "id_expr": "id",
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": "who",
+          "reason": null,
+          "span": {
+            "end_col": 71,
+            "end_line": 110,
+            "file_index": 2,
+            "start_col": 45,
+            "start_line": 110
+          },
+          "tag": "TYPE_RESOLVED",
+          "token_expr": "manager",
+          "via_library": null
+        },
+        {
+          "asset_candidates": [],
+          "asset_kind": "erc20",
+          "function": "Payments::balances",
+          "id": "Payments::balances#6",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": "who",
+          "reason": null,
+          "span": {
+            "end_col": 64,
+            "end_line": 111,
+            "file_index": 2,
+            "start_col": 18,
+            "start_line": 111
+          },
+          "tag": "TYPE_RESOLVED",
+          "token_expr": "address(asset)",
+          "via_library": "SafeTransferLib::balanceOf"
+        },
+        {
+          "asset_candidates": [
+            "native",
+            "erc20"
+          ],
+          "asset_kind": "unknown",
+          "function": "Payments::balances",
+          "id": "Payments::balances#7",
+          "id_expr": null,
+          "in_context": "Payments",
+          "modifier": null,
+          "owner_expr": null,
+          "reason": "currency",
+          "span": {
+            "end_col": 88,
+            "end_line": 111,
+            "file_index": 2,
+            "start_col": 67,
+            "start_line": 111
+          },
+          "tag": "AMBIGUOUS",
+          "token_expr": "quote",
+          "via_library": "CurrencyLibrary::balanceOfSelf"
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "balances",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "View",
+      "name": "balances",
+      "params": [
+        {
+          "name": "who",
+          "type_name": "address"
+        },
+        {
+          "name": "id",
+          "type_name": "uint256"
+        }
+      ],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "balances(address,uint256)",
+      "visibility": "External"
+    },
+    {
+      "access": "Public",
+      "accesses": [
+        {
+          "block": 0,
+          "keys": [],
+          "kind": "read",
+          "modifier": null,
+          "param": null,
+          "path": "ledger",
+          "span": {
+            "end_col": 28,
+            "end_line": 117,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 115
+          }
+        }
+      ],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "unrecognized",
+      "kind": "Function",
+      "modifiers": [],
+      "mutability": "NonPayable",
+      "name": "unrecognized",
+      "params": [
+        {
+          "name": "target",
+          "type_name": "address"
+        },
+        {
+          "name": "data",
+          "type_name": "bytes"
+        },
+        {
+          "name": "key",
+          "type_name": "bytes32"
+        }
+      ],
+      "path_count": 2,
+      "paths_truncated": false,
+      "revert_paths": 1,
+      "signature": "unrecognized(address,bytes,bytes32)",
+      "visibility": "External"
+    },
+    {
+      "access": {
+        "Special": {
+          "kind": "receive"
+        }
+      },
+      "accesses": [],
+      "guards": [],
+      "happy_paths": 1,
+      "key": "receive",
+      "kind": "Receive",
+      "modifiers": [],
+      "mutability": "Payable",
+      "name": "receive",
+      "params": [],
+      "path_count": 1,
+      "paths_truncated": false,
+      "revert_paths": 0,
+      "signature": "receive",
+      "visibility": "External"
+    }
+  ],
+  "incoming_links": [],
+  "inherit_keys": [],
+  "inherited_functions": [],
+  "inherited_state_vars": [],
+  "inherits": [],
+  "is_dependency": false,
+  "kind": "Contract",
+  "name": "Payments",
+  "outgoing_links": [
+    {
+      "basis": "inherits_interface",
+      "calls": [
+        {
+          "function": "Payments::unrecognized",
+          "span": {
+            "end_col": 41,
+            "end_line": 115,
+            "file_index": 2,
+            "start_col": 9,
+            "start_line": 115
+          }
+        }
+      ],
+      "from_contract": "Payments",
+      "tag": "INFERRED",
+      "to_contract": "Ledger",
+      "via_state_vars": [
+        "ledger"
+      ]
+    }
+  ],
+  "phase_candidates": [],
+  "qualified_id": "src/Value.sol:Payments",
+  "state_vars": [
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "asset",
+      "type_name": "contract IERC20",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "share",
+      "type_name": "contract IMintableToken",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "nft",
+      "type_name": "contract IMintableNft",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "multi",
+      "type_name": "contract IERC1155",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "manager",
+      "type_name": "contract IPoolManager",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "burnable",
+      "type_name": "contract IBurnable",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "ledger",
+      "type_name": "contract Ledger",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "quote",
+      "type_name": "Currency",
+      "visibility": "Public"
+    },
+    {
+      "is_constant": false,
+      "is_immutable": false,
+      "key_kinds": [],
+      "name": "treasury",
+      "type_name": "address",
+      "visibility": "Public"
+    }
+  ],
+  "value_flows": [
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": "msg.sender",
+      "direction": "in",
+      "functions": [
+        "Payments::deposit"
+      ],
+      "token_expr": "asset",
+      "transfers": [
+        "Payments::deposit#0"
+      ]
+    },
+    {
+      "asset_kind": "erc721",
+      "counterparty_expr": "msg.sender",
+      "direction": "in",
+      "functions": [
+        "Payments::moveNft"
+      ],
+      "token_expr": "nft",
+      "transfers": [
+        "Payments::moveNft#1"
+      ]
+    },
+    {
+      "asset_kind": "erc6909",
+      "counterparty_expr": null,
+      "direction": "in",
+      "functions": [
+        "Payments::moveClaims"
+      ],
+      "token_expr": "manager",
+      "transfers": [
+        "Payments::moveClaims#2"
+      ]
+    },
+    {
+      "asset_kind": "erc6909",
+      "counterparty_expr": "manager",
+      "direction": "in",
+      "functions": [
+        "Payments::settleQuote"
+      ],
+      "token_expr": "quote",
+      "transfers": [
+        "Payments::settleQuote#3"
+      ]
+    },
+    {
+      "asset_kind": "native",
+      "counterparty_expr": "payable(msg.sender)",
+      "direction": "out",
+      "functions": [
+        "Payments::buy"
+      ],
+      "token_expr": null,
+      "transfers": [
+        "Payments::buy#0"
+      ]
+    },
+    {
+      "asset_kind": "native",
+      "counterparty_expr": "target",
+      "direction": "out",
+      "functions": [
+        "Payments::callWithValue"
+      ],
+      "token_expr": null,
+      "transfers": [
+        "Payments::callWithValue#0"
+      ]
+    },
+    {
+      "asset_kind": "native",
+      "counterparty_expr": "to",
+      "direction": "out",
+      "functions": [
+        "Payments::payCall",
+        "Payments::paySend",
+        "Payments::payTransfer",
+        "Payments::sendEth",
+        "Payments::soladyPay"
+      ],
+      "token_expr": null,
+      "transfers": [
+        "Payments::payCall#0",
+        "Payments::paySend#0",
+        "Payments::payTransfer#0",
+        "Payments::sendEth#0",
+        "Payments::soladyPay#0"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": "to",
+      "direction": "out",
+      "functions": [
+        "Payments::soladyPay"
+      ],
+      "token_expr": "address(asset)",
+      "transfers": [
+        "Payments::soladyPay#1"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": "msg.sender",
+      "direction": "out",
+      "functions": [
+        "Payments::withdraw"
+      ],
+      "token_expr": "asset",
+      "transfers": [
+        "Payments::withdraw#0"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": "to",
+      "direction": "out",
+      "functions": [
+        "Payments::safePay"
+      ],
+      "token_expr": "asset",
+      "transfers": [
+        "Payments::safePay#0"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": null,
+      "direction": "out",
+      "functions": [
+        "Payments::burnShares"
+      ],
+      "token_expr": "share",
+      "transfers": [
+        "Payments::burnShares#0"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": "msg.sender",
+      "direction": "out",
+      "functions": [
+        "Payments::buy"
+      ],
+      "token_expr": "share",
+      "transfers": [
+        "Payments::buy#1"
+      ]
+    },
+    {
+      "asset_kind": "erc721",
+      "counterparty_expr": "to",
+      "direction": "out",
+      "functions": [
+        "Payments::moveNft"
+      ],
+      "token_expr": "nft",
+      "transfers": [
+        "Payments::moveNft#0",
+        "Payments::moveNft#2"
+      ]
+    },
+    {
+      "asset_kind": "erc1155",
+      "counterparty_expr": "to",
+      "direction": "out",
+      "functions": [
+        "Payments::moveMulti"
+      ],
+      "token_expr": "multi",
+      "transfers": [
+        "Payments::moveMulti#0"
+      ]
+    },
+    {
+      "asset_kind": "erc6909",
+      "counterparty_expr": null,
+      "direction": "out",
+      "functions": [
+        "Payments::moveClaims"
+      ],
+      "token_expr": "manager",
+      "transfers": [
+        "Payments::moveClaims#3"
+      ]
+    },
+    {
+      "asset_kind": "erc6909",
+      "counterparty_expr": "to",
+      "direction": "out",
+      "functions": [
+        "Payments::moveClaims"
+      ],
+      "token_expr": "manager",
+      "transfers": [
+        "Payments::moveClaims#0"
+      ]
+    },
+    {
+      "asset_kind": "erc6909",
+      "counterparty_expr": "manager",
+      "direction": "out",
+      "functions": [
+        "Payments::settleQuote"
+      ],
+      "token_expr": "quote",
+      "transfers": [
+        "Payments::settleQuote#1"
+      ]
+    },
+    {
+      "asset_kind": "unknown",
+      "counterparty_expr": null,
+      "direction": "out",
+      "functions": [
+        "Payments::burnShares"
+      ],
+      "token_expr": "burnable",
+      "transfers": [
+        "Payments::burnShares#2"
+      ]
+    },
+    {
+      "asset_kind": "unknown",
+      "counterparty_expr": "manager",
+      "direction": "out",
+      "functions": [
+        "Payments::settleQuote"
+      ],
+      "token_expr": "quote",
+      "transfers": [
+        "Payments::settleQuote#0"
+      ]
+    },
+    {
+      "asset_kind": "unknown",
+      "counterparty_expr": "treasury",
+      "direction": "out",
+      "functions": [
+        "Payments::settleQuote"
+      ],
+      "token_expr": "quote",
+      "transfers": [
+        "Payments::settleQuote#4"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": "to",
+      "direction": "other",
+      "functions": [
+        "Payments::safePay"
+      ],
+      "token_expr": "asset",
+      "transfers": [
+        "Payments::safePay#1"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "counterparty_expr": null,
+      "direction": "other",
+      "functions": [
+        "Payments::burnShares"
+      ],
+      "token_expr": "share",
+      "transfers": [
+        "Payments::burnShares#1"
+      ]
+    },
+    {
+      "asset_kind": "erc6909",
+      "counterparty_expr": "to",
+      "direction": "other",
+      "functions": [
+        "Payments::moveClaims"
+      ],
+      "token_expr": "manager",
+      "transfers": [
+        "Payments::moveClaims#1"
+      ]
+    },
+    {
+      "asset_kind": "unknown",
+      "counterparty_expr": "msg.sender",
+      "direction": "other",
+      "functions": [
+        "Payments::settleQuote"
+      ],
+      "token_expr": "quote",
+      "transfers": [
+        "Payments::settleQuote#2"
+      ]
+    }
+  ]
+}

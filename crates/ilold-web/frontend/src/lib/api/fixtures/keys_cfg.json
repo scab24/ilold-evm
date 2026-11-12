@@ -1,0 +1,131 @@
+{
+  "edges": [
+    {
+      "data": {
+        "call_count": 0,
+        "id": "e0",
+        "kind": "Unconditional",
+        "source": "b0",
+        "target": "b1"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "data": {
+        "accesses": [
+          {
+            "block": 0,
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "from"
+              }
+            ],
+            "kind": "read",
+            "modifier": null,
+            "param": null,
+            "path": "balances[from]",
+            "span": {
+              "end_col": 31,
+              "end_line": 56,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 55
+            }
+          },
+          {
+            "block": 0,
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "to"
+              }
+            ],
+            "kind": "read",
+            "modifier": null,
+            "param": null,
+            "path": "balances[to]",
+            "span": {
+              "end_col": 31,
+              "end_line": 56,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 55
+            }
+          },
+          {
+            "block": 0,
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "from"
+              }
+            ],
+            "kind": "write",
+            "modifier": null,
+            "param": null,
+            "path": "balances[from]",
+            "span": {
+              "end_col": 33,
+              "end_line": 55,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 55
+            }
+          },
+          {
+            "block": 0,
+            "keys": [
+              {
+                "kind": "parameter",
+                "ref": "Keys::move",
+                "text": "to"
+              }
+            ],
+            "kind": "write",
+            "modifier": null,
+            "param": null,
+            "path": "balances[to]",
+            "span": {
+              "end_col": 31,
+              "end_line": 56,
+              "file_index": 0,
+              "start_col": 9,
+              "start_line": 56
+            }
+          }
+        ],
+        "contract": "Keys",
+        "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/tests/fixtures/solc/keys/src/Keys.sol",
+        "id": "b0",
+        "is_external": false,
+        "label": "▶ balances[from] = ...",
+        "node_type": "Entry",
+        "span": {
+          "end_col": 31,
+          "end_line": 56,
+          "file_index": 0,
+          "start_col": 9,
+          "start_line": 55
+        },
+        "statements": [
+          "balances[from] = ...",
+          "balances[to] = ..."
+        ]
+      }
+    },
+    {
+      "data": {
+        "contract": "Keys",
+        "id": "b1",
+        "is_external": false,
+        "label": "✓ Return",
+        "node_type": "Return"
+      }
+    }
+  ]
+}

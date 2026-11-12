@@ -36,6 +36,8 @@
   } from '$lib/stores/graph.svelte';
   import { ownEntry, runDagreLayout } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
+  import { tryRoles } from '$lib/utils/trycatch';
+  import { splitRef } from '$lib/utils/links';
   import { MarkerType } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
 
@@ -71,7 +73,7 @@
 
   let projectMap: MapContract[] = $state([]);
 
-  let sourcePanel: { func: string } | null = $state(null);
+  let sourcePanel: { contract?: string; func: string } | null = $state(null);
 
   let sessionVisCount = $state(0);
   const sessionHighlight = $derived(getHighlightedFunction());
@@ -424,6 +426,7 @@
             mutability: funcDetail?.mutability,
             path_count: funcDetail?.path_count,
             modifiers: funcDetail?.modifiers,
+            value_transfers: funcDetail?.value_transfers,
           } as GraphNodeData,
         } as Node<GraphNodeData>;
       });
@@ -661,6 +664,7 @@
         mutability: funcDetail?.mutability,
         path_count: funcDetail?.path_count,
         modifiers: funcDetail?.modifiers,
+        value_transfers: funcDetail?.value_transfers,
       },
     } as Node<GraphNodeData>);
 
@@ -973,6 +977,7 @@
     const cfg = await ensureCfg(funcName);
     if (!cfg) return;
     const parentPos = liveNodePosition(parentId) ?? { x: 300, y: 200 };
+    const roles = tryRoles(cfg.try_catches);
 
     const cfgNodes: Node<GraphNodeData>[] = cfg.nodes.map(n => ({
       id: `cfg:${funcName}:${n.data.id}`,
@@ -986,11 +991,15 @@
         statements: n.data.statements,
         span: n.data.span,
         file: n.data.file,
+        accesses: n.data.accesses,
+        tryCatch: roles.guards.get(n.data.id),
+        catchClause: roles.clauses.get(n.data.id),
       },
     }));
 
     const cfgEdges: Edge[] = cfg.edges.map((e, i) => {
       const es = cfgEdgeStyle(e.data.kind);
+      es.label = roles.branches.get(`${e.data.source}->${e.data.target}`) ?? es.label;
       return {
         id: `cfg-edge:${funcName}:${i}`,
         source: `cfg:${funcName}:${e.data.source}`,
@@ -1362,6 +1371,8 @@
           onpathselect={selectPath}
           onloadmorepaths={loadMorePaths}
           onexpandcfg={(funcName, nodeId) => toggleFuncExpand(funcName, nodeId)}
+          callgraph={callgraphRaw}
+          onviewsource={(contract, func) => { sourcePanel = { contract, func }; }}
         />
       {/if}
     </div>
@@ -1391,13 +1402,13 @@
 
     {#if sourcePanel && contract}
       <FunctionSourcePanel
-        contract={contract.name}
+        contract={sourcePanel.contract ?? contract.name}
         func={sourcePanel.func}
         onclose={() => sourcePanel = null}
       />
     {/if}
 
-    <Legend {mode} />
+    <Legend {mode} phases={contract?.phase_candidates} onfunction={(ref) => handleSidebarAdd(routeKey(splitRef(ref).member))} />
   {/if}
   <ErrorToasts />
 </div>

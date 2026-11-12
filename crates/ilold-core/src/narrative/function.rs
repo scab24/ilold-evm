@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph, CfgStatement};
 use crate::classify::entry_points::access_level;
@@ -173,6 +173,11 @@ pub fn build_function_narrative_capped(
         can_revert: root_behavior.map_or(path_tree.stats.revert_paths > 0, |b| b.can_revert),
         revert_sources,
         guards,
+        accesses: Vec::new(),
+        try_catches: Vec::new(),
+        value_transfers: Vec::new(),
+        balance_reads: Vec::new(),
+        phase_candidates: Vec::new(),
     }
 }
 
@@ -334,7 +339,8 @@ fn generate_observations(
         }
     }
 
-    let my_writes: HashSet<&str> = path_tree
+    // sorted so the observation text is the same on every run
+    let my_writes: BTreeSet<&str> = path_tree
         .block_annotations()
         .flat_map(|a| a.state_writes.iter().map(|s| s.as_str()))
         .collect();

@@ -41,7 +41,7 @@ fn canonical(analysis: &ProjectAnalysis) -> String {
         .collect();
     [sorted(&analysis.cfgs), sorted(&analysis.path_trees), sorted(&analysis.call_graphs),
         format!("{:?}", deps.graph), format!("{index:?}"), sorted(&analysis.sequence_trees),
-        sorted(&analysis.sequence_analyses), sorted(&analysis.classifications)].join("\n")
+        sorted(&analysis.sequence_analyses), sorted(&analysis.classifications), format!("{:?}", analysis.relations)].join("\n")
 }
 
 fn small_project() -> Project {
