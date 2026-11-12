@@ -117,7 +117,7 @@ pub fn row_tags(row: &DepRow) -> Vec<String> {
         tags.push(c_muted("holds").to_string());
     }
     if let Some(link) = &row.link {
-        let basis = serde_json::to_value(link.basis).ok().and_then(|b| b.as_str().map(str::to_string)).unwrap_or_default();
+        let basis = crate::fmt::api_name(serde_json::to_value(link.basis));
         let via = if link.via_state_vars.is_empty() { String::new() } else { format!(" via {}", link.via_state_vars.join(", ")) };
         let text = format!("dispatches {basis}×{}{via}", link.calls.len());
         tags.push(if link.tag == Tag::Ambiguous { c_danger(&format!("{text} AMBIGUOUS")) } else { c_ok(&text) }.to_string());

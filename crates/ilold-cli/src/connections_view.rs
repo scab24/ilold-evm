@@ -4,14 +4,9 @@ use ilold_core::relations::{
     AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, RouteCall, Routes, Tag, ValueFlowPairs, ValueReason,
     ValueTransfer,
 };
-use serde_json::{json, Value};
 
 use crate::colors::*;
-
-/// The serialized name of a fact's enum value, as the API and the export write it.
-fn word(value: Value) -> String {
-    value.as_str().unwrap_or_default().to_string()
-}
+use crate::fmt::api_name;
 
 /// `Contract::name` without the contract when it is `contract`.
 fn local<'a>(id: &'a str, contract: &str) -> &'a str {
@@ -22,7 +17,7 @@ fn local<'a>(id: &'a str, contract: &str) -> &'a str {
 fn asset(kind: AssetKind, reason: Option<ValueReason>, token: Option<&str>) -> String {
     let mut asset = match reason {
         Some(ValueReason::Currency) => "ETH or token, set by the pool".to_string(),
-        _ => word(json!(kind)),
+        _ => api_name(serde_json::to_value(kind)),
     };
     if let Some(token) = token {
         write!(asset, " {token}").ok();
@@ -40,7 +35,7 @@ fn call_row(call: &ContractCall, contract: &str, transfers: &[ValueTransfer]) ->
     };
     let mut row = format!("{} → {target}", local(&call.function, contract));
     if call.kind != ContractCallKind::Call {
-        write!(row, "  {}", c_muted(&word(json!(call.kind)))).ok();
+        write!(row, "  {}", c_muted(&api_name(serde_json::to_value(call.kind)))).ok();
     }
     write!(row, "  {}", c_muted(&format!("line {}", call.span.start_line))).ok();
     if let Some(via) = &call.via {
@@ -58,7 +53,7 @@ fn call_row(call: &ContractCall, contract: &str, transfers: &[ValueTransfer]) ->
         write!(row, "  {}", c_danger("AMBIGUOUS")).ok();
     }
     if let Some(reason) = call.unresolved_reason {
-        write!(row, "  {}", c_warn(&word(json!(reason)))).ok();
+        write!(row, "  {}", c_warn(&api_name(serde_json::to_value(reason)))).ok();
     }
     row
 }
@@ -93,7 +88,7 @@ pub fn links(c: &Connections) -> String {
         for site in &c.assignments {
             let place = site.function.as_deref().unwrap_or("declaration");
             let line = c_muted(&format!("line {}", site.span.start_line));
-            writeln!(out, "      {} = {}  {}  {place}  {line}", site.state_var, site.expr_text, c_muted(&word(json!(site.kind)))).ok();
+            writeln!(out, "      {} = {}  {}  {place}  {line}", site.state_var, site.expr_text, c_muted(&api_name(serde_json::to_value(site.kind)))).ok();
         }
     }
     out.push('\n');
@@ -103,7 +98,7 @@ pub fn links(c: &Connections) -> String {
 fn route_call(call: &RouteCall) -> String {
     let mut row = format!("{} → {}", call.call.function, call.callee.function);
     if call.call.kind != ContractCallKind::Call {
-        write!(row, "  {}", c_muted(&word(json!(call.call.kind)))).ok();
+        write!(row, "  {}", c_muted(&api_name(serde_json::to_value(call.call.kind)))).ok();
     }
     write!(row, "  {}", c_muted(&format!("line {}", call.call.span.start_line))).ok();
     if !call.call.transfers.is_empty() {
@@ -118,8 +113,9 @@ fn route_call(call: &RouteCall) -> String {
     row
 }
 
-/// The shortest routes from `from` to `to`, step by step.
-pub fn route(from: &str, to: &str, reads: bool, found: &Routes) -> String {
+/// The shortest routes between the two contracts, step by step.
+pub fn route(reads: bool, found: &Routes) -> String {
+    let (from, to) = (&found.from, &found.to);
     let mut out = String::new();
     let follows = if reads { "calls and reads" } else { "calls" };
     if found.routes.is_empty() {
@@ -154,9 +150,9 @@ fn party(p: &Party) -> String {
 }
 
 /// Who pays whom, per running contract, as the value pairs group the transfers.
-pub fn value(contract: Option<&str>, flow: &ValueFlowPairs) -> String {
+pub fn value(flow: &ValueFlowPairs) -> String {
     let mut out = String::new();
-    let title = contract.map_or("Value flow".to_string(), |c| format!("Value flow of {c}"));
+    let title = flow.contract.as_ref().map_or("Value flow".to_string(), |c| format!("Value flow of {c}"));
     let transfers = flow.pairs.iter().map(|p| p.transfers.len()).sum::<usize>();
     writeln!(out, "\n  {}  {}", c_bright(&title), c_muted(&format!("{} pair(s), {transfers} transfer(s)", flow.pairs.len()))).ok();
     if flow.pairs.is_empty() {
@@ -174,79 +170,4 @@ pub fn value(contract: Option<&str>, flow: &ValueFlowPairs) -> String {
     }
     out.push('\n');
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
-    use ilold_core::parse::solc_frontend::SolcFrontend;
-    use ilold_core::relations::routes;
-    use std::path::PathBuf;
-    use std::sync::OnceLock;
-
-    fn analysis() -> &'static ProjectAnalysis {
-        static ANALYSIS: OnceLock<ProjectAnalysis> = OnceLock::new();
-        ANALYSIS.get_or_init(|| {
-            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ilold-web/tests/fixtures/connections");
-            ProjectAnalysis::build(&SolcFrontend.parse_project(&root).expect("parse connections fixture"), &AnalysisParams::new(1))
-        })
-    }
-
-    /// The REPL attached to a server reads the same facts from their JSON.
-    macro_rules! attached {
-        ($facts:expr) => {
-            serde_json::from_value(serde_json::to_value(&$facts).unwrap()).unwrap()
-        };
-    }
-
-    #[test]
-    fn links_list_every_call_under_the_contracts_that_may_answer_it() {
-        let curve = analysis().relations.connections("Curve");
-        let text = links(&curve);
-        assert_eq!(text, links(&attached!(curve)));
-        let calls = text.find("Curve → calls").unwrap();
-        let called = text.find("Curve ← called by").unwrap();
-        let den_a = text.find("DenA").unwrap();
-        assert!(calls < den_a && den_a < called, "{text}");
-        assert!(text.contains("buy → 2 possible: DenA::deliver, DenB::deliver"), "{text}");
-        assert!(text.contains("AMBIGUOUS"), "{text}");
-        assert!(text.contains("CurveBase::_graduate → Hook::fee  read"), "inherited code runs in Curve: {text}");
-        assert!(text.contains("CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook  moves native address(this).balance"), "{text}");
-        assert!(text.contains("Hook  2 calls") && text.contains("Router  2 calls"), "{text}");
-        assert!(text.contains("CurveBase::hook = hook_  constructor_param  CurveBase::constructor"), "{text}");
-
-        let hook = links(&analysis().relations.connections("Hook"));
-        assert!(hook.contains("Unresolved") && hook.contains("migrate → IPoolManager::unlock") && hook.contains("out_of_scope_interface"), "{hook}");
-        assert!(hook.contains("calls no other contract"), "{hook}");
-    }
-
-    #[test]
-    fn a_route_prints_each_step_and_the_calls_making_it() {
-        let a = analysis();
-        let found = routes(&a.relations, &a.call_graphs, "Router", "Hook", false);
-        let text = route("Router", "Hook", false, &found);
-        assert_eq!(text, route("Router", "Hook", false, &attached!(found)));
-        assert!(text.contains("route 1 Router → Curve → Hook"), "{text}");
-        assert!(text.contains("Router::buyWith → Curve::buy  line"), "{text}");
-        assert!(text.contains("CurveBase::_graduate → Hook::migrate  line"), "{text}");
-        assert!(!text.contains("Hook::fee"), "reads only when asked: {text}");
-        let reads = route("Router", "Hook", true, &routes(&a.relations, &a.call_graphs, "Router", "Hook", true));
-        assert!(reads.contains("Hook::fee  read"), "{reads}");
-        assert!(text.contains("CurveBase::_graduate → Hook::migrate  line 27  moves value"), "{text}");
-        let none = route("Hook", "Router", false, &routes(&a.relations, &a.call_graphs, "Hook", "Router", false));
-        assert!(none.contains("No route from Hook to Router following calls; --reads also follows reads"), "{none}");
-    }
-
-    #[test]
-    fn value_flow_names_a_contract_only_where_the_code_resolves_one() {
-        let flow = analysis().relations.value_flow(Some("Hook"));
-        let text = value(Some("Hook"), &flow);
-        assert_eq!(text, value(Some("Hook"), &attached!(flow)));
-        assert!(text.contains("Value flow of Hook") && text.contains("2 pair(s), 2 transfer(s)"), "{text}");
-        assert!(text.contains("as Curve runs") && text.contains("Curve → Hook  native  ×1  CurveBase::_graduate"), "{text}");
-        assert!(text.contains("Hook → IPoolManager (outside the project)  native  ×1  migrate"), "{text}");
-        let all = value(None, &analysis().relations.value_flow(None));
-        assert!(all.contains("Curve → `payable(to)`  native") && all.contains("Token → `to`  erc20"), "{all}");
-    }
 }

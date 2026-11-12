@@ -460,8 +460,8 @@ fn render_slice_side(label: &str, entries: &[SliceEntry], var: &str, out: &mut S
 }
 
 
-/// A variant as the API spells it, from `serde_json::to_value`.
-fn api_name(value: serde_json::Result<serde_json::Value>) -> String {
+/// A variant as the API and the export spell it, from `serde_json::to_value`.
+pub fn api_name(value: serde_json::Result<serde_json::Value>) -> String {
     value.ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
 

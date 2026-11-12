@@ -468,19 +468,28 @@ async fn connections_routes_and_value_flow_are_the_same_in_every_surface() {
     let s = Surfaces { client: IloldClient::new(format!("http://127.0.0.1:{port}")), records: Vec::new() };
     let relations = &state.relations;
 
-    let contracts: Vec<String> = s.web("/api/project").await["contracts"].as_array().unwrap().iter().map(|c| text(&c["name"])).collect();
-    let mut rows = 0;
+    let mut contracts: Vec<String> = s.web("/api/project").await["contracts"].as_array().unwrap().iter().map(|c| text(&c["name"])).collect();
+    contracts.push("IPoolManager".into());
+    let (mut kinds, mut reasons, mut sides) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
     for contract in &contracts {
         let local = serde_json::to_value(relations.connections(contract)).unwrap();
         assert_eq!(s.web(&format!("/api/contract/{contract}/connections")).await, local, "/connections {contract}");
         assert_eq!(s.mcp("ilold_connections", serde_json::json!({"contract": contract})).await, local, "ilold_connections {contract}");
-        rows += local["outgoing"].as_array().unwrap().len();
+        let rows = local["outgoing"].as_array().unwrap().iter().flat_map(|g| g["calls"].as_array().unwrap()).chain(local["unresolved"].as_array().unwrap());
+        for row in rows {
+            kinds.insert(text(&row["kind"]));
+            reasons.extend(row["unresolved_reason"].as_str().map(str::to_string));
+        }
 
         let flow = serde_json::to_value(relations.value_flow(Some(contract))).unwrap();
         assert_eq!(s.web(&format!("/api/project/value-flow?contract={contract}")).await, flow, "/value-flow {contract}");
         assert_eq!(s.mcp("ilold_value_flow", serde_json::json!({"contract": contract})).await, flow, "ilold_value_flow {contract}");
+        sides.extend(flow["pairs"].as_array().unwrap().iter().flat_map(|p| [text(&p["from"]["kind"]), text(&p["to"]["kind"])]));
     }
-    assert!(rows > 0);
+    let all = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<BTreeSet<_>>();
+    assert_eq!(kinds, all(&["call", "library", "read"]), "library rows are compared");
+    assert_eq!(reasons, all(&["out_of_scope_interface"]), "unresolved rows are compared");
+    assert_eq!(sides, all(&["contract", "declared", "expression"]), "a dependency side is compared");
     let flow = serde_json::to_value(relations.value_flow(None)).unwrap();
     assert_eq!(flow["pairs"].as_array().unwrap().len(), relations.value_pairs.len());
     assert_eq!(s.web("/api/project/value-flow").await, flow);

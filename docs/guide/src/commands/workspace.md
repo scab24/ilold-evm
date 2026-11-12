@@ -63,7 +63,8 @@ ilold[Staking]> browser
 for example `sl?`, `sc?` or `q?`. Tab completes command names, functions
 (including inherited ones) for `c`, `i`, `tr` and `sl`, state variables for
 `who`, `tl` and the second argument of `sl`, contracts for `use`, `deps`,
-`usedby`, `links`, `value` and both arguments of `route`, and scenario names for `sc switch|fork|delete`.
+`usedby`, `links`, `value` and both arguments of `route` (then `--reads`), and
+scenario names for `sc switch|fork|delete`.
 
 ## quit
 
