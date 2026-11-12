@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::relations::{routes, LinkKind, Tag, UnresolvedReason};
+use ilold_core::relations::{routes, LinkKind, Relations, Tag, UnresolvedReason};
 
 const SOURCES: &[(&str, &str)] = &[
     ("foundry.toml", "[profile.default]\nsrc = 'src'\nlibs = ['lib']\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n"),
@@ -214,4 +214,12 @@ fn private_helpers_of_project_and_dependency_bases_run_in_the_inheriting_contrac
     assert_eq!(hops, vec!["Keeper::_stash"]);
     let links: Vec<(&str, &str)> = analysis.relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str())).collect();
     assert_eq!(links, vec![("Keeper", "Vault")], "links stay per declaring contract");
+}
+
+#[test]
+fn building_the_relations_again_gives_the_same_bytes() {
+    let stored = serde_json::to_string(&analysis().relations).unwrap();
+    let again = serde_json::to_string(&Relations::build(project(), &analysis().cfgs)).unwrap();
+    assert_eq!(again, stored);
+    assert_eq!(serde_json::to_string(&Relations::build(project(), &analysis().cfgs)).unwrap(), stored);
 }

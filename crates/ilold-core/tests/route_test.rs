@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::relations::{routes, Routes};
+use ilold_core::relations::{routes, Routes, Tag};
 
 const SOURCES: &[(&str, &str)] = &[
     ("foundry.toml", "[profile.default]\nsrc = 'src'\nlibs = []\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n"),
@@ -117,4 +117,57 @@ fn no_route_against_the_calls_or_to_an_unknown_contract() {
     assert!(route("End", "Start", true).routes.is_empty());
     assert!(route("Start", "Nowhere", true).routes.is_empty());
     assert!(route("Start", "Start", true).routes.is_empty());
+}
+
+const JOINS: &str = "pragma solidity 0.8.28;
+interface IEnd { function h() external; }
+contract End is IEnd { function h() external {} }
+interface IMid { function f() external; function g() external; }
+contract Mid is IMid {
+    IEnd public end;
+    function f() external { _pass(); }
+    function g() external { _helper(); }
+    function _pass() internal { end.h(); }
+    function _helper() internal { end.h(); }
+}
+contract Start { IMid public mid; function run() external { mid.f(); } }
+interface IHook { function onCall() external; }
+contract HookA is IHook { IEnd public end; function onCall() external { end.h(); } }
+contract HookB is IHook { IEnd public end; function onCall() external { end.h(); } }
+contract Caller { IHook public hook; function go() external { hook.onCall(); } }
+";
+
+fn joins() -> &'static ProjectAnalysis {
+    static ANALYSIS: OnceLock<ProjectAnalysis> = OnceLock::new();
+    ANALYSIS.get_or_init(|| build("joins", &[SOURCES[0], ("src/Joins.sol", JOINS)]))
+}
+
+#[test]
+fn a_helper_only_another_entry_point_calls_is_not_recorded_from_the_previous_step() {
+    let analysis = joins();
+    let found = routes(&analysis.relations, &analysis.call_graphs, "Start", "End", false);
+    assert_eq!(
+        hops(&found),
+        vec![vec![vec![("Start::run", "Mid::f", true)], vec![("Mid::_helper", "End::h", false), ("Mid::_pass", "End::h", true)]]]
+    );
+}
+
+#[test]
+fn an_ambiguous_call_joins_each_route_through_one_of_its_candidates() {
+    let analysis = joins();
+    let found = routes(&analysis.relations, &analysis.call_graphs, "Caller", "End", false);
+    assert_eq!(
+        hops(&found),
+        vec![
+            vec![vec![("Caller::go", "HookA::onCall", true)], vec![("HookA::onCall", "End::h", true)]],
+            vec![vec![("Caller::go", "HookB::onCall", true)], vec![("HookB::onCall", "End::h", true)]],
+        ]
+    );
+    for route in &found.routes {
+        let first = &route.steps[0].calls[0];
+        let candidates: Vec<&str> = first.call.callees.iter().map(|d| d.contract.as_str()).collect();
+        assert_eq!(candidates, ["HookA", "HookB"], "the same call, with every candidate");
+        assert!(first.call.callees.iter().all(|d| d.tag == Tag::Ambiguous));
+        assert_eq!(route.steps[0].to, route.steps[1].from);
+    }
 }
