@@ -286,9 +286,7 @@ impl Relations {
 
     /// `state_var` is `<contract key>::<name>`.
     pub fn assignments(&self, state_var: &str) -> &[AssignmentSite] {
-        let start = self.assignments.partition_point(|a| a.state_var.as_str() < state_var);
-        let end = self.assignments.partition_point(|a| a.state_var.as_str() <= state_var);
-        &self.assignments[start..end]
+        run_of(&self.assignments, |a| a.state_var.as_str().cmp(state_var))
     }
 
     pub fn outgoing<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractLink> {
