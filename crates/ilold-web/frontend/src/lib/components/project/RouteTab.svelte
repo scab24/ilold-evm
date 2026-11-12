@@ -12,14 +12,15 @@
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
   import Row from './Row.svelte';
+  import { placeChips } from './chips';
   import { assetName, transferKey } from './value-graph';
 
   let { contracts }: { contracts: ContractSummary[] } = $props();
 
   const ROUTE = '#8bb8e8';
   const VALUE = '#7aba8a';
-  const WIDTH = 240;
-  const GAP_X = 190;
+  const WIDTH = 220;
+  const GAP_X = 230;
   const NOT_RECORDED = 'not-recorded';
 
   const from = $derived(page.url.searchParams.get('from') ?? '');
@@ -137,10 +138,29 @@
       }
     }
 
+    const rowY = new Map<string, number>();
+    for (const n of nodes) {
+      const rows = (n.data as BoxNodeData).rows ?? [];
+      rows.forEach((r, i) => rowY.set(`${n.id}/${r.id}`, n.position.y + 63 + 26 * i));
+    }
+    const text = (e: { lines: number[]; value: boolean; assets: string[] }) => {
+      const lines = [...e.lines].sort((x, y) => x - y);
+      return `${lines.length > 1 ? 'lines' : 'line'} ${lines.join(', ')}${e.value ? ` · sends ${e.assets.join(' + ') || 'value'}` : ''}`;
+    };
+    const lit = [...edges.entries()].filter(([, e]) => e.on);
+    const boxes = nodes.map((n) => ({ x: n.position.x, y: n.position.y, w: WIDTH, h: height(at.get(n.id)!) }));
+    const chipAt = placeChips(
+      lit.map(([id, e]) => {
+        const s = nodes.find((n) => n.id === e.source)!;
+        const t = nodes.find((n) => n.id === e.target)!;
+        return { id, s: { x: s.position.x + WIDTH, y: rowY.get(`${s.id}/${e.s}`) ?? s.position.y, side: 'r' as const }, t: { x: t.position.x, y: rowY.get(`${t.id}/${e.t}`) ?? t.position.y, side: 'l' as const }, text: text(e) };
+      }),
+      boxes,
+    );
+
     setNodes(nodes);
     setEdges([...edges.entries()].map(([id, e]) => {
       const color = e.value ? VALUE : ROUTE;
-      const lines = [...e.lines].sort((x, y) => x - y);
       return {
         id,
         type: 'chip',
@@ -151,10 +171,10 @@
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
         style: `stroke: ${color}; stroke-width: ${e.on ? 2 : 1.4}; opacity: ${e.on ? 1 : 0.25}`,
         data: {
-          chip: e.on ? `${lines.length > 1 ? 'lines' : 'line'} ${lines.join(', ')}${e.value ? ` · sends ${e.assets.join(' + ') || 'value'}` : ''}` : undefined,
+          chip: e.on ? text(e) : undefined,
           icon: e.value ? 'value' : undefined,
           tone: e.value ? 'val' : '',
-          labelAt: 0.5,
+          labelAt: chipAt.get(id) ?? null,
         } satisfies ChipEdgeData,
       } satisfies Edge;
     }));
@@ -203,6 +223,7 @@
             if (i >= 0 && i !== chosen) setQuery({ route: String(i + 1) });
           }}
           canDeleteNodes={false}
+        keepPositions={false}
           initialFit={{ padding: 0.12, maxZoom: 1.1 }}
           minZoom={0.2}
         />

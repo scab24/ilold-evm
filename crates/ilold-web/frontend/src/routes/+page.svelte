@@ -20,6 +20,7 @@
   type Tab = (typeof TABS)[number]['id'];
 
   let project = $state<ProjectSummary | null>(null);
+  let failed = $state(false);
 
   const tab = $derived<Tab>(TABS.find((t) => t.id === page.url.searchParams.get('tab'))?.id ?? 'map');
 
@@ -32,7 +33,7 @@
     try {
       project = await getProject();
     } catch {
-      project = null;
+      failed = true;
     }
   });
 
@@ -75,14 +76,18 @@
     <button type="button" class="btn search-btn" onclick={togglePalette}>⌘K Search</button>
   </header>
 
-  {#key tab}
-    {#if tab === 'value'}
-      <ValueFlowTab />
-    {:else if tab === 'route'}
-      <RouteTab contracts={project?.contracts ?? []} />
-    {:else}
-      <MapTab />
-    {/if}
-  {/key}
+  {#if !project}
+    <div class="state-msg" class:err={failed} style="grid-row: 2 / 5">{failed ? 'Failed to connect. Is "ilold serve" running?' : 'Analyzing…'}</div>
+  {:else}
+    {#key tab}
+      {#if tab === 'value'}
+        <ValueFlowTab />
+      {:else if tab === 'route'}
+        <RouteTab contracts={project.contracts} />
+      {:else}
+        <MapTab contracts={project.contracts} />
+      {/if}
+    {/key}
+  {/if}
 </div>
 <ErrorToasts />

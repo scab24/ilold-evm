@@ -7,7 +7,6 @@
   import FunctionNode from './nodes/FunctionNode.svelte';
   import BlockNode from './nodes/BlockNode.svelte';
   import SequenceNode from './nodes/SequenceNode.svelte';
-  import ContractNode from './nodes/ContractNode.svelte';
   import {
     getNodes,
     getEdges,
@@ -29,12 +28,13 @@
     onedgetap?: (edge: Edge) => void;
     extraNodeTypes?: NodeTypes;
     edgeTypes?: EdgeTypes;
+    keepPositions?: boolean;
     /** Fit once, after the pane has a size and every visible node is measured. */
     initialFit?: FitViewOptions;
     minZoom?: number;
   }
 
-  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, onedgemouseenter, onedgemouseleave, onedgetap, extraNodeTypes, edgeTypes, initialFit, minZoom = 0.1 }: Props = $props();
+  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, onedgemouseenter, onedgemouseleave, onedgetap, extraNodeTypes, edgeTypes, keepPositions = true, initialFit, minZoom = 0.1 }: Props = $props();
 
   const deleteKeysProp = $derived<string[] | null>(canDeleteNodes ? ['Delete', 'Backspace'] : null);
 
@@ -42,7 +42,6 @@
     function: FunctionNode,
     block: BlockNode,
     sequence: SequenceNode,
-    contract: ContractNode,
     ...extraNodeTypes,
   } as unknown as NodeTypes);
 
@@ -55,7 +54,7 @@
     const liveByID = new Map(untrack(() => flowNodes).map(n => [n.id, n]));
     flowNodes = storeNodes.map(sn => {
       const live = liveByID.get(sn.id);
-      if (live?.position) {
+      if (keepPositions && live?.position) {
         return { ...sn, position: live.position } as Node;
       }
       return sn as Node;

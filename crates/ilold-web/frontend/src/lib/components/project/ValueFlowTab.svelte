@@ -129,11 +129,11 @@
 
     const chipText = (a: FlowArrow) => (a.pool ? `${POOL_ASSET} · ${a.transfers.length}` : `${a.assets.join(' + ')}${a.transfers.length > 1 ? ` · ${a.transfers.length}` : ''}`);
     const boxes = parties.map((p) => ({ ...pos.get(p.key)!, w: WIDTH, h: h.get(p.key) ?? 0 }));
-    const order = [...arrows].sort((a, b) => b.transfers.length - a.transfers.length);
-    const chipAt = placeChips(order.map((a) => ({ id: a.id, s: anchor.get(`${a.id}:s`)!, t: anchor.get(`${a.id}:t`)!, text: chipText(a) })), boxes);
-
     const touched = new Set(shown.flatMap((a) => [a.from, a.to]));
     const focus = arrow !== null || party !== null;
+    const order = arrows.filter((a) => !focus || shown.includes(a)).sort((a, b) => Number(b.pool) - Number(a.pool) || b.transfers.length - a.transfers.length);
+    const chipAt = placeChips(order.map((a) => ({ id: a.id, s: anchor.get(`${a.id}:s`)!, t: anchor.get(`${a.id}:t`)!, text: chipText(a) })), boxes);
+
     const nodes: Node<GraphNodeData>[] = parties.map((p) => ({
       id: p.key,
       type: 'box',
@@ -175,7 +175,7 @@
           icon: a.pool ? 'unres' : 'value',
           tone: a.pool ? 'amb' : 'val',
           on,
-          labelAt: on || (focus && lit) ? (chipAt.get(a.id) ?? 0.5) : (chipAt.get(a.id) ?? null),
+          labelAt: on ? (chipAt.get(a.id) ?? 0.5) : (chipAt.get(a.id) ?? null),
           onpick: pickArrow,
         } satisfies ChipEdgeData,
       };
@@ -266,6 +266,7 @@
         onedgemouseenter={onArrowHover}
         onedgemouseleave={() => (tip = null)}
         canDeleteNodes={false}
+        keepPositions={false}
         initialFit={{ padding: 0.08 }}
         minZoom={0.2}
       />

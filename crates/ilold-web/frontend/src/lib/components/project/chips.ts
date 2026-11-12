@@ -4,7 +4,7 @@ export interface Rect { x: number; y: number; w: number; h: number }
 export interface ChipItem { id: string; s: Point & { side: Side }; t: Point & { side: Side }; text: string }
 
 const CURVATURE = 0.25;
-const CHIP_H = 22;
+const CHIP_H = 20;
 const TRIES = [0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8];
 
 function offset(distance: number): number {
@@ -29,7 +29,7 @@ export function bezierPoint(s: Point, sSide: Side, t: Point, tSide: Side, at: nu
 }
 
 export function chipWidth(text: string): number {
-  return text.length * 7.2 + 34;
+  return text.length * 7 + 24;
 }
 
 function overlaps(a: Rect, b: Rect): boolean {

@@ -56,18 +56,7 @@ export interface SequenceNodeData {
   _dimmed?: boolean;
 }
 
-export interface ContractNodeData {
-  [key: string]: unknown;
-  _type: 'contract';
-  label: string;
-  kind: string; // "contract" | "interface" | "library" | "abstract"
-  folder: string;
-  layer: number;
-  color?: string; // border color encoding the source folder
-  _dimmed?: boolean;
-}
-
-export type GraphNodeData = FunctionNodeData | BlockNodeData | SequenceNodeData | ContractNodeData | BoxNodeData;
+export type GraphNodeData = FunctionNodeData | BlockNodeData | SequenceNodeData | BoxNodeData;
 
 
 let nodes = $state<Node<GraphNodeData>[]>([]);

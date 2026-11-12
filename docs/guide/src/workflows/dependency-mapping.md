@@ -70,22 +70,31 @@ via `analyze --deps --contract IPool`.
 
 ## The visual graph
 
-`ilold serve <project>` exposes the graph as an interactive canvas (the home
-view). Contracts are laid out left-to-right in the same topological order:
+`ilold serve <project>` opens on the project page. Its **Map** tab draws the
+contracts by source folder, with interfaces, libraries and the interfaces
+outside the project folded into one box each (click a box to show its
+contracts, **Fold** to fold it again):
 
-- **line color** is the relationship — `inherits`, `calls`, `holds`.
-- **border style** is the kind — contract, abstract, interface, library.
-- **border color** is the source subsystem (the top-level `src/` folder).
-- **hover** a contract to highlight just its relationships and dim the rest.
-- the **Relations / Kind** toggles filter the graph (hide call edges, dim
-  interfaces, and so on) to cut through a dense protocol.
-
-Click a contract to drop into its functions, where the per-function analysis
-(`trace`, `slice`, `info`) takes over.
+- one line per pair of contracts adds up the calls between them, function to
+  function (the [`links --all`](../commands/contract.md#links) pairs); the chip
+  counts them, `4 down · 1 up` or `3 → · 1 ←` when they go both ways.
+- the **Lines** legend at the bottom is the only filter: Calls, Reads, Value,
+  Library, Inherits, Holds, Via interface and Unresolved each cycle between
+  shown, dimmed and hidden (Unresolved is never hidden). Value lines are green,
+  AMBIGUOUS and unresolved ones amber; an abstract contract has a dashed border.
+- **hover** a line for its counts and call sites; click it to list its calls in
+  the side panel.
+- **click** a contract to focus on it: Callers / Both / Callees and Depth 1 or 2
+  choose the neighbourhood, the panel lists its calls, callers and unresolved
+  calls with links to the source. Click it again, or press Enter, to open its
+  functions; Escape clears the focus. Find a contract selects it by name.
+- with nothing selected the panel sums the links of the project and lists the
+  five most connected contracts.
 
 The header tabs switch the project page between **Map**, **Value flow** and
 **Route**; the tab and everything picked in it live in the URL, so a link
-reopens the same view.
+reopens the same view. The reading order by layers stays in
+`analyze --deps`.
 
 - **Value flow** draws who pays whom, left to right: who pays in, the project
   contracts, and what leaves the project. One arrow per pair and direction
@@ -104,7 +113,7 @@ reopens the same view.
 3. For a contract you are about to audit, run `usedby <contract>` to learn its
    blast radius before touching it.
 4. Run `deps <contract>` to see what it relies on, and open those first.
-5. Use the canvas to spot tightly coupled clusters and cycles at a glance.
+5. Use the Map to spot tightly coupled folders and the most connected contracts.
 6. Drop into a contract and continue with the per-function workflow.
 
 ## Related pages

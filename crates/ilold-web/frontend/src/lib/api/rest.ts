@@ -23,6 +23,7 @@ interface Bases {
 
 export interface ContractSummary extends ContractIdentity, Bases {
   kind: string;
+  folder: string;
   functions: number;
   state_vars: number;
 }
