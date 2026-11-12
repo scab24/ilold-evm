@@ -144,7 +144,7 @@ fn dependency_code_is_no_running_context_of_its_own() {
 #[test]
 fn incoming_calls_come_from_every_contract_running_the_caller() {
     let into_vault: Vec<(&str, &str, LinkKind)> =
-        analysis().relations.calls_into("Vault").map(|c| (c.context.as_str(), c.function.as_str(), c.kind)).collect();
+        analysis().relations.calls_into("Vault").map(|c| (c.in_context.as_str(), c.function.as_str(), c.kind)).collect();
     assert_eq!(
         into_vault,
         vec![

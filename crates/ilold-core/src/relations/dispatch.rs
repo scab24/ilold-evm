@@ -50,7 +50,7 @@ pub(super) fn build(project: &Project, units: &[Running]) -> Relations {
     let links = links(&own);
     let mut calls = own;
     calls.extend(inherited);
-    calls.sort_by(|a, b| (&a.context, &a.function, a.span).cmp(&(&b.context, &b.function, b.span)));
+    calls.sort_by(|a, b| (&a.in_context, &a.function, a.span).cmp(&(&b.in_context, &b.function, b.span)));
     let mut assignments: Vec<AssignmentSite> = targeted.iter().flat_map(|var| assignment_sites(project, var)).collect();
     assignments.sort_by(|a, b| (&a.state_var, a.span).cmp(&(&b.state_var, b.span)));
     Relations { dispatches: dispatches.into_values().collect(), assignments, links, calls, ..Relations::default() }
@@ -63,8 +63,8 @@ fn links(calls: &[ContractCall]) -> Vec<ContractLink> {
         let call = LinkCall { function: made.function.clone(), span: made.span };
         let only = made.callees.len() == 1;
         for candidate in &made.callees {
-            let link = links.entry((made.context.clone(), candidate.contract.clone())).or_insert_with(|| ContractLink {
-                from_contract: made.context.clone(),
+            let link = links.entry((made.in_context.clone(), candidate.contract.clone())).or_insert_with(|| ContractLink {
+                from_contract: made.in_context.clone(),
                 to_contract: candidate.contract.clone(),
                 via_state_vars: Vec::new(),
                 calls: Vec::new(),
@@ -126,7 +126,7 @@ fn contract_calls(
             continue;
         };
         let call = ContractCall {
-            context: context.key().to_string(),
+            in_context: context.key().to_string(),
             function: function.clone(),
             span: span.unwrap_or(func.span),
             kind,

@@ -144,7 +144,7 @@ pub enum LinkKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractCall {
     /// Key of the contract running the code: the declaring one, or one inheriting it.
-    pub context: String,
+    pub in_context: String,
     /// `<contract key>::<function key>` making the call.
     pub function: String,
     pub span: SourceSpan,
@@ -241,8 +241,8 @@ impl Relations {
 
     /// The calls the code `context` runs makes, its inherited code included.
     pub fn calls_from(&self, context: &str) -> &[ContractCall] {
-        let start = self.calls.partition_point(|c| c.context.as_str() < context);
-        let end = self.calls.partition_point(|c| c.context.as_str() <= context);
+        let start = self.calls.partition_point(|c| c.in_context.as_str() < context);
+        let end = self.calls.partition_point(|c| c.in_context.as_str() <= context);
         &self.calls[start..end]
     }
 

@@ -3,12 +3,13 @@ use std::collections::HashMap;
 
 use petgraph::algo::{dijkstra, has_path_connecting};
 use petgraph::graphmap::DiGraphMap;
+use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{EdgeFiltered, Reversed};
 use serde::{Deserialize, Serialize};
 
 use crate::callgraph::types::CallGraph;
 
-use super::{ContractCall, LinkKind, Relations};
+use super::{ContractCall, DispatchCandidate, LinkKind, Relations};
 
 /// Beyond this many equally short routes the rest are left out.
 const MAX_ROUTES: usize = 32;
@@ -16,8 +17,8 @@ const MAX_ROUTES: usize = 32;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteCall {
     pub call: ContractCall,
-    /// `<contract key>::<member key>` the call runs in the step's target contract.
-    pub callee: String,
+    /// The candidate of the step's target contract.
+    pub callee: DispatchCandidate,
     /// The first step, or the code a call of the previous step runs reaches this call inside the contract.
     pub recorded: bool,
 }
@@ -48,8 +49,8 @@ pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, f
     let follows = |c: &ContractCall| c.kind == LinkKind::Call || (include_reads && c.kind == LinkKind::Read);
     let mut graph: DiGraphMap<&str, ()> = DiGraphMap::new();
     for call in relations.calls.iter().filter(|c| follows(c)) {
-        for callee in call.callees.iter().filter(|d| d.contract != call.context) {
-            graph.add_edge(call.context.as_str(), callee.contract.as_str(), ());
+        for callee in call.callees.iter().filter(|d| d.contract != call.in_context) {
+            graph.add_edge(call.in_context.as_str(), callee.contract.as_str(), ());
         }
     }
     if from == to || !graph.contains_node(from) || !graph.contains_node(to) {
@@ -61,7 +62,13 @@ pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, f
     let mut paths = Vec::new();
     let on_route = |n: &str, depth: usize| ahead.get(n) == Some(&depth) && behind.get(n) == Some(&(length - depth));
     let complete = shortest(&graph, &on_route, length, &mut vec![from], &mut paths);
-    let routes = paths.iter().map(|contracts| route(relations, call_graphs, contracts, &follows)).collect();
+    let mut nodes: Nodes = HashMap::new();
+    // only a contract between two steps needs its internal calls
+    for contract in paths.iter().flat_map(|p| &p[1..p.len() - 1]) {
+        let Some(graph) = call_graphs.get(*contract) else { continue };
+        nodes.entry(contract).or_insert_with(|| (graph, graph.node_indices().map(|n| (graph[n].id(), n)).collect()));
+    }
+    let routes = paths.iter().map(|contracts| route(relations, &nodes, contracts, &follows)).collect();
     Routes { routes, truncated: !complete }
 }
 
@@ -97,18 +104,21 @@ fn shortest<'a>(
     true
 }
 
-fn route(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, contracts: &[&str], follows: &dyn Fn(&ContractCall) -> bool) -> Route {
+/// Each contract's call graph and its nodes by function id.
+type Nodes<'a> = HashMap<&'a str, (&'a CallGraph, HashMap<String, NodeIndex>)>;
+
+fn route(relations: &Relations, nodes: &Nodes, contracts: &[&str], follows: &dyn Fn(&ContractCall) -> bool) -> Route {
     let mut steps: Vec<RouteStep> = Vec::new();
     for pair in contracts.windows(2) {
         let (from, to) = (pair[0], pair[1]);
-        let previous: Vec<&str> = steps.last().map(|s| s.calls.iter().map(|c| c.callee.as_str()).collect()).unwrap_or_default();
+        let previous: Vec<&str> = steps.last().map(|s| s.calls.iter().map(|c| c.callee.function.as_str()).collect()).unwrap_or_default();
         let calls = relations
             .calls_from(from)
             .iter()
             .filter(|c| follows(c))
             .filter_map(|c| {
-                let callee = c.callees.iter().find(|d| d.contract == to)?.function.clone();
-                let recorded = steps.is_empty() || previous.iter().any(|entry| reaches(call_graphs.get(from), entry, &c.function));
+                let callee = c.callees.iter().find(|d| d.contract == to)?.clone();
+                let recorded = steps.is_empty() || previous.iter().any(|entry| reaches(nodes.get(from), entry, &c.function));
                 Some(RouteCall { call: c.clone(), callee, recorded })
             })
             .collect();
@@ -118,13 +128,12 @@ fn route(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, contra
 }
 
 /// `entry` runs `function` itself or calls it through internal calls of the contract's call graph.
-fn reaches(graph: Option<&CallGraph>, entry: &str, function: &str) -> bool {
+fn reaches(graph: Option<&(&CallGraph, HashMap<String, NodeIndex>)>, entry: &str, function: &str) -> bool {
     if entry == function {
         return true;
     }
-    let Some(graph) = graph else { return false };
-    let node = |id: &str| graph.node_indices().find(|&n| graph[n].id() == id);
-    let (Some(start), Some(end)) = (node(entry), node(function)) else { return false };
+    let Some((graph, nodes)) = graph else { return false };
+    let (Some(&start), Some(&end)) = (nodes.get(entry), nodes.get(function)) else { return false };
     let internal = EdgeFiltered::from_fn(graph, |e| e.weight().kind.is_internal());
     has_path_connecting(&internal, start, end, None)
 }

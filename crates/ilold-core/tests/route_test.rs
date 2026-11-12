@@ -68,7 +68,7 @@ fn hops(found: &Routes) -> Vec<Vec<Vec<(&str, &str, bool)>>> {
     found
         .routes
         .iter()
-        .map(|r| r.steps.iter().map(|s| s.calls.iter().map(|c| (c.call.function.as_str(), c.callee.as_str(), c.recorded)).collect()).collect())
+        .map(|r| r.steps.iter().map(|s| s.calls.iter().map(|c| (c.call.function.as_str(), c.callee.function.as_str(), c.recorded)).collect()).collect())
         .collect()
 }
 
@@ -168,6 +168,8 @@ fn an_ambiguous_call_joins_each_route_through_one_of_its_candidates() {
         let candidates: Vec<&str> = first.call.callees.iter().map(|d| d.contract.as_str()).collect();
         assert_eq!(candidates, ["HookA", "HookB"], "the same call, with every candidate");
         assert!(first.call.callees.iter().all(|d| d.tag == Tag::Ambiguous));
+        assert!(first.call.callees.contains(&first.callee), "the callee is the candidate the step's target answers with");
+        assert_eq!(first.callee.contract, route.steps[0].to);
         assert_eq!(route.steps[0].to, route.steps[1].from);
     }
 }
