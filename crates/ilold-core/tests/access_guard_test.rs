@@ -246,7 +246,7 @@ fn a_modifier_without_code_falls_back_to_its_name() {
 fn guard_spans_point_at_the_check() {
     let source = |g: &GuardFact| {
         let span = g.span.as_ref().expect("span");
-        let file = &project().source_files[span.file_index];
+        let file = project().source_file(*span).unwrap();
         (file.path.rsplit('/').next().unwrap().to_string(), file.content.lines().nth(span.start_line as usize - 1).unwrap().trim().to_string())
     };
     let owner = &guards("Guards", "setByOwner")[0];

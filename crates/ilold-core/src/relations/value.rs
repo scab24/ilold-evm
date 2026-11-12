@@ -570,8 +570,7 @@ pub(super) fn build(project: &Project, units: &[Running], relations: &Relations)
 fn parties(project: &Project, relations: &Relations, t: &ValueTransfer, typed: &[Option<String>; 2]) -> (Party, Party) {
     let running = || Party::Contract(vec![t.in_context.clone()]);
     let target = || {
-        let made = relations.calls_from(&t.in_context);
-        let call = made.iter().find(|c| c.function == t.function && c.span == t.span && c.kind != ContractCallKind::Library)?;
+        let call = relations.calls_at(&t.in_context, &t.function, t.span).iter().find(|c| c.kind != ContractCallKind::Library)?;
         if !call.callees.is_empty() {
             let mut keys: Vec<String> = call.callees.iter().map(|d| d.contract.clone()).collect();
             keys.sort();

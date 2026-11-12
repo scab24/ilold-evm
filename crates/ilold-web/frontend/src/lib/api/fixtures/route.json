@@ -14,8 +14,10 @@
                     "tag": "INFERRED"
                   }
                 ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Router.sol",
                 "function": "Router::buyWith",
                 "in_context": "Router",
+                "in_try": false,
                 "kind": "call",
                 "span": {
                   "end_col": 40,
@@ -25,6 +27,9 @@
                   "start_line": 14
                 },
                 "target": "ICurve::buy",
+                "transfers": [
+                  "Router::buyWith#0"
+                ],
                 "unresolved_reason": null,
                 "via": "Router::curve"
               },
@@ -46,8 +51,10 @@
                     "tag": "INFERRED"
                   }
                 ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Router.sol",
                 "function": "Router::quote",
                 "in_context": "Router",
+                "in_try": false,
                 "kind": "read",
                 "span": {
                   "end_col": 29,
@@ -57,6 +64,7 @@
                   "start_line": 18
                 },
                 "target": "ICurve::price",
+                "transfers": [],
                 "unresolved_reason": null,
                 "via": "Router::curve"
               },
@@ -84,8 +92,10 @@
                     "tag": "INFERRED"
                   }
                 ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Curve.sol",
                 "function": "CurveBase::_graduate",
                 "in_context": "Curve",
+                "in_try": false,
                 "kind": "call",
                 "span": {
                   "end_col": 63,
@@ -95,6 +105,9 @@
                   "start_line": 27
                 },
                 "target": "IHook::migrate",
+                "transfers": [
+                  "CurveBase::_graduate#0"
+                ],
                 "unresolved_reason": null,
                 "via": "CurveBase::hook"
               },
@@ -116,8 +129,10 @@
                     "tag": "INFERRED"
                   }
                 ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Curve.sol",
                 "function": "CurveBase::_graduate",
                 "in_context": "Curve",
+                "in_try": false,
                 "kind": "read",
                 "span": {
                   "end_col": 62,
@@ -127,6 +142,7 @@
                   "start_line": 27
                 },
                 "target": "IHook::fee",
+                "transfers": [],
                 "unresolved_reason": null,
                 "via": "CurveBase::hook"
               },

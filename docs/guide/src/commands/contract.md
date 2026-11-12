@@ -190,7 +190,9 @@ others on their own: an abstract contract or a library is never listed under
   each of them, with `N possible` and `AMBIGUOUS`. Library calls are listed
   under the library and `this.f()` calls under the contract itself. Rows other
   than plain calls say `read` (a view or pure function or a getter), `library`
-  or `self`, and `via` names the state variable holding the called address.
+  or `self`, `via` names the state variable holding the called address,
+  `moves` the asset and amount the call sends and `in try` a call a try
+  statement guards.
 - **called by** — the calls into it, grouped by the contract running the
   calling code.
 - **Unresolved** — calls nothing in the project answers, with the reason
@@ -207,17 +209,17 @@ ilold[Curve]> links
     DenB  1 call
       buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
     Hook  2 calls
-      CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook
+      CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook  moves native address(this).balance
       CurveBase::_graduate → Hook::fee  read  line 27  via CurveBase::hook
     Payout  1 call
       buy → Payout::pay  library  line 41
     Token  2 calls
-      buy → Token::mint  line 35  via CurveBase::token
-      Payout::pay → Token::transfer  line 8
+      buy → Token::mint  line 35  via CurveBase::token  moves erc20 token msg.value
+      Payout::pay → Token::transfer  line 8  moves erc20 token amount
 
   Curve ← called by
     Router  2 calls
-      Router::buyWith → Curve::buy  line 14  via Router::curve
+      Router::buyWith → Curve::buy  line 14  via Router::curve  moves native msg.value
       Router::quote → CurveBase::price  read  line 18  via Router::curve
 
   Addresses set at
@@ -237,11 +239,12 @@ row.
 `route <from> <to> [--reads]`
 
 Prints the shortest chains of calls from one contract to another through
-deployed contracts, step by step, with every call of each step. Library and `this` calls are not followed; reads
-are followed only with `--reads`. A call marked `not recorded from the previous
-step` joins the route by contract only: nothing records the previous step's
-callee reaching it inside the contract. When more than 32 routes are equally
-short, the rest are left out and the header says so.
+deployed contracts, step by step, with every call of each step. Library and
+`this` calls are not followed; reads are followed only with `--reads`. A call
+marked `not recorded from the previous step` joins the route by contract only:
+nothing records the previous step's callee reaching it inside the contract;
+`moves value` and `in try` mark the calls as in `links`. When more than 32
+routes are equally short, the rest are left out and the header says so.
 
 ```
 ilold[Curve]> route Router Hook
@@ -250,9 +253,9 @@ ilold[Curve]> route Router Hook
 
   route 1 Router → Curve → Hook
     Router → Curve
-      Router::buyWith → Curve::buy  line 14
+      Router::buyWith → Curve::buy  line 14  moves value
     Curve → Hook
-      CurveBase::_graduate → Hook::migrate  line 27
+      CurveBase::_graduate → Hook::migrate  line 27  moves value
 ```
 
 ## value

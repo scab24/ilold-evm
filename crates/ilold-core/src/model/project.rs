@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use super::common::StateVar;
+use super::common::{SourceSpan, StateVar};
 use super::contract::{ContractDef, ContractKind};
 use super::decl_id::{DeclId, DeclKind, DeclTable, DeclTarget};
 use super::function::{FunctionDef, FunctionKind, Visibility};
@@ -65,12 +65,13 @@ impl Project {
         project
     }
 
+    /// The source file `span` points into.
+    pub fn source_file(&self, span: SourceSpan) -> Option<&SourceFile> {
+        self.source_files.get(span.file_index)
+    }
+
     pub fn contract_folder(&self, c: &ContractDef) -> String {
-        let path = self
-            .source_files
-            .get(c.span.file_index)
-            .map(|s| s.path.as_str())
-            .unwrap_or("");
+        let path = self.source_file(c.span).map(|s| s.path.as_str()).unwrap_or("");
         let rel = path.rsplit_once("/src/").map(|(_, r)| r).unwrap_or(path);
         rel.rsplit_once('/').map(|(dir, _)| dir.to_string()).unwrap_or_default()
     }

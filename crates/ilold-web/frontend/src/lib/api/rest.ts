@@ -87,6 +87,12 @@ export interface ContractCall {
   callees: CallCallee[];
   unresolved_reason: UnresolvedReason | null;
   via: string | null;
+  /** A try statement guards the call. */
+  in_try: boolean;
+  /** Ids of the value transfers the call makes, as `in_context` runs it. */
+  transfers: string[];
+  /** Path of the source file holding the call. */
+  file: string | null;
 }
 
 export interface ConnectionGroup {
@@ -101,6 +107,8 @@ export interface Connections {
   incoming: ConnectionGroup[];
   unresolved: ContractCall[];
   assignments: AssignmentSite[];
+  /** The value transfers the listed calls make, identified by `in_context` and `id`. */
+  transfers: ValueTransfer[];
 }
 
 export interface RouteCall {

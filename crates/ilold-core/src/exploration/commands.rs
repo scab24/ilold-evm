@@ -317,7 +317,7 @@ pub fn execute_command(
         SessionCommand::Who { variable } => execute_who(data, &variable),
         SessionCommand::Export => {
             let mut journal = session.journal.clone();
-            if let Some(name) = data.project.source_files.get(data.contract.span.file_index)
+            if let Some(name) = data.project.source_file(data.contract.span)
                 .and_then(|f| project_root_name(&f.path))
             {
                 journal.project = name;

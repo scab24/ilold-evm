@@ -27,8 +27,10 @@
               "tag": "INFERRED"
             }
           ],
+          "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Curve.sol",
           "function": "CurveBase::_graduate",
           "in_context": "Curve",
+          "in_try": false,
           "kind": "call",
           "span": {
             "end_col": 63,
@@ -38,6 +40,9 @@
             "start_line": 27
           },
           "target": "IHook::migrate",
+          "transfers": [
+            "CurveBase::_graduate#0"
+          ],
           "unresolved_reason": null,
           "via": "CurveBase::hook"
         },
@@ -50,8 +55,10 @@
               "tag": "INFERRED"
             }
           ],
+          "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Curve.sol",
           "function": "CurveBase::_graduate",
           "in_context": "Curve",
+          "in_try": false,
           "kind": "read",
           "span": {
             "end_col": 62,
@@ -61,6 +68,7 @@
             "start_line": 27
           },
           "target": "IHook::fee",
+          "transfers": [],
           "unresolved_reason": null,
           "via": "CurveBase::hook"
         }
@@ -69,11 +77,67 @@
     }
   ],
   "outgoing": [],
+  "transfers": [
+    {
+      "amount_expr": "address(this).balance",
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "call": "hook.migrate",
+      "direction": "out",
+      "from_expr": null,
+      "function": "CurveBase::_graduate",
+      "id": "CurveBase::_graduate#0",
+      "id_expr": null,
+      "in_context": "Curve",
+      "modifier": null,
+      "operation": "call",
+      "reason": null,
+      "span": {
+        "end_col": 63,
+        "end_line": 27,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 27
+      },
+      "tag": "EXTRACTED",
+      "to_expr": "hook",
+      "token_expr": null,
+      "via_library": null
+    },
+    {
+      "amount_expr": "amount",
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "call": "manager.settle",
+      "direction": "out",
+      "from_expr": null,
+      "function": "Hook::migrate",
+      "id": "Hook::migrate#0",
+      "id_expr": null,
+      "in_context": "Hook",
+      "modifier": null,
+      "operation": "call",
+      "reason": null,
+      "span": {
+        "end_col": 40,
+        "end_line": 36,
+        "file_index": 3,
+        "start_col": 9,
+        "start_line": 36
+      },
+      "tag": "EXTRACTED",
+      "to_expr": "manager",
+      "token_expr": null,
+      "via_library": null
+    }
+  ],
   "unresolved": [
     {
       "callees": [],
+      "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Parts.sol",
       "function": "Hook::migrate",
       "in_context": "Hook",
+      "in_try": false,
       "kind": "call",
       "span": {
         "end_col": 43,
@@ -83,13 +147,16 @@
         "start_line": 35
       },
       "target": "IPoolManager::unlock",
+      "transfers": [],
       "unresolved_reason": "out_of_scope_interface",
       "via": "Hook::manager"
     },
     {
       "callees": [],
+      "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Parts.sol",
       "function": "Hook::migrate",
       "in_context": "Hook",
+      "in_try": false,
       "kind": "call",
       "span": {
         "end_col": 40,
@@ -99,6 +166,9 @@
         "start_line": 36
       },
       "target": "IPoolManager::settle",
+      "transfers": [
+        "Hook::migrate#0"
+      ],
       "unresolved_reason": "out_of_scope_interface",
       "via": "Hook::manager"
     }

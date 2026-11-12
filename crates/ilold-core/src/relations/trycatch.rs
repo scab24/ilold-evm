@@ -120,7 +120,7 @@ pub fn try_catches(project: &Project, context: &ContractDef, owner: &ContractDef
     let accesses = storage_accesses(project, context, owner, func, cfg);
     let function = format!("{}::{}", owner.key(), func.key);
     let mut facts = Vec::new();
-    for n in reachable(cfg) {
+    for n in reachable(cfg).into_iter().filter(|&n| guards_call(cfg, n)) {
         // the builder adds the success branch first, then one catch branch per clause, in block order
         let mut branches: Vec<(bool, NodeIndex)> = cfg
             .edges(n)
@@ -131,7 +131,7 @@ pub fn try_catches(project: &Project, context: &ContractDef, owner: &ContractDef
             })
             .collect();
         branches.sort_by_key(|(success, target)| (!success, cfg[*target].id));
-        let Some(&(true, success)) = branches.first() else { continue };
+        let success = branches[0].1;
         let catches = &branches[1..];
         let block = &cfg[n];
         let last = block.statements.last();
@@ -179,6 +179,11 @@ pub fn try_catches(project: &Project, context: &ContractDef, owner: &ContractDef
         fact.id = format!("{function}#{n}");
     }
     facts
+}
+
+/// Whether the block ends in the call a try statement guards.
+pub(super) fn guards_call(cfg: &CfgGraph, n: NodeIndex) -> bool {
+    cfg.edges(n).any(|e| matches!(e.weight(), BranchEdge::ExternalCallSuccess))
 }
 
 /// The try statements of the function's code and modifiers, by the span of the call each guards.

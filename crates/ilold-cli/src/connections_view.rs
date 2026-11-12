@@ -1,7 +1,8 @@
 use std::fmt::Write;
 
 use ilold_core::relations::{
-    ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, RouteCall, Routes, Tag, ValueFlowPairs, ValueReason,
+    AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, RouteCall, Routes, Tag, ValueFlowPairs, ValueReason,
+    ValueTransfer,
 };
 use serde_json::{json, Value};
 
@@ -17,8 +18,20 @@ fn local<'a>(id: &'a str, contract: &str) -> &'a str {
     id.strip_prefix(contract).and_then(|rest| rest.strip_prefix("::")).unwrap_or(id)
 }
 
-/// `caller → callee`, its kind, line and the state variable holding the address; one row per call, whatever its candidates.
-fn call_row(call: &ContractCall, contract: &str) -> String {
+/// The asset as the value views name it, with its token.
+fn asset(kind: AssetKind, reason: Option<ValueReason>, token: Option<&str>) -> String {
+    let mut asset = match reason {
+        Some(ValueReason::Currency) => "ETH or token, set by the pool".to_string(),
+        _ => word(json!(kind)),
+    };
+    if let Some(token) = token {
+        write!(asset, " {token}").ok();
+    }
+    asset
+}
+
+/// `caller → callee`, its kind, line, the state variable holding the address and the value it moves; one row per call, whatever its candidates.
+fn call_row(call: &ContractCall, contract: &str, transfers: &[ValueTransfer]) -> String {
     let callees: Vec<&str> = call.callees.iter().map(|d| d.function.as_str()).collect();
     let target = match callees.as_slice() {
         [] => call.target.clone().unwrap_or_else(|| "?".into()),
@@ -33,6 +46,14 @@ fn call_row(call: &ContractCall, contract: &str) -> String {
     if let Some(via) = &call.via {
         write!(row, "  {}", c_muted(&format!("via {via}"))).ok();
     }
+    let moved = transfers.iter().filter(|t| t.in_context == call.in_context && call.transfers.contains(&t.id));
+    for t in moved {
+        let amount = t.amount_expr.as_deref().map(|a| format!(" {a}")).unwrap_or_default();
+        write!(row, "  {}", c_warn(&format!("moves {}{amount}", asset(t.asset_kind, t.reason, t.token_expr.as_deref())))).ok();
+    }
+    if call.in_try {
+        write!(row, "  {}", c_muted("in try")).ok();
+    }
     if call.callees.iter().any(|d| d.tag == Tag::Ambiguous) {
         write!(row, "  {}", c_danger("AMBIGUOUS")).ok();
     }
@@ -42,7 +63,7 @@ fn call_row(call: &ContractCall, contract: &str) -> String {
     row
 }
 
-fn groups(out: &mut String, title: String, empty: &str, groups: &[ConnectionGroup], contract: &str) {
+fn groups(out: &mut String, title: String, empty: &str, groups: &[ConnectionGroup], c: &Connections) {
     writeln!(out, "\n  {}", c_bright(&title)).ok();
     if groups.is_empty() {
         writeln!(out, "    {}", c_muted(empty)).ok();
@@ -51,7 +72,7 @@ fn groups(out: &mut String, title: String, empty: &str, groups: &[ConnectionGrou
         let calls = if group.calls.len() == 1 { "1 call".to_string() } else { format!("{} calls", group.calls.len()) };
         writeln!(out, "    {}  {}", c_accent(&group.contract), c_muted(&calls)).ok();
         for call in &group.calls {
-            writeln!(out, "      {}", call_row(call, contract)).ok();
+            writeln!(out, "      {}", call_row(call, &c.contract, &c.transfers)).ok();
         }
     }
 }
@@ -59,12 +80,12 @@ fn groups(out: &mut String, title: String, empty: &str, groups: &[ConnectionGrou
 /// The connection rows in the order the API lists them.
 pub fn links(c: &Connections) -> String {
     let mut out = String::new();
-    groups(&mut out, format!("{} → calls", c.contract), "calls no other contract", &c.outgoing, &c.contract);
-    groups(&mut out, format!("{} ← called by", c.contract), "no contract calls it", &c.incoming, &c.contract);
+    groups(&mut out, format!("{} → calls", c.contract), "calls no other contract", &c.outgoing, c);
+    groups(&mut out, format!("{} ← called by", c.contract), "no contract calls it", &c.incoming, c);
     if !c.unresolved.is_empty() {
         writeln!(out, "\n  {}", c_bright("Unresolved")).ok();
         for call in &c.unresolved {
-            writeln!(out, "      {}", call_row(call, &c.contract)).ok();
+            writeln!(out, "      {}", call_row(call, &c.contract, &c.transfers)).ok();
         }
     }
     if !c.assignments.is_empty() {
@@ -85,6 +106,12 @@ fn route_call(call: &RouteCall) -> String {
         write!(row, "  {}", c_muted(&word(json!(call.call.kind)))).ok();
     }
     write!(row, "  {}", c_muted(&format!("line {}", call.call.span.start_line))).ok();
+    if !call.call.transfers.is_empty() {
+        write!(row, "  {}", c_warn("moves value")).ok();
+    }
+    if call.call.in_try {
+        write!(row, "  {}", c_muted("in try")).ok();
+    }
     if !call.recorded {
         write!(row, "  {}", c_warn("not recorded from the previous step")).ok();
     }
@@ -141,13 +168,7 @@ pub fn value(contract: Option<&str>, flow: &ValueFlowPairs) -> String {
             writeln!(out, "    {}", c_accent(&format!("as {} runs", pair.in_context))).ok();
             context = Some(&pair.in_context);
         }
-        let mut asset = match pair.reason {
-            Some(ValueReason::Currency) => "ETH or token, set by the pool".to_string(),
-            _ => word(json!(pair.asset_kind)),
-        };
-        if let Some(token) = &pair.token_expr {
-            write!(asset, " {token}").ok();
-        }
+        let asset = asset(pair.asset_kind, pair.reason, pair.token_expr.as_deref());
         let functions = pair.functions.iter().map(|f| local(f, &pair.in_context)).collect::<Vec<_>>().join(", ");
         writeln!(out, "      {} → {}  {}  ×{}  {}", party(&pair.from), party(&pair.to), c_warn(&asset), pair.transfers.len(), c_muted(&functions)).ok();
     }
@@ -191,6 +212,7 @@ mod tests {
         assert!(text.contains("buy → 2 possible: DenA::deliver, DenB::deliver"), "{text}");
         assert!(text.contains("AMBIGUOUS"), "{text}");
         assert!(text.contains("CurveBase::_graduate → Hook::fee  read"), "inherited code runs in Curve: {text}");
+        assert!(text.contains("CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook  moves native address(this).balance"), "{text}");
         assert!(text.contains("Hook  2 calls") && text.contains("Router  2 calls"), "{text}");
         assert!(text.contains("CurveBase::hook = hook_  constructor_param  CurveBase::constructor"), "{text}");
 
@@ -211,6 +233,7 @@ mod tests {
         assert!(!text.contains("Hook::fee"), "reads only when asked: {text}");
         let reads = route("Router", "Hook", true, &routes(&a.relations, &a.call_graphs, "Router", "Hook", true));
         assert!(reads.contains("Hook::fee  read"), "{reads}");
+        assert!(text.contains("CurveBase::_graduate → Hook::migrate  line 27  moves value"), "{text}");
         let none = route("Hook", "Router", false, &routes(&a.relations, &a.call_graphs, "Hook", "Router", false));
         assert!(none.contains("No route from Hook to Router following calls; --reads also follows reads"), "{none}");
     }

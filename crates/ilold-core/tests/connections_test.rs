@@ -380,6 +380,39 @@ fn context_links_add_up_the_calls_each_running_contract_makes() {
     assert_eq!(base, relations.outgoing("Base").cloned().collect::<Vec<_>>(), "a contract running only its own code adds up to its links");
 }
 
+const TRIES: &[(&str, &str)] = &[
+    (SOURCES[0].0, SOURCES[0].1),
+    (
+        "src/Tries.sol",
+        "pragma solidity 0.8.28;
+interface IVault { function deposit(uint256 a) external payable; }
+contract Vault is IVault { function deposit(uint256) external payable {} }
+contract Keeper {
+    IVault public vault;
+    function keep() external payable {
+        try vault.deposit{value: msg.value}(1) {} catch {}
+        vault.deposit(2);
+    }
+}
+",
+    ),
+];
+
+#[test]
+fn rows_carry_the_value_they_move_whether_a_try_guards_them_and_their_file() {
+    let analysis = ProjectAnalysis::build(&parse("tries", TRIES), &AnalysisParams::new(1));
+    let made = analysis.relations.calls_from("Keeper");
+    let rows: Vec<(u32, bool, &[String])> = made.iter().map(|c| (c.span.start_line, c.in_try, c.transfers.as_slice())).collect();
+    assert_eq!(rows, vec![(7, true, &["Keeper::keep#0".to_string()][..]), (8, false, &[][..])]);
+    let moved: Vec<(&str, &str)> = analysis.relations.transfers_at(&made[0]).iter().map(|t| (t.id.as_str(), t.call.as_str())).collect();
+    assert_eq!(moved, vec![("Keeper::keep#0", "vault.deposit")]);
+    assert!(analysis.relations.transfers_at(&made[1]).is_empty());
+    assert!(made.iter().all(|c| c.file.as_deref().is_some_and(|f| f.ends_with("/src/Tries.sol"))), "{made:#?}");
+    let connections = analysis.relations.connections("Keeper");
+    let ids: Vec<&str> = connections.transfers.iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(ids, vec!["Keeper::keep#0"], "the view carries the facts its rows name");
+}
+
 const LIBRARIES: &[(&str, &str)] = &[
     (SOURCES[0].0, SOURCES[0].1),
     (SOURCES[1].0, SOURCES[1].1),

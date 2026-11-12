@@ -120,7 +120,7 @@ fn aave_call_resolution() {
                 _ => None,
             })
             .collect();
-        let file = &project.source_files[found.span.file_index].content;
+        let file = &project.source_file(found.span).unwrap().content;
         let header = file.lines().nth(found.span.start_line as usize - 1).unwrap_or_default().trim();
         println!("  key={} sig={} lines {}-{} source `{header}` cfg calls {calls:?}",
             found.key, found.signature, found.span.start_line, found.span.end_line);

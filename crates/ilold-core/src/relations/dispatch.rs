@@ -13,6 +13,7 @@ use crate::model::source::{uncast, value_source, ValueSource};
 use crate::model::statement::walk_all;
 use crate::sequence::effects::{is_view_call, reachable};
 
+use super::trycatch::guards_call;
 use super::{
     param_source, state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractCall, ContractCallKind, ContractLink, Dispatch,
     DispatchCandidate, LinkCall, Relations, Running, Tag, UnresolvedReason,
@@ -104,7 +105,12 @@ fn contract_calls(
 ) -> Vec<ContractCall> {
     let function = format!("{}::{}", owner.key(), func.key);
     let mut calls = Vec::new();
-    for stmt in reachable(cfg).into_iter().flat_map(|n| cfg[n].statements.iter()) {
+    let statements = reachable(cfg).into_iter().flat_map(|n| {
+        let statements = &cfg[n].statements;
+        let guarded = guards_call(cfg, n);
+        statements.iter().enumerate().map(move |(i, stmt)| (stmt, guarded && i + 1 == statements.len()))
+    });
+    for (stmt, in_try) in statements {
         let (kind, dispatch, span, via) = if let Some(site) = external_site(project, context, stmt) {
             let dispatch = dispatches
                 .entry((context_of(context, site.kind), site.target))
@@ -125,15 +131,19 @@ fn contract_calls(
         } else {
             continue;
         };
+        let span = span.unwrap_or(func.span);
         let call = ContractCall {
             in_context: context.key().to_string(),
             function: function.clone(),
-            span: span.unwrap_or(func.span),
+            span,
             kind,
             target: dispatch.target,
             callees: dispatch.candidates,
             unresolved_reason: dispatch.unresolved_reason,
             via,
+            in_try,
+            transfers: Vec::new(),
+            file: project.source_file(span).map(|f| f.path.clone()),
         };
         if !calls.contains(&call) {
             calls.push(call);

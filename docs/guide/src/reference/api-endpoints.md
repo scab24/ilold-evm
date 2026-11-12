@@ -224,12 +224,13 @@ Compiler builtins (`keccak256`, `abi.*`, `ecrecover`, `type(...)`, `require`, ..
 
 ### GET /api/contract/{name}/connections
 
-Returns the calls between this contract and others as the contract runs its code, inherited code, base constructors and the code of the project libraries it calls included (a dependency library stays one `library` row). Each call is a row: `in_context` (the contract running the code), `function` (`<contract>::<function key>` declaring the call), `span`, `kind` (`call`, `read` for a view or pure function or a getter, `library`, or `self` for `this.f()`), `target` (the `<contract>::<member>` the source names), `callees` (the candidates that may answer, with `function`, `contract`, `basis` and `tag`; several are AMBIGUOUS, library calls have basis `library`), `unresolved_reason` and `via` (`<contract>::<name>` of the state variable holding the called address).
+Returns the calls between this contract and others as the contract runs its code, inherited code, base constructors and the code of the project libraries it calls included (a dependency library stays one `library` row). Each call is a row: `in_context` (the contract running the code), `function` (`<contract>::<function key>` declaring the call), `span`, `kind` (`call`, `read` for a view or pure function or a getter, `library`, or `self` for `this.f()`), `target` (the `<contract>::<member>` the source names), `callees` (the candidates that may answer, with `function`, `contract`, `basis` and `tag`; several are AMBIGUOUS, library calls have basis `library`), `unresolved_reason`, `via` (`<contract>::<name>` of the state variable holding the called address), `in_try` (a try statement guards the call), `transfers` (ids of the value transfers the call makes, as `in_context` runs it) and `file` (the path of the source file holding the call).
 
 - `outgoing`: the calls the contract makes, grouped per contract that may answer (`contract`, `calls`) in key order; an ambiguous call is one row listed under each candidate, `this` calls are under the contract itself and library calls under the library.
 - `incoming`: the calls into the contract, grouped per other deployed contract running the calling code; abstract contracts and libraries call only inside the contracts running their code. Viewed directly, they still list their own calls in `outgoing`.
 - `unresolved`: the calls nothing in the project answers, with their `unresolved_reason`.
 - `assignments`: where the state variables named in `via` are set, as `assigned_at` in the [call graph](#get-apicontractnamecallgraph).
+- `transfers`: the value transfers the listed calls make, in the shape of the `transfers` of [`GET /api/project/value-flow`](#get-apiprojectvalue-flow), identified by `in_context` and `id`.
 
 ### GET /api/contract/{name}/depgraph
 

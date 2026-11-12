@@ -405,7 +405,7 @@ pub async fn get_cfg(
                     statements: stmts,
                     span: block.span,
                     file: block.span
-                        .and_then(|span| state.project.source_files.get(span.file_index))
+                        .and_then(|span| state.project.source_file(span))
                         .map(|f| f.path.clone()),
                     accesses: accesses.extract_if(.., |a| a.block == block.id).collect(),
                 },
@@ -453,7 +453,7 @@ pub async fn get_function_source(
 ) -> Result<Json<FunctionSourceResponse>, ApiError> {
     let (_owning, func) = route_function(&state, &contract_name, &func_name)?;
 
-    let file = state.project.source_files.get(func.span.file_index)
+    let file = state.project.source_file(func.span)
         .ok_or_else(|| ApiError::from(StatusCode::NOT_FOUND.into_response()))?;
 
     let source = slice_lines(

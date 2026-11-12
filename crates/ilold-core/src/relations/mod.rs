@@ -157,6 +157,12 @@ pub struct ContractCall {
     pub unresolved_reason: Option<UnresolvedReason>,
     /// `<contract key>::<name>` of the state variable holding the called address.
     pub via: Option<String>,
+    /// A try statement guards the call: its failure is caught.
+    pub in_try: bool,
+    /// Ids of the value transfers the call makes, as `in_context` runs it.
+    pub transfers: Vec<String>,
+    /// Path of the source file holding the call.
+    pub file: Option<String>,
 }
 
 /// Calls between the running contract and one other contract.
@@ -180,6 +186,8 @@ pub struct Connections {
     pub unresolved: Vec<ContractCall>,
     /// Where the state variables holding the called addresses are set, sorted by variable, then position.
     pub assignments: Vec<AssignmentSite>,
+    /// The value transfers the listed calls make, sorted by context, then function, then position.
+    pub transfers: Vec<ValueTransfer>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -256,6 +264,10 @@ impl Relations {
         relations.deployed = project.contracts.iter().filter(|c| c.is_project_deployable()).map(|c| c.key().to_string()).collect();
         relations.deployed.sort();
         (relations.values, relations.value_pairs) = value::build(project, &units, &relations);
+        let moved: Vec<Vec<String>> = relations.calls.iter().map(|c| relations.transfers_at(c).iter().map(|t| t.id.clone()).collect()).collect();
+        for (call, ids) in relations.calls.iter_mut().zip(moved) {
+            call.transfers = ids;
+        }
         relations
     }
 
@@ -293,6 +305,17 @@ impl Relations {
         run_of(&self.values.transfers, |t| t.in_context.as_str().cmp(context))
     }
 
+    /// The calls `function` makes at `span` as `context` runs it.
+    pub fn calls_at(&self, context: &str, function: &str, span: SourceSpan) -> &[ContractCall] {
+        run_of(&self.calls, |c| (c.in_context.as_str(), c.function.as_str(), c.span).cmp(&(context, function, span)))
+    }
+
+    /// The value transfers `call` makes.
+    pub fn transfers_at(&self, call: &ContractCall) -> &[ValueTransfer] {
+        let wanted = (call.in_context.as_str(), call.function.as_str(), call.span);
+        run_of(&self.values.transfers, |t| (t.in_context.as_str(), t.function.as_str(), t.span).cmp(&wanted))
+    }
+
     /// What `function` (`<contract key>::<function key>`) moves and reads as `context` runs it.
     pub fn values(&self, context: &str, function: &str) -> ValueFacts {
         let wanted = (context, function);
@@ -320,12 +343,15 @@ impl Relations {
         let mut vias: Vec<&str> = made.iter().filter_map(|c| c.via.as_deref()).collect();
         vias.sort_unstable();
         vias.dedup();
+        let mut transfers: Vec<ValueTransfer> = made.iter().chain(self.calls_into(contract)).flat_map(|c| self.transfers_at(c)).cloned().collect();
+        transfers.sort_by(|a, b| (&a.in_context, &a.function, a.span).cmp(&(&b.in_context, &b.function, b.span)));
         Connections {
             contract: contract.to_string(),
             outgoing,
             incoming,
             unresolved: made.iter().filter(|c| c.callees.is_empty()).cloned().collect(),
             assignments: vias.into_iter().flat_map(|v| self.assignments(v)).cloned().collect(),
+            transfers,
         }
     }
 
