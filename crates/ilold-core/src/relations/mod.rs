@@ -20,7 +20,7 @@ use crate::model::expression::CallKind;
 use crate::model::function::{FunctionDef, FunctionKind};
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
-use crate::sequence::effects::CallSite;
+use crate::sequence::effects::{reachable, resolve_call, CallSite};
 
 pub use dispatch::{call_target, external_calls, ExternalCallSite};
 pub use keys::{key_kinds, storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
@@ -182,7 +182,7 @@ pub(crate) struct Running<'p> {
     pub cfg: Cow<'p, CfgGraph>,
 }
 
-/// Each analysed function in its own contract, then each inherited one, private helpers included, in every project contract that runs it.
+/// Each analysed function in its own contract, then in every project contract that runs it each inherited one, private helpers included, and each overridden one its code still calls, as through `super`.
 fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGraph>) -> Vec<Running<'p>> {
     let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
     keys.sort();
@@ -203,8 +203,29 @@ fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGrap
                 units.push(Running { context, owner, func, cfg });
             }
         }
+        let bases = &project.linearization(context)[1..];
+        let mut pending: Vec<usize> = (0..units.len()).filter(|&i| std::ptr::eq(units[i].context, context)).collect();
+        let mut runs: HashSet<(&str, &str)> = pending.iter().map(|&i| (units[i].owner.key(), units[i].func.key.as_str())).collect();
+        while let Some(i) = pending.pop() {
+            for (owner, func) in internal_callees(project, &units[i]) {
+                let base = func.kind != FunctionKind::Constructor && bases.iter().any(|b| std::ptr::eq(*b, owner));
+                if !base || !runs.insert((owner.key(), func.key.as_str())) {
+                    continue;
+                }
+                let Some(cfg) = context_cfg(project, cfgs, context, owner, func) else { continue };
+                units.push(Running { context, owner, func, cfg });
+                pending.push(units.len() - 1);
+            }
+        }
     }
     units
+}
+
+/// The functions a unit's reachable code calls internally, resolved as its context runs them.
+fn internal_callees<'p>(project: &'p Project, unit: &Running<'p>) -> Vec<(&'p ContractDef, &'p FunctionDef)> {
+    let statements = reachable(&unit.cfg).into_iter().flat_map(|n| unit.cfg[n].statements.iter());
+    let sites = statements.filter_map(|stmt| CallSite::of(stmt, &project.decl_table));
+    sites.filter_map(|site| resolve_call(project, unit.context, unit.owner, &site)).collect()
 }
 
 impl Relations {

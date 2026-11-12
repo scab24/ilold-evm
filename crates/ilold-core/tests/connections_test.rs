@@ -223,3 +223,56 @@ fn building_the_relations_again_gives_the_same_bytes() {
     assert_eq!(again, stored);
     assert_eq!(serde_json::to_string(&Relations::build(project(), &analysis().cfgs)).unwrap(), stored);
 }
+
+const SUPER: &[(&str, &str)] = &[
+    (SOURCES[0].0, SOURCES[0].1),
+    (SOURCES[1].0, SOURCES[1].1),
+    (
+        "lib/ext/Ext.sol",
+        "pragma solidity 0.8.28;
+interface IExt { function ping() external; function pong() external; }
+abstract contract ExtBase {
+    IExt public ext;
+    function poke() public virtual { ext.ping(); }
+    function skip() public virtual { ext.pong(); }
+}
+",
+    ),
+    (
+        "src/Super.sol",
+        "pragma solidity 0.8.28;
+import {ExtBase} from '@ext/Ext.sol';
+interface IVault { function deposit(uint256 a) external; }
+contract Vault is IVault { function deposit(uint256) external {} }
+abstract contract Mid {
+    IVault public vault;
+    function save() public virtual { vault.deposit(1); }
+    function keep() public virtual { vault.deposit(2); }
+}
+contract Child is Mid, ExtBase {
+    function poke() public override { super.poke(); }
+    function skip() public override {}
+    function save() public override { Mid.save(); }
+    function keep() public override {}
+}
+",
+    ),
+];
+
+#[test]
+fn overridden_code_runs_in_the_inheriting_contract_only_where_its_code_calls_it() {
+    let analysis = ProjectAnalysis::build(&parse("super", SUPER), &AnalysisParams::new(1));
+    let unresolved = Some(UnresolvedReason::OutOfScopeInterface);
+    assert_eq!(
+        rows_of(&analysis, "Child"),
+        vec![
+            row("ExtBase::poke", LinkKind::Call, vec![], unresolved, Some("ExtBase::ext")),
+            row("Mid::save", LinkKind::Call, vec![callee("Vault::deposit", "Vault", Tag::Inferred)], None, Some("Mid::vault")),
+        ],
+        "ExtBase::skip and Mid::keep are overridden and never called"
+    );
+    assert_eq!(analysis.relations.calls_from("Child")[0].target.as_deref(), Some("IExt::ping"));
+    let links: Vec<(&str, &str, usize)> =
+        analysis.relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str(), l.calls.len())).collect();
+    assert_eq!(links, vec![("Mid", "Vault", 2)], "links stay per declaring contract");
+}
