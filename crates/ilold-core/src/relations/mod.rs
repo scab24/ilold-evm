@@ -7,7 +7,7 @@ mod trycatch;
 mod value;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +17,7 @@ use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::CallKind;
-use crate::model::function::FunctionDef;
+use crate::model::function::{FunctionDef, FunctionKind};
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::sequence::effects::CallSite;
@@ -182,7 +182,7 @@ pub(crate) struct Running<'p> {
     pub cfg: Cow<'p, CfgGraph>,
 }
 
-/// Each analysed function in its own contract, then each inherited one in every project contract that runs it.
+/// Each analysed function in its own contract, then each inherited one, private helpers included, in every project contract that runs it.
 fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGraph>) -> Vec<Running<'p>> {
     let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
     keys.sort();
@@ -193,9 +193,15 @@ fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGrap
         units.push(Running { context: owner, owner, func, cfg: Cow::Borrowed(&cfgs[key]) });
     }
     for context in project.project_contracts() {
-        for af in project.accessible_functions(context).into_iter().filter(|af| af.is_inherited) {
-            let Some(cfg) = context_cfg(project, cfgs, context, af.owner, af.function) else { continue };
-            units.push(Running { context, owner: af.owner, func: af.function, cfg });
+        let mut seen: HashSet<&str> = context.functions.iter().map(FunctionDef::match_signature).collect();
+        for owner in project.linearization(context).into_iter().skip(1) {
+            for func in owner.functions.iter().filter(|f| f.kind != FunctionKind::Constructor) {
+                if !seen.insert(func.match_signature()) {
+                    continue;
+                }
+                let Some(cfg) = context_cfg(project, cfgs, context, owner, func) else { continue };
+                units.push(Running { context, owner, func, cfg });
+            }
         }
     }
     units

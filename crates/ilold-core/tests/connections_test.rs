@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::relations::{LinkKind, Tag, UnresolvedReason};
+use ilold_core::relations::{routes, LinkKind, Tag, UnresolvedReason};
 
 const SOURCES: &[(&str, &str)] = &[
     ("foundry.toml", "[profile.default]\nsrc = 'src'\nlibs = ['lib']\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n"),
@@ -57,19 +57,21 @@ contract Router is Base, ExtBase {
     ),
 ];
 
+fn parse(name: &str, sources: &[(&str, &str)]) -> Project {
+    let root = std::env::temp_dir().canonicalize().unwrap().join(format!("ilold-connections-{name}-{}", std::process::id()));
+    for (path, text) in sources {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, text).unwrap();
+    }
+    let project = SolcFrontend.parse_project(&root).expect("parse connections project");
+    fs::remove_dir_all(PathBuf::from(&root)).unwrap();
+    project
+}
+
 fn project() -> &'static Project {
     static PROJECT: OnceLock<Project> = OnceLock::new();
-    PROJECT.get_or_init(|| {
-        let root = std::env::temp_dir().canonicalize().unwrap().join(format!("ilold-connections-{}", std::process::id()));
-        for (path, text) in SOURCES {
-            let file = root.join(path);
-            fs::create_dir_all(file.parent().unwrap()).unwrap();
-            fs::write(file, text).unwrap();
-        }
-        let project = SolcFrontend.parse_project(&root).expect("parse connections project");
-        fs::remove_dir_all(PathBuf::from(&root)).unwrap();
-        project
-    })
+    PROJECT.get_or_init(|| parse("main", SOURCES))
 }
 
 fn analysis() -> &'static ProjectAnalysis {
@@ -80,7 +82,11 @@ fn analysis() -> &'static ProjectAnalysis {
 type Row = (String, LinkKind, Vec<(String, String, Tag)>, Option<UnresolvedReason>, Option<String>);
 
 fn rows(context: &str) -> Vec<Row> {
-    analysis()
+    rows_of(analysis(), context)
+}
+
+fn rows_of(analysis: &ProjectAnalysis, context: &str) -> Vec<Row> {
+    analysis
         .relations
         .calls_from(context)
         .iter()
@@ -155,4 +161,57 @@ fn links_stay_per_declaring_contract_without_library_calls() {
     let links: Vec<(&str, &str, usize)> =
         analysis().relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str(), l.calls.len())).collect();
     assert_eq!(links, vec![("Base", "Base", 1), ("Base", "HookA", 1), ("Base", "HookB", 1), ("Base", "Vault", 2)]);
+}
+
+const HELPERS: &[(&str, &str)] = &[
+    (SOURCES[0].0, SOURCES[0].1),
+    (SOURCES[1].0, SOURCES[1].1),
+    (
+        "lib/ext/Ext.sol",
+        "pragma solidity 0.8.28;
+interface IExt { function ping() external; }
+abstract contract ExtBase {
+    IExt public ext;
+    function poke() public { _ping(); }
+    function _ping() private { ext.ping(); }
+}
+",
+    ),
+    (
+        "src/Helpers.sol",
+        "pragma solidity 0.8.28;
+import {ExtBase} from '@ext/Ext.sol';
+interface IVault { function deposit(uint256 a) external; }
+contract Vault is IVault { function deposit(uint256) external {} }
+abstract contract Keeper {
+    IVault public vault;
+    function keep(uint256 a) public { _stash(a); }
+    function redo() public virtual { vault.deposit(0); }
+    function _stash(uint256 a) private { vault.deposit(a); }
+}
+contract Kept is Keeper, ExtBase {
+    function redo() public override {}
+}
+",
+    ),
+];
+
+#[test]
+fn private_helpers_of_project_and_dependency_bases_run_in_the_inheriting_contract() {
+    let analysis = ProjectAnalysis::build(&parse("helpers", HELPERS), &AnalysisParams::new(1));
+    let deposit = vec![callee("Vault::deposit", "Vault", Tag::Inferred)];
+    let unresolved = Some(UnresolvedReason::OutOfScopeInterface);
+    assert_eq!(
+        rows_of(&analysis, "Kept"),
+        vec![
+            row("ExtBase::_ping", LinkKind::Call, vec![], unresolved, Some("ExtBase::ext")),
+            row("Keeper::_stash", LinkKind::Call, deposit.clone(), None, Some("Keeper::vault")),
+        ],
+        "overridden code stays out"
+    );
+    let found = routes(&analysis.relations, &analysis.call_graphs, "Kept", "Vault", false);
+    let hops: Vec<&str> = found.routes.iter().flat_map(|r| &r.steps).flat_map(|s| &s.calls).map(|c| c.call.function.as_str()).collect();
+    assert_eq!(hops, vec!["Keeper::_stash"]);
+    let links: Vec<(&str, &str)> = analysis.relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str())).collect();
+    assert_eq!(links, vec![("Keeper", "Vault")], "links stay per declaring contract");
 }

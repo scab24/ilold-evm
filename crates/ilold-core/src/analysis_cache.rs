@@ -21,7 +21,7 @@ use crate::sequence::analysis::SequenceAnalysis;
 use crate::sequence::types::SequenceTree;
 
 /// Bump whenever an analysis algorithm or any persisted type changes shape or meaning.
-const VERSION: &str = concat!("ilold-analysis-v18-", env!("CARGO_PKG_VERSION"));
+const VERSION: &str = concat!("ilold-analysis-v19-", env!("CARGO_PKG_VERSION"));
 const MAX_SNAPSHOT: u64 = 256 * 1024 * 1024;
 /// Parameter sets map to a slot and keep only their latest result.
 const SLOTS: u8 = 4;
