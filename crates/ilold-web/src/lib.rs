@@ -21,6 +21,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/project", get(api::project::get_project))
         .route("/api/project/map", get(api::project::get_project_map))
         .route("/api/project/depgraph", get(api::depgraph::get_project_depgraph))
+        .route("/api/project/connections", get(api::project::get_project_connections))
         .route("/api/project/value-flow", get(api::project::get_value_flow))
         .route("/api/project/route", get(api::project::get_route))
         .route("/api/contract/{name}/depgraph", get(api::depgraph::get_contract_depgraph))

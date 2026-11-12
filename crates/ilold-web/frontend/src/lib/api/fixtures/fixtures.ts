@@ -1,5 +1,5 @@
 // Responses written by crates/ilold-web/tests/ts_fixtures_test.rs; `npm run check` fails when a type drifts from them.
-import type { Connections, ContractDetail, CytoscapeGraph, ProjectDepGraph, ProjectMap, Routes, ValueFlowPairs, VariableInfo } from '../rest';
+import type { Connections, ContractDetail, CytoscapeGraph, ProjectConnections, ProjectDepGraph, ProjectMap, Routes, ValueFlowPairs, VariableInfo } from '../rest';
 import type { FunctionNarrative } from '../types';
 import projectMap from './project_map.json';
 import projectDepgraph from './project_depgraph.json';
@@ -21,6 +21,7 @@ import connections from './connections.json';
 import connectionsHook from './connections_hook.json';
 import route from './route.json';
 import valueFlow from './value_flow.json';
+import projectConnections from './project_connections.json';
 
 // imported JSON widens string literals, so unions of literals are compared as strings
 type Json<T> = T extends string ? string : T extends (infer U)[] ? Json<U>[] : T extends object ? { [K in keyof T]: Json<T[K]> } : T;
@@ -45,3 +46,4 @@ connections satisfies Json<Connections>;
 connectionsHook satisfies Json<Connections>;
 route satisfies Json<Routes>;
 valueFlow satisfies Json<ValueFlowPairs>;
+projectConnections satisfies Json<ProjectConnections>;

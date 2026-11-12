@@ -97,10 +97,10 @@ pub async fn dispatch(
             let c = need!(arg_str(arguments, "contract"), "contract");
             client.get(&format!("/api/contract/{}", encode_component(&c))).await
         }
-        "ilold_connections" => {
-            let c = need!(arg_str(arguments, "contract"), "contract");
-            client.get(&format!("/api/contract/{}/connections", encode_component(&c))).await
-        }
+        "ilold_connections" => match arg_str(arguments, "contract") {
+            Some(c) => client.get(&format!("/api/contract/{}/connections", encode_component(&c))).await,
+            None => client.get("/api/project/connections").await,
+        },
         "ilold_route" => {
             let from = need!(arg_str(arguments, "from"), "from");
             let to = need!(arg_str(arguments, "to"), "to");

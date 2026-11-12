@@ -82,6 +82,39 @@ async fn connections_list_the_calls_of_the_running_contract_and_into_it() {
     assert_eq!(get(port, "/contract/Nope/connections").await.0, 404);
 }
 
+fn lines(rows: &Value) -> Value {
+    rows.as_array().unwrap().iter().map(|r| json!([r["function"], r["span"]["start_line"]])).collect()
+}
+
+#[tokio::test]
+async fn project_connections_add_up_the_calls_between_each_pair_of_contracts() {
+    let port = server().await;
+    let mut body = ok(port, "/project/connections").await;
+    for list in ["pairs", "unresolved"] {
+        for entry in body[list].as_array_mut().unwrap() {
+            entry["rows"] = lines(&entry["rows"]);
+        }
+    }
+    let pair = |from: &str, to: &str, counts: [u64; 5], ambiguous: bool, rows: Value| {
+        let [calls, reads, library, via_interface, transfers] = counts;
+        json!({"from": from, "to": to, "calls": calls, "reads": reads, "library": library, "via_interface": via_interface, "transfers": transfers, "ambiguous": ambiguous, "rows": rows})
+    };
+    let counts = |contract: &str, outgoing: u64, incoming: u64| json!({"contract": contract, "outgoing_calls": outgoing, "incoming_calls": incoming});
+    let expected = json!({
+        "contracts": [counts("Curve", 5, 2), counts("DenA", 0, 1), counts("DenB", 0, 1), counts("Hook", 0, 2), counts("Router", 2, 0), counts("Token", 0, 2)],
+        "pairs": [
+            pair("Curve", "DenA", [1, 0, 0, 1, 0], true, json!([["Curve::buy", 36]])),
+            pair("Curve", "DenB", [1, 0, 0, 1, 0], true, json!([["Curve::buy", 36]])),
+            pair("Curve", "Hook", [1, 1, 0, 2, 1], false, json!([["CurveBase::_graduate", 27], ["CurveBase::_graduate", 27]])),
+            pair("Curve", "Payout", [0, 0, 1, 0, 0], false, json!([["Curve::buy", 41]])),
+            pair("Curve", "Token", [2, 0, 0, 2, 2], false, json!([["Curve::buy", 35], ["Payout::pay", 8]])),
+            pair("Router", "Curve", [1, 1, 0, 2, 1], false, json!([["Router::buyWith", 14], ["Router::quote", 18]])),
+        ],
+        "unresolved": [{"from": "Hook", "target": "IPoolManager", "rows": [["Hook::migrate", 35], ["Hook::migrate", 36]]}],
+    });
+    assert_eq!(body, expected);
+}
+
 fn hops(routes: &Value) -> Vec<Vec<Vec<(String, String, bool)>>> {
     let call = |c: &Value| (c["call"]["function"].as_str().unwrap().to_string(), c["callee"]["function"].as_str().unwrap().to_string(), c["recorded"] == true);
     let steps = |r: &Value| r["steps"].as_array().unwrap().iter().map(|s| s["calls"].as_array().unwrap().iter().map(call).collect()).collect();

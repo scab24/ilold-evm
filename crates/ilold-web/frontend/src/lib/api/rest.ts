@@ -103,6 +103,24 @@ export interface Connections {
   incoming_calls: number;
 }
 
+export interface ContractPair {
+  from: string;
+  to: string;
+  calls: number;
+  reads: number;
+  library: number;
+  via_interface: number;
+  transfers: number;
+  ambiguous: boolean;
+  rows: ContractCall[];
+}
+
+export interface ProjectConnections {
+  contracts: { contract: string; outgoing_calls: number; incoming_calls: number }[];
+  pairs: ContractPair[];
+  unresolved: { from: string; target: string; rows: ContractCall[] }[];
+}
+
 export interface RouteCall {
   call: ContractCall;
   callee: DispatchCandidate;
@@ -480,6 +498,10 @@ export interface ProjectDepGraph {
 
 export async function getProjectDepgraph(): Promise<ProjectDepGraph> {
   return body(await fetch(`${BASE}/api/project/depgraph`), 'Dependency graph unavailable');
+}
+
+export async function getProjectConnections(): Promise<ProjectConnections> {
+  return body(await fetch(`${BASE}/api/project/connections`), 'Project connections unavailable');
 }
 
 export async function getValueFlow(): Promise<ValueFlowPairs> {

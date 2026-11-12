@@ -176,7 +176,7 @@ interactive graph on the web canvas.
 
 ## links
 
-`links [contract]`
+`links [contract | --all]`
 
 Lists the calls between a contract — the current one, or the named one — and
 other contracts, function to function, as the contract runs its code: inherited
@@ -233,6 +233,36 @@ declaring contract (`CurveBase::_graduate`). The code of a project library the
 contract calls runs inside the contract, so its calls are listed as the
 contract's own (`Payout::pay`); a dependency library stays a single `library`
 row.
+
+`links --all` lists the whole project instead: every pair of a deployed
+contract and a contract answering its calls, with its calls, reads and library
+calls (a call with several candidates counted once under each), how many go
+through an interface the target inherits, the value moved and `AMBIGUOUS`; then
+the unresolved calls per interface, and the calls and reads to and from other
+contracts of each deployed contract. The project map draws the same pairs.
+
+```
+ilold[Curve]> links --all
+
+  Project connections  6 pair(s)
+    Curve → DenA  1 call  1 via interface  AMBIGUOUS
+    Curve → DenB  1 call  1 via interface  AMBIGUOUS
+    Curve → Hook  1 call, 1 read  2 via interface  moves value ×1
+    Curve → Payout  1 library call
+    Curve → Token  2 calls  2 via interface  moves value ×2
+    Router → Curve  1 call, 1 read  2 via interface  moves value ×1
+
+  Unresolved
+    Hook → IPoolManager  2 calls
+
+  Calls and reads per deployed contract
+    Curve  5 → · 2 ←
+    DenA  0 → · 1 ←
+    DenB  0 → · 1 ←
+    Hook  0 → · 2 ←
+    Router  2 → · 0 ←
+    Token  0 → · 2 ←
+```
 
 ## route
 

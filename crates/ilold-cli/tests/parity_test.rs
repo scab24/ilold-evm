@@ -486,6 +486,10 @@ async fn connections_routes_and_value_flow_are_the_same_in_every_surface() {
         sides.extend(flow["pairs"].as_array().unwrap().iter().flat_map(|p| [text(&p["from"]["kind"]), text(&p["to"]["kind"])]));
     }
     let all = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<BTreeSet<_>>();
+    let project = serde_json::to_value(relations.project_connections()).unwrap();
+    assert!(!project["pairs"].as_array().unwrap().is_empty() && !project["unresolved"].as_array().unwrap().is_empty());
+    assert_eq!(s.web("/api/project/connections").await, project, "/project/connections");
+    assert_eq!(s.mcp("ilold_connections", serde_json::json!({})).await, project, "ilold_connections");
     assert_eq!(kinds, all(&["call", "library", "read"]), "library rows are compared");
     assert_eq!(reasons, all(&["out_of_scope_interface"]), "unresolved rows are compared");
     assert_eq!(sides, all(&["contract", "declared", "expression"]), "a dependency side is compared");

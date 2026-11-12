@@ -1120,6 +1120,13 @@ fn connection_view(
         None => Ok(arg),
     };
     match cmd {
+        "links" if arg.trim() == "--all" => {
+            let project = match state {
+                Some(state) => state.relations.project_connections(),
+                None => fetch(handle, client, &format!("{base_url}/api/project/connections"), serde_json::from_value)?,
+            };
+            Ok(crate::connections_view::project_links(&project))
+        }
         "links" => {
             let target = Some(one()?).filter(|a| !a.is_empty()).unwrap_or(contract);
             let connections = match (state, key(target)?) {
@@ -2314,7 +2321,7 @@ const INLINE_HELP: &[(&[&str], &str, &str)] = &[
     (&["ct", "contracts"],"contracts [all]",                 "List the project contracts; `all` adds dependency contracts (lib/)."),
     (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on, with the ones that may answer its interface calls. Example: deps Vault"),
     (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it or may be called through an interface — the blast radius. Example: usedby IPool"),
-    (&["links"],          "links [contract]",                "Calls the code of the current (or named) contract makes to other contracts, inherited code included, grouped by the contract that may answer, then the calls into it, unresolved calls and where the called addresses are set. Example: links Vault"),
+    (&["links"],          "links [contract | --all]",        "Calls the code of the current (or named) contract makes to other contracts, inherited code included, grouped by the contract that may answer, then the calls into it, unresolved calls and where the called addresses are set; --all lists every pair of deployed contract and contract answering it with its calls, reads and library calls. Example: links Vault"),
     (&["route"],          "route <from> <to> [--reads]",     "Shortest chains of calls from one contract to another, function to function; --reads also follows view calls. Example: route Router Vault"),
     (&["value"],          "value [contract]",                "Who pays whom: value moves per running contract, by the two sides and asset; a side is a contract only where the call resolves to it. With a contract, the moves it runs or is a side of. Example: value Vault"),
     (&["use"],            "use <contract>",                  "Switch the active contract; each contract keeps its own steps. Example: use Staking"),
@@ -2598,6 +2605,27 @@ mod tests {
       Hook → IPoolManager (outside the project)  native  ×1  migrate
 
 ";
+        let project = "
+  Project connections  6 pair(s)
+    Curve → DenA  1 call  1 via interface  AMBIGUOUS
+    Curve → DenB  1 call  1 via interface  AMBIGUOUS
+    Curve → Hook  1 call, 1 read  2 via interface  moves value ×1
+    Curve → Payout  1 library call
+    Curve → Token  2 calls  2 via interface  moves value ×2
+    Router → Curve  1 call, 1 read  2 via interface  moves value ×1
+
+  Unresolved
+    Hook → IPoolManager  2 calls
+
+  Calls and reads per deployed contract
+    Curve  5 → · 2 ←
+    DenA  0 → · 1 ←
+    DenB  0 → · 1 ←
+    Hook  0 → · 2 ←
+    Router  2 → · 0 ←
+    Token  0 → · 2 ←
+
+";
         let library = "
   Payout → calls
     Token  1 call
@@ -2608,8 +2636,9 @@ mod tests {
       Curve::buy → Payout::pay  library  line 41
 
 ";
-        let expected: [(&str, Result<&str, &str>); 9] = [
+        let expected: [(&str, Result<&str, &str>); 10] = [
             ("links", Ok(links)),
+            ("links --all", Ok(project)),
             ("links Hook", Ok(hook)),
             ("links Payout", Ok(library)),
             ("route Router Hook --reads", Ok(route)),

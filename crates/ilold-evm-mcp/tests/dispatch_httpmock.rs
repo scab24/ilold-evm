@@ -379,6 +379,10 @@ async fn connection_route_and_value_flow_tools_route_to_their_endpoints() {
         w.method(GET).path("/api/contract/src%2Fa%20b%2FT%26U.sol:T/connections");
         t.status(200).json_body(json!({ "contract": id, "outgoing": [], "incoming": [], "unresolved": [], "assignments": [] }));
     });
+    let project = server.mock(|w, t| {
+        w.method(GET).path("/api/project/connections");
+        t.status(200).json_body(json!({ "contracts": [], "pairs": [], "unresolved": [] }));
+    });
     let route = server.mock(|w, t| {
         w.method(GET).path("/api/project/route").query_param("from", id).query_param("to", "Hook").query_param("reads", "false");
         t.status(200).json_body(json!({ "routes": [], "truncated": false }));
@@ -401,6 +405,8 @@ async fn connection_route_and_value_flow_tools_route_to_their_endpoints() {
 
     ok(dispatch(&client, &current, "ilold_connections", Some(&json!({ "contract": id }))).await);
     connections.assert();
+    ok(dispatch(&client, &current, "ilold_connections", Some(&json!({}))).await);
+    project.assert();
     ok(dispatch(&client, &current, "ilold_route", Some(&json!({ "from": id, "to": "Hook" }))).await);
     route.assert();
     ok(dispatch(&client, &current, "ilold_route", Some(&json!({ "from": "Router", "to": "Hook", "include_reads": true }))).await);
@@ -410,8 +416,8 @@ async fn connection_route_and_value_flow_tools_route_to_their_endpoints() {
     ok(dispatch(&client, &current, "ilold_value_flow", Some(&json!({ "contract": id }))).await);
     flow_of.assert();
 
-    for (tool, args) in [("ilold_connections", json!({})), ("ilold_route", json!({ "from": "Router" })), ("ilold_route", json!({ "to": "Hook" }))] {
+    for (tool, args) in [("ilold_route", json!({ "from": "Router" })), ("ilold_route", json!({ "to": "Hook" }))] {
         assert_eq!(dispatch(&client, &current, tool, Some(&args)).await.is_error, Some(true), "{tool} {args}");
     }
-    assert_eq!(connections.hits() + route.hits() + route_reads.hits(), 3, "no request without the required arguments");
+    assert_eq!(project.hits() + route.hits() + route_reads.hits(), 3, "no request without the required arguments");
 }

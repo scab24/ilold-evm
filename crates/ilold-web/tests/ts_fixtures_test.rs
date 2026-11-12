@@ -41,6 +41,7 @@ const RESPONSES: &[(&str, &[(&str, &str)])] = &[
             ("connections_hook", "/contract/Hook/connections"),
             ("route", "/project/route?from=Router&to=Hook&reads=true"),
             ("value_flow", "/project/value-flow"),
+            ("project_connections", "/project/connections"),
         ],
     ),
 ];

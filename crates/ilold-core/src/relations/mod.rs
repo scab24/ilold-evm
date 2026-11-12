@@ -172,6 +172,40 @@ pub struct Connections {
     pub incoming_calls: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractPair {
+    pub from: String,
+    pub to: String,
+    pub calls: usize,
+    pub reads: usize,
+    pub library: usize,
+    pub via_interface: usize,
+    pub transfers: usize,
+    pub ambiguous: bool,
+    pub rows: Vec<ContractCall>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnresolvedCalls {
+    pub from: String,
+    pub target: String,
+    pub rows: Vec<ContractCall>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallCounts {
+    pub contract: String,
+    pub outgoing_calls: usize,
+    pub incoming_calls: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectConnections {
+    pub contracts: Vec<CallCounts>,
+    pub pairs: Vec<ContractPair>,
+    pub unresolved: Vec<UnresolvedCalls>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Relations {
     /// Sorted by context, then target.
@@ -311,16 +345,70 @@ impl Relations {
         vias.dedup();
         let mut transfers: Vec<ValueTransfer> = made.iter().chain(self.calls_into(contract)).flat_map(|c| self.transfers_at(c)).cloned().collect();
         transfers.sort_by(|a, b| (&a.in_context, &a.function, a.span).cmp(&(&b.in_context, &b.function, b.span)));
-        let to_contracts = |c: &&ContractCall| matches!(c.kind, ContractCallKind::Call | ContractCallKind::Read) && !c.callees.is_empty();
         Connections {
-            outgoing_calls: made.iter().filter(to_contracts).count(),
-            incoming_calls: self.calls_into(contract).filter(to_contracts).count(),
+            outgoing_calls: made.iter().filter(|c| to_contracts(c)).count(),
+            incoming_calls: self.calls_into(contract).filter(|c| to_contracts(c)).count(),
             contract: contract.to_string(),
             outgoing,
             incoming,
             unresolved: made.iter().filter(|c| c.callees.is_empty()).cloned().collect(),
             assignments: vias.into_iter().flat_map(|v| self.assignments(v)).cloned().collect(),
             transfers,
+        }
+    }
+
+    pub fn project_connections(&self) -> ProjectConnections {
+        let mut pairs: BTreeMap<(&str, &str), ContractPair> = BTreeMap::new();
+        let mut unresolved: BTreeMap<(&str, &str), Vec<ContractCall>> = BTreeMap::new();
+        for call in self.calls.iter().filter(|c| self.deploys(&c.in_context)) {
+            if call.callees.is_empty() {
+                let target = call.target.as_deref().map_or("", |t| t.split_once("::").map_or(t, |(contract, _)| contract));
+                unresolved.entry((&call.in_context, target)).or_default().push(call.clone());
+                continue;
+            }
+            let mut answering: Vec<&str> = call.callees.iter().map(|d| d.contract.as_str()).filter(|c| *c != call.in_context).collect();
+            answering.sort_unstable();
+            answering.dedup();
+            for to in answering {
+                let pair = pairs.entry((&call.in_context, to)).or_insert_with(|| ContractPair {
+                    from: call.in_context.clone(),
+                    to: to.to_string(),
+                    calls: 0,
+                    reads: 0,
+                    library: 0,
+                    via_interface: 0,
+                    transfers: 0,
+                    ambiguous: false,
+                    rows: Vec::new(),
+                });
+                match call.kind {
+                    ContractCallKind::Call => pair.calls += 1,
+                    ContractCallKind::Read => pair.reads += 1,
+                    ContractCallKind::Library => pair.library += 1,
+                    ContractCallKind::SelfCall => {}
+                }
+                let candidates = call.callees.iter().filter(|d| d.contract == to);
+                if candidates.clone().any(|d| d.basis == Basis::InheritsInterface) {
+                    pair.via_interface += 1;
+                }
+                pair.ambiguous |= candidates.clone().any(|d| d.tag == Tag::Ambiguous);
+                pair.transfers += call.transfers.len();
+                pair.rows.push(call.clone());
+            }
+        }
+        let contracts = self
+            .deployed
+            .iter()
+            .map(|c| CallCounts {
+                contract: c.clone(),
+                outgoing_calls: self.calls_from(c).iter().filter(|c| to_contracts(c)).count(),
+                incoming_calls: self.calls_into(c).filter(|c| to_contracts(c)).count(),
+            })
+            .collect();
+        ProjectConnections {
+            contracts,
+            pairs: pairs.into_values().collect(),
+            unresolved: unresolved.into_iter().map(|((from, target), rows)| UnresolvedCalls { from: from.to_string(), target: target.to_string(), rows }).collect(),
         }
     }
 
@@ -336,6 +424,10 @@ impl Relations {
         let transfers = self.values.transfers.iter().filter(|t| ids.contains(&(t.in_context.as_str(), t.id.as_str()))).cloned().collect();
         ValueFlowPairs { contract: contract.map(str::to_string), pairs, transfers }
     }
+}
+
+fn to_contracts(call: &ContractCall) -> bool {
+    matches!(call.kind, ContractCallKind::Call | ContractCallKind::Read) && !call.callees.is_empty()
 }
 
 fn run_of<T>(sorted: &[T], order: impl Fn(&T) -> Ordering) -> &[T] {

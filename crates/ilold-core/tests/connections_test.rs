@@ -345,6 +345,37 @@ fn connections_group_the_running_contract_calls_by_the_other_contract() {
 }
 
 #[test]
+fn project_connections_add_up_each_pair_of_a_deployed_contract_and_a_contract_answering_it() {
+    let relations = &analysis().relations;
+    let project = relations.project_connections();
+    let pairs: Vec<(&str, &str, [usize; 5], bool, Vec<u32>)> = project
+        .pairs
+        .iter()
+        .map(|p| (p.from.as_str(), p.to.as_str(), [p.calls, p.reads, p.library, p.via_interface, p.transfers], p.ambiguous, p.rows.iter().map(|r| r.span.start_line).collect()))
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![
+            ("Router", "ExtLib", [0, 0, 1, 0, 0], false, vec![21]),
+            ("Router", "Fees", [0, 0, 1, 0, 0], false, vec![17]),
+            ("Router", "HookA", [2, 0, 0, 2, 0], true, vec![19, 26]),
+            ("Router", "HookB", [2, 0, 0, 2, 0], true, vec![19, 26]),
+            ("Router", "Vault", [1, 1, 0, 2, 0], false, vec![18, 19]),
+        ],
+        "the abstract Base and its own self call make no pair"
+    );
+    let unresolved: Vec<(&str, &str, Vec<&str>)> =
+        project.unresolved.iter().map(|u| (u.from.as_str(), u.target.as_str(), u.rows.iter().map(|r| r.function.as_str()).collect())).collect();
+    assert_eq!(unresolved, vec![("Router", "IExt", vec!["ExtBase::poke"])]);
+    let counts: Vec<(&str, usize, usize)> = project.contracts.iter().map(|c| (c.contract.as_str(), c.outgoing_calls, c.incoming_calls)).collect();
+    assert_eq!(counts, vec![("HookA", 0, 2), ("HookB", 0, 2), ("Router", 4, 0), ("Vault", 0, 2)]);
+    for c in &project.contracts {
+        let one = relations.connections(&c.contract);
+        assert_eq!((one.outgoing_calls, one.incoming_calls), (c.outgoing_calls, c.incoming_calls), "{}", c.contract);
+    }
+}
+
+#[test]
 fn connections_carry_where_the_called_addresses_are_set() {
     let analysis = ProjectAnalysis::build(&parse("connections-ctor", CONSTRUCTORS), &AnalysisParams::new(1));
     let child = analysis.relations.connections("Child");

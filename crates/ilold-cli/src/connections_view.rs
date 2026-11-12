@@ -1,8 +1,8 @@
 use std::fmt::Write;
 
 use ilold_core::relations::{
-    AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, RouteCall, Routes, Tag, ValueFlowPairs, ValueReason,
-    ValueTransfer,
+    AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, ProjectConnections, RouteCall, Routes, Tag, ValueFlowPairs,
+    ValueReason, ValueTransfer,
 };
 
 use crate::colors::*;
@@ -161,6 +161,50 @@ pub fn value(flow: &ValueFlowPairs) -> String {
         let asset = asset(pair.asset_kind, pair.reason, pair.token_expr.as_deref());
         let functions = pair.functions.iter().map(|f| local(f, &pair.in_context)).collect::<Vec<_>>().join(", ");
         writeln!(out, "      {} → {}  {}  ×{}  {}", party(&pair.from), party(&pair.to), c_warn(&asset), pair.transfers.len(), c_muted(&functions)).ok();
+    }
+    out.push('\n');
+    out
+}
+
+fn counted(n: usize, one: &str, many: &str) -> Option<String> {
+    match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {many}")),
+    }
+}
+
+pub fn project_links(p: &ProjectConnections) -> String {
+    let mut out = String::new();
+    writeln!(out, "\n  {}  {}", c_bright("Project connections"), c_muted(&format!("{} pair(s)", p.pairs.len()))).ok();
+    if p.pairs.is_empty() {
+        writeln!(out, "    {}", c_muted("no deployed contract calls another")).ok();
+    }
+    for pair in &p.pairs {
+        let kinds: Vec<String> =
+            [counted(pair.calls, "call", "calls"), counted(pair.reads, "read", "reads"), counted(pair.library, "library call", "library calls")].into_iter().flatten().collect();
+        let mut row = format!("{} → {}  {}", pair.from, pair.to, kinds.join(", "));
+        if pair.via_interface > 0 {
+            write!(row, "  {}", c_muted(&format!("{} via interface", pair.via_interface))).ok();
+        }
+        if pair.transfers > 0 {
+            write!(row, "  {}", c_warn(&format!("moves value ×{}", pair.transfers))).ok();
+        }
+        if pair.ambiguous {
+            write!(row, "  {}", c_danger("AMBIGUOUS")).ok();
+        }
+        writeln!(out, "    {row}").ok();
+    }
+    if !p.unresolved.is_empty() {
+        writeln!(out, "\n  {}", c_bright("Unresolved")).ok();
+        for u in &p.unresolved {
+            let calls = counted(u.rows.len(), "call", "calls").unwrap_or_default();
+            writeln!(out, "    {} → {}  {calls}", u.from, u.target).ok();
+        }
+    }
+    writeln!(out, "\n  {}", c_bright("Calls and reads per deployed contract")).ok();
+    for c in &p.contracts {
+        writeln!(out, "    {}  {}", c.contract, c_muted(&format!("{} → · {} ←", c.outgoing_calls, c.incoming_calls))).ok();
     }
     out.push('\n');
     out

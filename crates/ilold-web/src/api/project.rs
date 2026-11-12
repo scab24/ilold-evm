@@ -5,7 +5,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use ilold_core::model::contract::ContractDef;
-use ilold_core::relations::{routes, Basis, DispatchCandidate, Routes, Tag, UnresolvedReason, ValueFlowPairs};
+use ilold_core::relations::{routes, Basis, DispatchCandidate, ProjectConnections, Routes, Tag, UnresolvedReason, ValueFlowPairs};
 
 use crate::api::contract::{edge_dispatch, route_contract};
 use crate::api::ApiError;
@@ -81,6 +81,10 @@ pub async fn get_project(
     })
 }
 
+
+pub async fn get_project_connections(State(state): State<Arc<AppState>>) -> Json<ProjectConnections> {
+    Json(state.relations.project_connections())
+}
 
 #[derive(Deserialize)]
 pub struct ValueFlowQuery {
