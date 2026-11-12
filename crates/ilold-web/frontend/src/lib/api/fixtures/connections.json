@@ -102,6 +102,7 @@
       "contract": "Router"
     }
   ],
+  "incoming_calls": 2,
   "outgoing": [
     {
       "calls": [
@@ -329,6 +330,7 @@
       "contract": "Token"
     }
   ],
+  "outgoing_calls": 5,
   "transfers": [
     {
       "amount_expr": "msg.value",

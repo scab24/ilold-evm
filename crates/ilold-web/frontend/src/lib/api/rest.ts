@@ -109,6 +109,10 @@ export interface Connections {
   assignments: AssignmentSite[];
   /** The value transfers the listed calls make, identified by `in_context` and `id`. */
   transfers: ValueTransfer[];
+  /** Calls and reads it makes that other contracts may answer, an AMBIGUOUS one once. */
+  outgoing_calls: number;
+  /** Calls and reads into it from other deployed contracts. */
+  incoming_calls: number;
 }
 
 export interface RouteCall {

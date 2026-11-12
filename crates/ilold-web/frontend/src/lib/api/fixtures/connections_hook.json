@@ -76,7 +76,9 @@
       "contract": "Curve"
     }
   ],
+  "incoming_calls": 2,
   "outgoing": [],
+  "outgoing_calls": 0,
   "transfers": [
     {
       "amount_expr": "address(this).balance",

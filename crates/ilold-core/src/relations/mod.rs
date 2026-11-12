@@ -188,6 +188,10 @@ pub struct Connections {
     pub assignments: Vec<AssignmentSite>,
     /// The value transfers the listed calls make, sorted by context, then function, then position.
     pub transfers: Vec<ValueTransfer>,
+    /// Calls and reads it makes that other contracts may answer, an AMBIGUOUS one once.
+    pub outgoing_calls: usize,
+    /// Calls and reads into it from other deployed contracts.
+    pub incoming_calls: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -345,7 +349,10 @@ impl Relations {
         vias.dedup();
         let mut transfers: Vec<ValueTransfer> = made.iter().chain(self.calls_into(contract)).flat_map(|c| self.transfers_at(c)).cloned().collect();
         transfers.sort_by(|a, b| (&a.in_context, &a.function, a.span).cmp(&(&b.in_context, &b.function, b.span)));
+        let to_contracts = |c: &&ContractCall| matches!(c.kind, ContractCallKind::Call | ContractCallKind::Read) && !c.callees.is_empty();
         Connections {
+            outgoing_calls: made.iter().filter(to_contracts).count(),
+            incoming_calls: self.calls_into(contract).filter(to_contracts).count(),
             contract: contract.to_string(),
             outgoing,
             incoming,

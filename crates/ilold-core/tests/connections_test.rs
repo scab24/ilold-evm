@@ -340,6 +340,8 @@ fn connections_group_the_running_contract_calls_by_the_other_contract() {
     let vault = analysis().relations.connections("Vault");
     assert!(vault.outgoing.is_empty() && vault.unresolved.is_empty());
     assert_eq!(groups(&vault.incoming), vec![("Router", 2)]);
+    assert_eq!((router.outgoing_calls, router.incoming_calls), (4, 0), "an ambiguous call once, library, self and unresolved calls not");
+    assert_eq!((vault.outgoing_calls, vault.incoming_calls), (0, 2));
     let base = analysis().relations.connections("Base");
     assert_eq!(groups(&base.outgoing), vec![("Base", 1), ("ExtLib", 1), ("Fees", 1), ("HookA", 1), ("HookB", 1), ("Vault", 2)]);
 }

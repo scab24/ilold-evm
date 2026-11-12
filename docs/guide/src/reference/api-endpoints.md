@@ -230,6 +230,7 @@ Returns the calls between this contract and others as the contract runs its code
 - `incoming`: the calls into the contract, grouped per other deployed contract running the calling code; abstract contracts and libraries call only inside the contracts running their code. Viewed directly, they still list their own calls in `outgoing`.
 - `unresolved`: the calls nothing in the project answers, with their `unresolved_reason`.
 - `assignments`: where the state variables named in `via` are set, as `assigned_at` in the [call graph](#get-apicontractnamecallgraph).
+- `outgoing_calls` and `incoming_calls`: how many calls and reads it makes that other contracts may answer, an ambiguous call once, and how many other deployed contracts make into it; library, `this` and unresolved calls are not counted.
 - `transfers`: the value transfers the listed calls make, in the shape of the `transfers` of [`GET /api/project/value-flow`](#get-apiprojectvalue-flow), identified by `in_context` and `id`.
 
 ### GET /api/contract/{name}/depgraph
