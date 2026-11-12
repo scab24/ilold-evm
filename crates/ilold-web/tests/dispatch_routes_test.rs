@@ -74,3 +74,39 @@ async fn the_project_map_and_the_dependency_graph_read_the_same_links() {
     let vault = deps["edges"].as_array().unwrap().iter().find(|e| e["data"]["target"] == "Vault").unwrap();
     assert!(vault["data"]["kinds"].as_array().unwrap().contains(&json!("dispatches")), "{vault}");
 }
+
+const OVERRIDES: &str = "pragma solidity 0.8.28;
+interface IHook { function ping() external; function pong() external; }
+contract Hook is IHook { function ping() external {} function pong() external {} }
+abstract contract Base {
+    IHook public hook;
+    constructor(IHook h) { hook = h; hook.pong(); }
+    modifier gate() virtual { hook.ping(); _; }
+    function run() public gate { hook.pong(); }
+}
+contract Child is Base {
+    constructor(IHook h) Base(h) {}
+    modifier gate() override { _; }
+}
+";
+
+#[tokio::test]
+async fn call_graph_assignments_follow_the_code_the_contract_runs() {
+    let root = std::env::temp_dir().canonicalize().unwrap().join(format!("ilold-web-overrides-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("foundry.toml"), "[profile.default]\nsrc = 'src'\nlibs = []\nsolc_version = '0.8.28'\nauto_detect_remappings = false\n").unwrap();
+    std::fs::write(root.join("src/Overrides.sol"), OVERRIDES).unwrap();
+    let (_state, port) = ilold_web::start_server(vec![root.clone()], 0, 2).await.unwrap();
+    std::fs::remove_dir_all(&root).unwrap();
+    let (client, base) = (reqwest::Client::new(), format!("http://127.0.0.1:{port}/api"));
+    let sites = |graph: &Value, source: &str, target: &str| -> Vec<String> {
+        let edge = graph["edges"].as_array().unwrap().iter().find(|e| e["data"]["source"] == source && e["data"]["target"] == target).unwrap();
+        edge["data"]["assigned_at"].as_array().unwrap().iter().map(|a| a["function"].as_str().unwrap().to_string()).collect()
+    };
+    let child = get(&client, format!("{base}/contract/Child/callgraph")).await;
+    assert_eq!(sites(&child, "Base::constructor", "IHook::pong"), ["Base::constructor"], "a base constructor runs in the deploying contract");
+    assert_eq!(sites(&child, "Base::run", "IHook::pong"), ["Base::constructor"]);
+    assert!(sites(&child, "Base::run", "IHook::ping").is_empty(), "the overridden modifier's call does not run in Child");
+    let own = get(&client, format!("{base}/contract/Base/callgraph")).await;
+    assert_eq!(sites(&own, "Base::run", "IHook::ping"), ["Base::constructor"]);
+}

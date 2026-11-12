@@ -22,7 +22,7 @@ use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::sequence::effects::{reachable, resolve_call, CallSite};
 
-pub use dispatch::{call_target, external_calls, ExternalCallSite};
+pub use dispatch::call_target;
 pub use keys::{key_kinds, storage_accesses, AccessKey, AccessKind, KeyKind, KeySite, KeysReason, RecordKeys, StorageAccess};
 pub use phases::{phase_candidates, PhaseCandidate};
 pub use route::{routes, Route, RouteCall, RouteStep, Routes};

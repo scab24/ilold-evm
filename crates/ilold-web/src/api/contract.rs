@@ -15,9 +15,8 @@ use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
 use ilold_core::relations::{
-    declared_target, external_calls, key_kinds, phase_candidates, storage_accesses, try_catches, value_flows, AssignmentSite,
-    BalanceRead, ContractLink, Dispatch, DispatchCandidate, KeyKind, PhaseCandidate, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow,
-    ValueTransfer,
+    declared_target, key_kinds, phase_candidates, storage_accesses, try_catches, value_flows, AssignmentSite, BalanceRead, ContractCallKind,
+    ContractLink, Dispatch, DispatchCandidate, KeyKind, PhaseCandidate, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow, ValueTransfer,
 };
 use ilold_core::sequence::types::SequencePage;
 use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
@@ -266,12 +265,15 @@ pub(crate) fn edge_dispatch(state: &AppState, context: &ContractDef, kind: CallK
     Some(state.relations.dispatch(&state.project, context, kind, declared.as_deref()).into_owned())
 }
 
-/// The assignments of every state variable `source` calls `dispatch`'s target through.
-fn edge_assignments(state: &AppState, source: &CallNode, kind: CallKind, dispatch: &Dispatch) -> Vec<AssignmentSite> {
-    let Ok(owner) = state.project.lookup_contract(&source.contract) else { return Vec::new() };
-    let Some(cfg) = state.cfgs.get(&(source.contract.clone(), source.key.clone())) else { return Vec::new() };
+/// The assignments of every state variable `source` calls `dispatch`'s target through, as `context` runs it.
+fn edge_assignments(state: &AppState, context: &ContractDef, source: &CallNode, kind: CallKind, dispatch: &Dispatch) -> Vec<AssignmentSite> {
+    let function = source.id();
+    let self_call = kind == CallKind::ExternalSelf;
+    let made = state.relations.calls_from(context.key()).iter().filter(|c| {
+        c.function == function && c.kind != ContractCallKind::Library && (c.kind == ContractCallKind::SelfCall) == self_call && c.target == dispatch.target
+    });
     let mut sites: Vec<AssignmentSite> = Vec::new();
-    for call in external_calls(&state.project, owner, cfg).into_iter().filter(|c| c.kind == kind && c.target == dispatch.target) {
+    for call in made {
         for site in call.via.as_deref().map(|v| state.relations.assignments(v)).unwrap_or_default() {
             if !sites.contains(site) {
                 sites.push(site.clone());
@@ -333,7 +335,7 @@ pub async fn get_callgraph(
                     call_count: edge.call_count,
                     kind_label: Some(edge.kind.label().to_string()),
                     static_target: edge.static_target.clone(),
-                    assigned_at: dispatch.as_ref().map(|d| edge_assignments(&state, &cg[src], edge.kind, d)),
+                    assigned_at: dispatch.as_ref().map(|d| edge_assignments(&state, contract, &cg[src], edge.kind, d)),
                     unresolved_reason: dispatch.as_ref().and_then(|d| d.unresolved_reason),
                     dispatch_candidates: dispatch.map(|d| d.candidates),
                 },

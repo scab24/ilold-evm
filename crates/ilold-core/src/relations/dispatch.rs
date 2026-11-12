@@ -164,18 +164,13 @@ fn context_of(owner: &ContractDef, kind: CallKind) -> Option<String> {
     (kind == CallKind::ExternalSelf).then(|| owner.key().to_string())
 }
 
-/// An external call to a contract in a function's reachable code.
-pub struct ExternalCallSite {
-    pub kind: CallKind,
-    pub target: Option<String>,
-    pub span: Option<SourceSpan>,
+/// An external call to a contract.
+struct ExternalCallSite {
+    kind: CallKind,
+    target: Option<String>,
+    span: Option<SourceSpan>,
     /// `<contract key>::<name>` of the state variable holding the called address.
-    pub via: Option<String>,
-}
-
-/// `context` declares the code `cfg` runs.
-pub fn external_calls(project: &Project, context: &ContractDef, cfg: &CfgGraph) -> Vec<ExternalCallSite> {
-    reachable(cfg).into_iter().flat_map(|n| cfg[n].statements.iter()).filter_map(|stmt| external_site(project, context, stmt)).collect()
+    via: Option<String>,
 }
 
 fn external_site(project: &Project, context: &ContractDef, stmt: &CfgStatement) -> Option<ExternalCallSite> {
