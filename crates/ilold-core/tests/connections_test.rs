@@ -276,3 +276,48 @@ fn overridden_code_runs_in_the_inheriting_contract_only_where_its_code_calls_it(
         analysis.relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str(), l.calls.len())).collect();
     assert_eq!(links, vec![("Mid", "Vault", 2)], "links stay per declaring contract");
 }
+
+const CONSTRUCTORS: &[(&str, &str)] = &[
+    (SOURCES[0].0, SOURCES[0].1),
+    (SOURCES[1].0, SOURCES[1].1),
+    (
+        "lib/ext/Ext.sol",
+        "pragma solidity 0.8.28;
+interface IExt { function ping() external; }
+abstract contract ExtBase {
+    IExt public ext;
+    constructor(IExt e) { ext = e; ext.ping(); }
+}
+",
+    ),
+    (
+        "src/Ctor.sol",
+        "pragma solidity 0.8.28;
+import {ExtBase, IExt} from '@ext/Ext.sol';
+interface IVault { function init() external; }
+contract Vault is IVault { function init() external {} }
+abstract contract Base {
+    IVault public vault;
+    constructor(IVault v) { vault = v; vault.init(); }
+}
+contract Child is Base, ExtBase {
+    constructor(IVault v, IExt e) Base(v) ExtBase(e) {}
+}
+",
+    ),
+];
+
+#[test]
+fn every_base_constructor_runs_in_the_deploying_contract() {
+    let analysis = ProjectAnalysis::build(&parse("constructors", CONSTRUCTORS), &AnalysisParams::new(1));
+    assert_eq!(
+        rows_of(&analysis, "Child"),
+        vec![
+            row("Base::constructor", ContractCallKind::Call, vec![callee("Vault::init", "Vault", Tag::Inferred)], None, Some("Base::vault")),
+            row("ExtBase::constructor", ContractCallKind::Call, vec![], Some(UnresolvedReason::OutOfScopeInterface), Some("ExtBase::ext")),
+        ]
+    );
+    let links: Vec<(&str, &str, usize)> =
+        analysis.relations.links.iter().map(|l| (l.from_contract.as_str(), l.to_contract.as_str(), l.calls.len())).collect();
+    assert_eq!(links, vec![("Base", "Vault", 1)], "links stay per declaring contract");
+}

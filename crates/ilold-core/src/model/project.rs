@@ -291,6 +291,19 @@ impl Project {
         candidates().find(|(_, f)| f.body.is_some()).or_else(|| candidates().next())
     }
 
+    /// What a deployed contract runs from: every constructor in its linearization, each base's included, and the implementation of each signature.
+    pub fn running_functions<'a>(&'a self, contract: &'a ContractDef) -> Vec<(&'a ContractDef, &'a FunctionDef)> {
+        let linearization = self.linearization(contract);
+        let implements = |c: &ContractDef, f: &FunctionDef| {
+            self.implementation(&linearization, f.match_signature(), None).is_some_and(|(ic, i_f)| std::ptr::eq(ic, c) && std::ptr::eq(i_f, f))
+        };
+        linearization
+            .iter()
+            .flat_map(|c| c.functions.iter().map(move |f| (*c, f)))
+            .filter(|(c, f)| f.kind == FunctionKind::Constructor || implements(c, f))
+            .collect()
+    }
+
     /// Own functions, then inherited non-private ones in linearization order; getter-implemented interface functions are not listed.
     pub fn accessible_functions<'a>(&'a self, contract: &'a ContractDef) -> Vec<AccessibleFunction<'a>> {
         let mut seen: HashSet<&str> = HashSet::new();

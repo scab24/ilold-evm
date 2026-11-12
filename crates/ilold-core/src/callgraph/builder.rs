@@ -6,7 +6,7 @@ use crate::cfg::builder::CfgBuilder;
 use crate::cfg::types::CfgStatement;
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::DeclId;
-use crate::model::function::{FunctionDef, FunctionKind, Mutability, Visibility};
+use crate::model::function::{FunctionDef, Mutability, Visibility};
 use crate::model::project::Project;
 use crate::util::is_type_cast;
 
@@ -24,20 +24,7 @@ pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph 
         queued: HashSet::new(),
     };
 
-    let visible: Vec<(&ContractDef, &FunctionDef)> = builder
-        .linearization
-        .iter()
-        .flat_map(|c| c.functions.iter().map(move |f| (*c, f)))
-        .filter(|(c, f)| {
-            // constructors are not inherited or overridden; each base constructor runs
-            f.kind == FunctionKind::Constructor
-                || builder
-                    .project
-                    .implementation(&builder.linearization, f.match_signature(), None)
-                    .is_some_and(|(ic, i_f)| std::ptr::eq(ic, *c) && std::ptr::eq(i_f, *f))
-        })
-        .collect();
-    for (c, f) in visible {
+    for (c, f) in project.running_functions(contract) {
         builder.function_node(c, f);
     }
 

@@ -17,7 +17,7 @@ use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::{DeclId, DeclTable};
 use crate::model::expression::CallKind;
-use crate::model::function::{FunctionDef, FunctionKind};
+use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::model::source::ValueSource;
 use crate::sequence::effects::{reachable, resolve_call, CallSite};
@@ -182,7 +182,7 @@ pub(crate) struct Running<'p> {
     pub cfg: Cow<'p, CfgGraph>,
 }
 
-/// Each analysed function in its own contract, then in every project contract that runs it each inherited one, private helpers included, and each overridden one its code still calls, as through `super`.
+/// Each analysed function in its own contract, then in every project contract each base function it runs: base constructors, inherited code with private helpers, and overridden code its code still calls, as through `super`.
 fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGraph>) -> Vec<Running<'p>> {
     let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
     keys.sort();
@@ -193,23 +193,16 @@ fn running<'p>(project: &'p Project, cfgs: &'p HashMap<(String, String), CfgGrap
         units.push(Running { context: owner, owner, func, cfg: Cow::Borrowed(&cfgs[key]) });
     }
     for context in project.project_contracts() {
-        let mut seen: HashSet<&str> = context.functions.iter().map(FunctionDef::match_signature).collect();
-        for owner in project.linearization(context).into_iter().skip(1) {
-            for func in owner.functions.iter().filter(|f| f.kind != FunctionKind::Constructor) {
-                if !seen.insert(func.match_signature()) {
-                    continue;
-                }
-                let Some(cfg) = context_cfg(project, cfgs, context, owner, func) else { continue };
-                units.push(Running { context, owner, func, cfg });
-            }
+        for (owner, func) in project.running_functions(context).into_iter().filter(|(owner, _)| !std::ptr::eq(*owner, context)) {
+            let Some(cfg) = context_cfg(project, cfgs, context, owner, func) else { continue };
+            units.push(Running { context, owner, func, cfg });
         }
         let bases = &project.linearization(context)[1..];
         let mut pending: Vec<usize> = (0..units.len()).filter(|&i| std::ptr::eq(units[i].context, context)).collect();
         let mut runs: HashSet<(&str, &str)> = pending.iter().map(|&i| (units[i].owner.key(), units[i].func.key.as_str())).collect();
         while let Some(i) = pending.pop() {
             for (owner, func) in internal_callees(project, &units[i]) {
-                let base = func.kind != FunctionKind::Constructor && bases.iter().any(|b| std::ptr::eq(*b, owner));
-                if !base || !runs.insert((owner.key(), func.key.as_str())) {
+                if !bases.iter().any(|b| std::ptr::eq(*b, owner)) || !runs.insert((owner.key(), func.key.as_str())) {
                     continue;
                 }
                 let Some(cfg) = context_cfg(project, cfgs, context, owner, func) else { continue };
