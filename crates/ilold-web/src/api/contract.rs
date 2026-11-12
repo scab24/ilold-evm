@@ -43,7 +43,7 @@ pub struct ContractDetail {
     pub outgoing_links: Vec<ContractLink>,
     /// The calls into it from every contract running the calling code.
     pub incoming_links: Vec<ContractLink>,
-    /// The transfers of its own and inherited functions as it runs them, summed by direction, asset and counterparty.
+    /// The transfers of the code it runs, inherited and project library code included, summed by direction, asset and counterparty.
     pub value_flows: Vec<ValueFlow>,
     /// Variables that gate which of its entry points can run; none unless it is a deployable project contract.
     pub phase_candidates: Vec<PhaseCandidate>,
@@ -175,7 +175,6 @@ pub async fn get_contract(
         .map(|af| summary(af.owner, af.function))
         .collect();
     let behaviors = state.sequence_analyses.get(contract.key()).map(|s| s.functions.as_slice()).unwrap_or_default();
-    let transfers: Vec<ValueTransfer> = functions.iter().chain(&inherited_functions).flat_map(|f| f.value_transfers.iter().cloned()).collect();
     let (outgoing_links, incoming_links) = state.relations.context_links(contract.key());
     // storage order, most base contract first
     let inherited_state_vars = state.project
@@ -199,7 +198,7 @@ pub async fn get_contract(
         inherited_state_vars,
         outgoing_links,
         incoming_links,
-        value_flows: value_flows(&transfers),
+        value_flows: value_flows(state.relations.values_of(contract.key())),
         phase_candidates: phase_candidates(&state.project, contract, behaviors),
     }))
 }

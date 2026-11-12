@@ -7,6 +7,7 @@ mod trycatch;
 mod value;
 
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -284,22 +285,20 @@ impl Relations {
 
     /// The calls the code `context` runs makes, its inherited code included.
     pub fn calls_from(&self, context: &str) -> &[ContractCall] {
-        let start = self.calls.partition_point(|c| c.in_context.as_str() < context);
-        let end = self.calls.partition_point(|c| c.in_context.as_str() <= context);
-        &self.calls[start..end]
+        run_of(&self.calls, |c| c.in_context.as_str().cmp(context))
+    }
+
+    /// The value transfers of the code `context` runs, its inherited and project library code included.
+    pub fn values_of(&self, context: &str) -> &[ValueTransfer] {
+        run_of(&self.values.transfers, |t| t.in_context.as_str().cmp(context))
     }
 
     /// What `function` (`<contract key>::<function key>`) moves and reads as `context` runs it.
     pub fn values(&self, context: &str, function: &str) -> ValueFacts {
-        fn of<'a, T>(facts: &'a [T], key: impl Fn(&T) -> (&str, &str), wanted: (&str, &str)) -> &'a [T] {
-            let start = facts.partition_point(|f| key(f) < wanted);
-            let end = facts.partition_point(|f| key(f) <= wanted);
-            &facts[start..end]
-        }
         let wanted = (context, function);
         ValueFacts {
-            transfers: of(&self.values.transfers, |t| (&t.in_context, &t.function), wanted).to_vec(),
-            balance_reads: of(&self.values.balance_reads, |r| (&r.in_context, &r.function), wanted).to_vec(),
+            transfers: run_of(&self.values.transfers, |t| (t.in_context.as_str(), t.function.as_str()).cmp(&wanted)).to_vec(),
+            balance_reads: run_of(&self.values.balance_reads, |r| (r.in_context.as_str(), r.function.as_str()).cmp(&wanted)).to_vec(),
         }
     }
 
@@ -344,6 +343,13 @@ impl Relations {
         let transfers = self.values.transfers.iter().filter(|t| ids.contains(&(t.in_context.as_str(), t.id.as_str()))).cloned().collect();
         ValueFlowPairs { pairs, transfers }
     }
+}
+
+/// The facts of `sorted` that `order`, comparing a fact's key with the wanted one, finds equal.
+fn run_of<T>(sorted: &[T], order: impl Fn(&T) -> Ordering) -> &[T] {
+    let start = sorted.partition_point(|f| order(f) == Ordering::Less);
+    let end = sorted.partition_point(|f| order(f) != Ordering::Greater);
+    &sorted[start..end]
 }
 
 /// Calls by contract key, in key order.

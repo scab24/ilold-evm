@@ -124,7 +124,24 @@ async fn the_contract_detail_reads_inherited_code_as_the_contract_runs_it() {
     let curve = ok(port, "/contract/Curve").await;
     let graduate = curve["inherited_functions"].as_array().unwrap().iter().find(|f| f["name"] == "_graduate").unwrap();
     assert_eq!(graduate["value_transfers"][0]["in_context"], "Curve");
-    assert!(curve["value_flows"].as_array().unwrap().iter().any(|f| f["functions"] == json!(["CurveBase::_graduate"])), "{}", curve["value_flows"]);
+    let flow = |asset: &str, token: Value, counterparty: &str, functions: &[&str], ids: &[&str]| {
+        json!({"direction": "out", "asset_kind": asset, "token_expr": token, "counterparty_expr": counterparty, "functions": functions, "transfers": ids})
+    };
+    assert_eq!(
+        curve["value_flows"],
+        json!([
+            flow("native", Value::Null, "hook", &["CurveBase::_graduate"], &["CurveBase::_graduate#0"]),
+            flow("native", Value::Null, "payable(to)", &["Curve::buy"], &["Curve::buy#1"]),
+            flow("erc20", json!("token"), "to", &["Curve::buy", "Payout::pay"], &["Curve::buy#0", "Payout::pay#0"]),
+        ]),
+        "every transfer the code Curve runs makes, its library code included"
+    );
+    let stored = ok(port, "/project/value-flow?contract=Curve").await;
+    let mut ids: Vec<&str> = stored["transfers"].as_array().unwrap().iter().filter(|t| t["in_context"] == "Curve").map(|t| t["id"].as_str().unwrap()).collect();
+    let mut summed: Vec<&str> = curve["value_flows"].as_array().unwrap().iter().flat_map(|f| f["transfers"].as_array().unwrap()).map(|t| t.as_str().unwrap()).collect();
+    ids.sort_unstable();
+    summed.sort_unstable();
+    assert_eq!(summed, ids, "the same transfers as the value flow of the running contract");
     let to: Vec<&str> = curve["outgoing_links"].as_array().unwrap().iter().map(|l| l["to_contract"].as_str().unwrap()).collect();
     assert_eq!(to, vec!["DenA", "DenB", "Hook", "Token"]);
     let hook = ok(port, "/contract/Hook").await;
