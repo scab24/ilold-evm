@@ -1,0 +1,252 @@
+{
+  "pairs": [
+    {
+      "asset_kind": "native",
+      "from": {
+        "kind": "contract",
+        "name": [
+          "Curve"
+        ]
+      },
+      "functions": [
+        "CurveBase::_graduate"
+      ],
+      "in_context": "Curve",
+      "reason": null,
+      "to": {
+        "kind": "contract",
+        "name": [
+          "Hook"
+        ]
+      },
+      "token_expr": null,
+      "transfers": [
+        "CurveBase::_graduate#0"
+      ]
+    },
+    {
+      "asset_kind": "native",
+      "from": {
+        "kind": "contract",
+        "name": [
+          "Curve"
+        ]
+      },
+      "functions": [
+        "Curve::buy"
+      ],
+      "in_context": "Curve",
+      "reason": null,
+      "to": {
+        "kind": "expression",
+        "name": "payable(to)"
+      },
+      "token_expr": null,
+      "transfers": [
+        "Curve::buy#1"
+      ]
+    },
+    {
+      "asset_kind": "erc20",
+      "from": {
+        "kind": "contract",
+        "name": [
+          "Token"
+        ]
+      },
+      "functions": [
+        "Curve::buy"
+      ],
+      "in_context": "Curve",
+      "reason": null,
+      "to": {
+        "kind": "expression",
+        "name": "to"
+      },
+      "token_expr": "token",
+      "transfers": [
+        "Curve::buy#0"
+      ]
+    },
+    {
+      "asset_kind": "native",
+      "from": {
+        "kind": "contract",
+        "name": [
+          "CurveBase"
+        ]
+      },
+      "functions": [
+        "CurveBase::_graduate"
+      ],
+      "in_context": "CurveBase",
+      "reason": null,
+      "to": {
+        "kind": "contract",
+        "name": [
+          "Hook"
+        ]
+      },
+      "token_expr": null,
+      "transfers": [
+        "CurveBase::_graduate#0"
+      ]
+    },
+    {
+      "asset_kind": "native",
+      "from": {
+        "kind": "contract",
+        "name": [
+          "Router"
+        ]
+      },
+      "functions": [
+        "Router::buyWith"
+      ],
+      "in_context": "Router",
+      "reason": null,
+      "to": {
+        "kind": "contract",
+        "name": [
+          "Curve"
+        ]
+      },
+      "token_expr": null,
+      "transfers": [
+        "Router::buyWith#0"
+      ]
+    }
+  ],
+  "transfers": [
+    {
+      "amount_expr": "msg.value",
+      "asset_candidates": [],
+      "asset_kind": "erc20",
+      "call": "token.mint",
+      "direction": "out",
+      "from_expr": null,
+      "function": "Curve::buy",
+      "id": "Curve::buy#0",
+      "id_expr": null,
+      "in_context": "Curve",
+      "modifier": null,
+      "operation": "mint",
+      "reason": null,
+      "span": {
+        "end_col": 34,
+        "end_line": 34,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 34
+      },
+      "tag": "TYPE_RESOLVED",
+      "to_expr": "to",
+      "token_expr": "token",
+      "via_library": null
+    },
+    {
+      "amount_expr": "1",
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "call": "payable(to).transfer",
+      "direction": "out",
+      "from_expr": null,
+      "function": "Curve::buy",
+      "id": "Curve::buy#1",
+      "id_expr": null,
+      "in_context": "Curve",
+      "modifier": null,
+      "operation": "transfer",
+      "reason": null,
+      "span": {
+        "end_col": 32,
+        "end_line": 39,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 39
+      },
+      "tag": "EXTRACTED",
+      "to_expr": "payable(to)",
+      "token_expr": null,
+      "via_library": null
+    },
+    {
+      "amount_expr": "address(this).balance",
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "call": "hook.migrate",
+      "direction": "out",
+      "from_expr": null,
+      "function": "CurveBase::_graduate",
+      "id": "CurveBase::_graduate#0",
+      "id_expr": null,
+      "in_context": "Curve",
+      "modifier": null,
+      "operation": "call",
+      "reason": null,
+      "span": {
+        "end_col": 63,
+        "end_line": 26,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 26
+      },
+      "tag": "EXTRACTED",
+      "to_expr": "hook",
+      "token_expr": null,
+      "via_library": null
+    },
+    {
+      "amount_expr": "address(this).balance",
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "call": "hook.migrate",
+      "direction": "out",
+      "from_expr": null,
+      "function": "CurveBase::_graduate",
+      "id": "CurveBase::_graduate#0",
+      "id_expr": null,
+      "in_context": "CurveBase",
+      "modifier": null,
+      "operation": "call",
+      "reason": null,
+      "span": {
+        "end_col": 63,
+        "end_line": 26,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 26
+      },
+      "tag": "EXTRACTED",
+      "to_expr": "hook",
+      "token_expr": null,
+      "via_library": null
+    },
+    {
+      "amount_expr": "msg.value",
+      "asset_candidates": [],
+      "asset_kind": "native",
+      "call": "curve.buy",
+      "direction": "out",
+      "from_expr": null,
+      "function": "Router::buyWith",
+      "id": "Router::buyWith#0",
+      "id_expr": null,
+      "in_context": "Router",
+      "modifier": null,
+      "operation": "call",
+      "reason": null,
+      "span": {
+        "end_col": 40,
+        "end_line": 14,
+        "file_index": 4,
+        "start_col": 9,
+        "start_line": 14
+      },
+      "tag": "EXTRACTED",
+      "to_expr": "curve",
+      "token_expr": null,
+      "via_library": null
+    }
+  ]
+}

@@ -15,8 +15,8 @@ use ilold_core::model::function::FunctionDef;
 use ilold_core::model::project::{ContractLookupError, FunctionLookupError};
 use ilold_core::pathtree::types::PathTreePage;
 use ilold_core::relations::{
-    declared_target, key_kinds, phase_candidates, storage_accesses, try_catches, value_flows, AssignmentSite, BalanceRead, ContractCallKind,
-    ContractLink, Dispatch, DispatchCandidate, KeyKind, PhaseCandidate, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow, ValueTransfer,
+    declared_target, key_kinds, phase_candidates, storage_accesses, try_catches, value_flows, AssignmentSite, BalanceRead, Connections,
+    ContractCallKind, ContractLink, Dispatch, DispatchCandidate, KeyKind, PhaseCandidate, StorageAccess, TryCatchFact, UnresolvedReason, ValueFlow, ValueTransfer,
 };
 use ilold_core::sequence::types::SequencePage;
 use ilold_core::util::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
@@ -39,9 +39,11 @@ pub struct ContractDetail {
     pub state_vars: Vec<StateVarSummary>,
     pub inherited_functions: Vec<FunctionSummary>,
     pub inherited_state_vars: Vec<StateVarSummary>,
+    /// The calls of the code it runs, inherited code included.
     pub outgoing_links: Vec<ContractLink>,
+    /// The calls into it from every contract running the calling code.
     pub incoming_links: Vec<ContractLink>,
-    /// The transfers of its own and inherited functions, summed by direction, asset and counterparty.
+    /// The transfers of its own and inherited functions as it runs them, summed by direction, asset and counterparty.
     pub value_flows: Vec<ValueFlow>,
     /// Variables that gate which of its entry points can run; none unless it is a deployable project contract.
     pub phase_candidates: Vec<PhaseCandidate>,
@@ -70,6 +72,7 @@ pub struct FunctionSummary {
     pub accesses: Vec<StorageAccess>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub try_catches: Vec<TryCatchFact>,
+    /// As this contract runs the function.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub value_transfers: Vec<ValueTransfer>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -110,6 +113,14 @@ pub(crate) fn route_contract<'a>(state: &'a AppState, name: &str) -> Result<&'a 
     }))
 }
 
+pub async fn get_connections(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<Connections>, ApiError> {
+    let contract = route_contract(&state, &name)?;
+    Ok(Json(state.relations.connections(contract.key())))
+}
+
 pub async fn get_contract(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -120,7 +131,7 @@ pub async fn get_contract(
         let pt = state.path_trees.get(&(owner.key().to_string(), f.key.clone()));
         let (access, guards) = classify_in(&state.project, contract, owner, f);
         let cfg = state.cfgs.get(&(owner.key().to_string(), f.key.clone()));
-        let values = state.relations.values(owner.key(), &format!("{}::{}", owner.key(), f.key));
+        let values = state.relations.values_in(contract, owner, f);
         FunctionSummary {
             name: f.name.clone(),
             key: state.project.route_key(contract, f),
@@ -165,6 +176,7 @@ pub async fn get_contract(
         .collect();
     let behaviors = state.sequence_analyses.get(contract.key()).map(|s| s.functions.as_slice()).unwrap_or_default();
     let transfers: Vec<ValueTransfer> = functions.iter().chain(&inherited_functions).flat_map(|f| f.value_transfers.iter().cloned()).collect();
+    let (outgoing_links, incoming_links) = state.relations.context_links(contract.key());
     // storage order, most base contract first
     let inherited_state_vars = state.project
         .accessible_state_vars(contract)
@@ -185,8 +197,8 @@ pub async fn get_contract(
         state_vars,
         inherited_functions,
         inherited_state_vars,
-        outgoing_links: state.relations.outgoing(contract.key()).cloned().collect(),
-        incoming_links: state.relations.incoming(contract.key()).cloned().collect(),
+        outgoing_links,
+        incoming_links,
         value_flows: value_flows(&transfers),
         phase_candidates: phase_candidates(&state.project, contract, behaviors),
     }))

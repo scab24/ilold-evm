@@ -1,0 +1,247 @@
+{
+  "assignments": [
+    {
+      "expr_text": "den_",
+      "function": "CurveBase::constructor",
+      "kind": "constructor_param",
+      "span": {
+        "end_col": 19,
+        "end_line": 14,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 14
+      },
+      "state_var": "CurveBase::den"
+    },
+    {
+      "expr_text": "hook_",
+      "function": "CurveBase::constructor",
+      "kind": "constructor_param",
+      "span": {
+        "end_col": 21,
+        "end_line": 12,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 12
+      },
+      "state_var": "CurveBase::hook"
+    },
+    {
+      "expr_text": "token_",
+      "function": "CurveBase::constructor",
+      "kind": "constructor_param",
+      "span": {
+        "end_col": 23,
+        "end_line": 13,
+        "file_index": 1,
+        "start_col": 9,
+        "start_line": 13
+      },
+      "state_var": "CurveBase::token"
+    }
+  ],
+  "contract": "Curve",
+  "incoming": [
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Curve",
+              "function": "Curve::buy",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "Router::buyWith",
+          "in_context": "Router",
+          "kind": "call",
+          "span": {
+            "end_col": 40,
+            "end_line": 14,
+            "file_index": 4,
+            "start_col": 9,
+            "start_line": 14
+          },
+          "target": "ICurve::buy",
+          "unresolved_reason": null,
+          "via": "Router::curve"
+        },
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Curve",
+              "function": "CurveBase::price",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "Router::quote",
+          "in_context": "Router",
+          "kind": "read",
+          "span": {
+            "end_col": 29,
+            "end_line": 18,
+            "file_index": 4,
+            "start_col": 16,
+            "start_line": 18
+          },
+          "target": "ICurve::price",
+          "unresolved_reason": null,
+          "via": "Router::curve"
+        }
+      ],
+      "contract": "Router"
+    }
+  ],
+  "outgoing": [
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "DenA",
+              "function": "DenA::deliver",
+              "tag": "AMBIGUOUS"
+            },
+            {
+              "basis": "inherits_interface",
+              "contract": "DenB",
+              "function": "DenB::deliver",
+              "tag": "AMBIGUOUS"
+            }
+          ],
+          "function": "Curve::buy",
+          "in_context": "Curve",
+          "kind": "call",
+          "span": {
+            "end_col": 24,
+            "end_line": 35,
+            "file_index": 1,
+            "start_col": 9,
+            "start_line": 35
+          },
+          "target": "IDen::deliver",
+          "unresolved_reason": null,
+          "via": "CurveBase::den"
+        }
+      ],
+      "contract": "DenA"
+    },
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "DenA",
+              "function": "DenA::deliver",
+              "tag": "AMBIGUOUS"
+            },
+            {
+              "basis": "inherits_interface",
+              "contract": "DenB",
+              "function": "DenB::deliver",
+              "tag": "AMBIGUOUS"
+            }
+          ],
+          "function": "Curve::buy",
+          "in_context": "Curve",
+          "kind": "call",
+          "span": {
+            "end_col": 24,
+            "end_line": 35,
+            "file_index": 1,
+            "start_col": 9,
+            "start_line": 35
+          },
+          "target": "IDen::deliver",
+          "unresolved_reason": null,
+          "via": "CurveBase::den"
+        }
+      ],
+      "contract": "DenB"
+    },
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Hook",
+              "function": "Hook::migrate",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "CurveBase::_graduate",
+          "in_context": "Curve",
+          "kind": "call",
+          "span": {
+            "end_col": 63,
+            "end_line": 26,
+            "file_index": 1,
+            "start_col": 9,
+            "start_line": 26
+          },
+          "target": "IHook::migrate",
+          "unresolved_reason": null,
+          "via": "CurveBase::hook"
+        },
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Hook",
+              "function": "Hook::fee",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "CurveBase::_graduate",
+          "in_context": "Curve",
+          "kind": "read",
+          "span": {
+            "end_col": 62,
+            "end_line": 26,
+            "file_index": 1,
+            "start_col": 52,
+            "start_line": 26
+          },
+          "target": "IHook::fee",
+          "unresolved_reason": null,
+          "via": "CurveBase::hook"
+        }
+      ],
+      "contract": "Hook"
+    },
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "inherits_interface",
+              "contract": "Token",
+              "function": "Token::mint",
+              "tag": "INFERRED"
+            }
+          ],
+          "function": "Curve::buy",
+          "in_context": "Curve",
+          "kind": "call",
+          "span": {
+            "end_col": 34,
+            "end_line": 34,
+            "file_index": 1,
+            "start_col": 9,
+            "start_line": 34
+          },
+          "target": "IToken::mint",
+          "unresolved_reason": null,
+          "via": "CurveBase::token"
+        }
+      ],
+      "contract": "Token"
+    }
+  ],
+  "unresolved": []
+}

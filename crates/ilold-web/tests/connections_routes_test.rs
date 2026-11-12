@@ -1,0 +1,133 @@
+//! Connections, routes and value flow on the API, as the running contract sees its inherited code. Fixture: tests/fixtures/connections.
+use std::path::PathBuf;
+
+use serde_json::{json, Value};
+
+async fn server() -> u16 {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/connections");
+    ilold_web::start_server(vec![fixture], 0, 2).await.unwrap().1
+}
+
+async fn get(port: u16, route: &str) -> (u16, Value) {
+    let res = reqwest::get(format!("http://127.0.0.1:{port}/api{route}")).await.unwrap();
+    let status = res.status().as_u16();
+    (status, res.json().await.unwrap_or(Value::Null))
+}
+
+async fn ok(port: u16, route: &str) -> Value {
+    let (status, body) = get(port, route).await;
+    assert_eq!(status, 200, "{route}");
+    body
+}
+
+fn groups(list: &Value) -> Vec<(String, usize)> {
+    list.as_array().unwrap().iter().map(|g| (g["contract"].as_str().unwrap().to_string(), g["calls"].as_array().unwrap().len())).collect()
+}
+
+fn pairs(list: &[(&str, usize)]) -> Vec<(String, usize)> {
+    list.iter().map(|(c, n)| (c.to_string(), *n)).collect()
+}
+
+#[tokio::test]
+async fn connections_list_the_calls_of_the_running_contract_and_into_it() {
+    let port = server().await;
+    let curve = ok(port, "/contract/Curve/connections").await;
+    assert_eq!(curve["contract"], "Curve");
+    assert_eq!(groups(&curve["outgoing"]), pairs(&[("DenA", 1), ("DenB", 1), ("Hook", 2), ("Token", 1)]));
+    assert_eq!(groups(&curve["incoming"]), pairs(&[("Router", 2)]), "buyWith and the price read");
+    let deliver = &curve["outgoing"][0]["calls"][0];
+    assert_eq!((&deliver["function"], &deliver["kind"], deliver["callees"].as_array().unwrap().len()), (&json!("Curve::buy"), &json!("call"), 2));
+    assert_eq!(deliver["callees"][0]["tag"], "AMBIGUOUS");
+    let hook: Vec<(&str, &str, &str)> = curve["outgoing"][2]["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["function"].as_str().unwrap(), c["kind"].as_str().unwrap(), c["via"].as_str().unwrap()))
+        .collect();
+    assert_eq!(hook, vec![("CurveBase::_graduate", "call", "CurveBase::hook"), ("CurveBase::_graduate", "read", "CurveBase::hook")], "inherited code runs in Curve");
+    let sites: Vec<(&str, &str)> = curve["assignments"].as_array().unwrap().iter().map(|a| (a["state_var"].as_str().unwrap(), a["kind"].as_str().unwrap())).collect();
+    assert_eq!(sites, vec![("CurveBase::den", "constructor_param"), ("CurveBase::hook", "constructor_param"), ("CurveBase::token", "constructor_param")]);
+    assert_eq!(curve["unresolved"], json!([]));
+
+    let hook = ok(port, "/contract/Hook/connections").await;
+    assert_eq!(groups(&hook["incoming"]), pairs(&[("Curve", 2), ("CurveBase", 2)]));
+    let unresolved = &hook["unresolved"][0];
+    assert_eq!((&unresolved["target"], &unresolved["unresolved_reason"]), (&json!("IPoolManager::unlock"), &json!("out_of_scope_interface")));
+    assert_eq!(get(port, "/contract/Nope/connections").await.0, 404);
+}
+
+/// Per route, per step: `caller -> callee` and whether the previous step's code reaches the caller.
+fn hops(routes: &Value) -> Vec<Vec<Vec<(String, String, bool)>>> {
+    let call = |c: &Value| (c["call"]["function"].as_str().unwrap().to_string(), c["callee"]["function"].as_str().unwrap().to_string(), c["recorded"] == true);
+    let steps = |r: &Value| r["steps"].as_array().unwrap().iter().map(|s| s["calls"].as_array().unwrap().iter().map(call).collect()).collect();
+    routes["routes"].as_array().unwrap().iter().map(steps).collect()
+}
+
+fn hop(caller: &str, callee: &str) -> (String, String, bool) {
+    (caller.into(), callee.into(), true)
+}
+
+#[tokio::test]
+async fn a_route_follows_calls_and_reads_only_when_asked() {
+    let port = server().await;
+    let route = ok(port, "/project/route?from=Router&to=Hook").await;
+    assert_eq!(hops(&route), vec![vec![vec![hop("Router::buyWith", "Curve::buy")], vec![hop("CurveBase::_graduate", "Hook::migrate")]]]);
+    assert_eq!(route["truncated"], false);
+    let reads = ok(port, "/project/route?from=Router&to=Hook&reads=true").await;
+    assert_eq!(
+        hops(&reads),
+        vec![vec![
+            vec![hop("Router::buyWith", "Curve::buy"), hop("Router::quote", "CurveBase::price")],
+            vec![hop("CurveBase::_graduate", "Hook::migrate"), hop("CurveBase::_graduate", "Hook::fee")],
+        ]]
+    );
+    assert_eq!(ok(port, "/project/route?from=Hook&to=Router").await["routes"], json!([]), "calls run one way");
+    assert_eq!(get(port, "/project/route?from=Router&to=Nope").await.0, 404);
+    assert_eq!(get(port, "/project/route?from=Router").await.0, 400);
+}
+
+fn party(p: &Value) -> String {
+    match p["kind"].as_str().unwrap() {
+        "contract" => p["name"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect::<Vec<_>>().join("|"),
+        "declared" => format!("declared {}", p["name"].as_str().unwrap()),
+        _ => format!("`{}`", p["name"].as_str().unwrap_or("")),
+    }
+}
+
+fn flow(body: &Value) -> Vec<(String, String, String, String, usize)> {
+    let pair = |p: &Value| (p["in_context"].as_str().unwrap().to_string(), party(&p["from"]), party(&p["to"]), p["asset_kind"].as_str().unwrap().to_string(), p["transfers"].as_array().unwrap().len());
+    body["pairs"].as_array().unwrap().iter().map(pair).collect()
+}
+
+#[tokio::test]
+async fn value_flow_pairs_the_parties_the_code_resolves() {
+    let port = server().await;
+    let row = |c: &str, from: &str, to: &str, asset: &str| (c.to_string(), from.to_string(), to.to_string(), asset.to_string(), 1);
+    let hook = ok(port, "/project/value-flow?contract=Hook").await;
+    assert_eq!(flow(&hook), vec![row("Curve", "Curve", "Hook", "native"), row("CurveBase", "CurveBase", "Hook", "native")]);
+    let transfers: Vec<(&str, &str)> = hook["transfers"].as_array().unwrap().iter().map(|t| (t["in_context"].as_str().unwrap(), t["call"].as_str().unwrap())).collect();
+    assert_eq!(transfers, vec![("Curve", "hook.migrate"), ("CurveBase", "hook.migrate")]);
+
+    let all = ok(port, "/project/value-flow").await;
+    let found = flow(&all);
+    for expected in [row("Router", "Router", "Curve", "native"), row("Curve", "Token", "`to`", "erc20"), row("Curve", "Curve", "`payable(to)`", "native")] {
+        assert!(found.contains(&expected), "{expected:?} in {found:#?}");
+    }
+    assert_eq!(get(port, "/project/value-flow?contract=Nope").await.0, 404);
+}
+
+#[tokio::test]
+async fn the_contract_detail_reads_inherited_code_as_the_contract_runs_it() {
+    let port = server().await;
+    let curve = ok(port, "/contract/Curve").await;
+    let graduate = curve["inherited_functions"].as_array().unwrap().iter().find(|f| f["name"] == "_graduate").unwrap();
+    assert_eq!(graduate["value_transfers"][0]["in_context"], "Curve");
+    assert!(curve["value_flows"].as_array().unwrap().iter().any(|f| f["functions"] == json!(["CurveBase::_graduate"])), "{}", curve["value_flows"]);
+    let to: Vec<&str> = curve["outgoing_links"].as_array().unwrap().iter().map(|l| l["to_contract"].as_str().unwrap()).collect();
+    assert_eq!(to, vec!["DenA", "DenB", "Hook", "Token"]);
+    let hook = ok(port, "/contract/Hook").await;
+    let from: Vec<&str> = hook["incoming_links"].as_array().unwrap().iter().map(|l| l["from_contract"].as_str().unwrap()).collect();
+    assert_eq!(from, vec!["Curve", "CurveBase"]);
+    let narrative = ok(port, "/session/function/Curve/_graduate").await;
+    assert_eq!(narrative["value_transfers"][0]["in_context"], "Curve");
+}

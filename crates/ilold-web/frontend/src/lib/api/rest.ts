@@ -71,6 +71,57 @@ export interface ContractLink {
   tag: RelationTag;
 }
 
+export type ContractCallKind = 'call' | 'read' | 'library' | 'self';
+
+/** A candidate of a call row; library calls name their library with basis `library`. */
+export type CallCallee = Omit<DispatchCandidate, 'basis'> & { basis: Basis | 'library' };
+
+/** A call to another contract, a library or `this`, as `in_context` runs the code making it; refs are `<contract>::<member>`. */
+export interface ContractCall {
+  in_context: string;
+  function: string;
+  span: SourceSpan;
+  kind: ContractCallKind;
+  target: string | null;
+  /** Several are AMBIGUOUS; none carry `unresolved_reason`. */
+  callees: CallCallee[];
+  unresolved_reason: UnresolvedReason | null;
+  via: string | null;
+}
+
+export interface ConnectionGroup {
+  contract: string;
+  calls: ContractCall[];
+}
+
+/** `GET /api/contract/{name}/connections`: the calls of the code the contract runs, inherited code included, and the calls into it. */
+export interface Connections {
+  contract: string;
+  outgoing: ConnectionGroup[];
+  incoming: ConnectionGroup[];
+  unresolved: ContractCall[];
+  assignments: AssignmentSite[];
+}
+
+export interface RouteCall {
+  call: ContractCall;
+  callee: CallCallee;
+  /** The first step, or the previous step's code reaches the call inside the contract. */
+  recorded: boolean;
+}
+
+export interface RouteStep {
+  from: string;
+  to: string;
+  calls: RouteCall[];
+}
+
+/** `GET /api/project/route`: the shortest routes between two contracts. */
+export interface Routes {
+  routes: { steps: RouteStep[] }[];
+  truncated: boolean;
+}
+
 export interface FunctionSummary {
   name: string;
   /** The name, or the signature when overloaded. */
@@ -148,6 +199,29 @@ export interface ValueFlow {
   counterparty_expr: string | null;
   functions: string[];
   transfers: string[];
+}
+
+/** A side of a value move: project contracts by key, a contract outside the project, or the account as the source writes it. */
+export type Party =
+  | { kind: 'contract'; name: string[] }
+  | { kind: 'declared'; name: string }
+  | { kind: 'expression'; name: string | null };
+
+export interface ValuePair {
+  in_context: string;
+  from: Party;
+  to: Party;
+  asset_kind: AssetKind;
+  token_expr: string | null;
+  reason: ValueReason | null;
+  functions: string[];
+  transfers: string[];
+}
+
+/** `GET /api/project/value-flow`: the pairs and the transfers they group, by `in_context` and `id`. */
+export interface ValueFlowPairs {
+  pairs: ValuePair[];
+  transfers: ValueTransfer[];
 }
 
 /** A bool, enum or uint compared with a constant that two or more entry points test and one writes; refs are `<contract>::<member>`. */

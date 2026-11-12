@@ -740,7 +740,7 @@ pub fn get_function_info(
     narrative.accesses = storage_accesses(data.project, owning, owning, func, cfg);
     narrative.try_catches = try_catches(data.project, owning, owning, func, cfg);
     let function = format!("{}::{}", owning.key(), func.key);
-    let values = data.relations.values(owning.key(), &function);
+    let values = data.relations.values_in(data.contract, owning, func);
     (narrative.value_transfers, narrative.balance_reads) = (values.transfers, values.balance_reads);
     narrative.phase_candidates = phase_candidates(data.project, data.contract, data.behaviors).into_iter().filter(|p| p.involves(&function)).collect();
     Ok(narrative)

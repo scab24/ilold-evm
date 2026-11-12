@@ -297,6 +297,12 @@ impl Relations {
         }
     }
 
+    /// What `func`, declared in `owner`, moves and reads as `contract` runs it; a dependency runs only its own code.
+    pub fn values_in(&self, contract: &ContractDef, owner: &ContractDef, func: &FunctionDef) -> ValueFacts {
+        let context = if contract.is_dependency { owner } else { contract };
+        self.values(context.key(), &format!("{}::{}", owner.key(), func.key))
+    }
+
     /// The calls `contract` may answer, from every contract running the calling code.
     pub fn calls_into<'a>(&'a self, contract: &'a str) -> impl Iterator<Item = &'a ContractCall> {
         self.calls.iter().filter(move |c| c.callees.iter().any(|d| d.contract == contract))

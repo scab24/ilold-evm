@@ -5,9 +5,10 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use ilold_core::model::contract::ContractDef;
-use ilold_core::relations::{Basis, DispatchCandidate, Tag, UnresolvedReason};
+use ilold_core::relations::{routes, Basis, DispatchCandidate, Routes, Tag, UnresolvedReason, ValueFlowPairs};
 
-use crate::api::contract::edge_dispatch;
+use crate::api::contract::{edge_dispatch, route_contract};
+use crate::api::ApiError;
 use crate::state::AppState;
 
 #[derive(Deserialize, Default)]
@@ -80,6 +81,33 @@ pub async fn get_project(
     })
 }
 
+
+#[derive(Deserialize)]
+pub struct ValueFlowQuery {
+    pub contract: Option<String>,
+}
+
+pub async fn get_value_flow(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ValueFlowQuery>,
+) -> Result<Json<ValueFlowPairs>, ApiError> {
+    let contract = query.contract.as_deref().map(|name| route_contract(&state, name)).transpose()?;
+    Ok(Json(state.relations.value_flow(contract.map(ContractDef::key))))
+}
+
+#[derive(Deserialize)]
+pub struct RouteQuery {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub reads: bool,
+}
+
+pub async fn get_route(State(state): State<Arc<AppState>>, Query(query): Query<RouteQuery>) -> Result<Json<Routes>, ApiError> {
+    let from = route_contract(&state, &query.from)?;
+    let to = route_contract(&state, &query.to)?;
+    Ok(Json(routes(&state.relations, &state.call_graphs, from.key(), to.key(), query.reads)))
+}
 
 #[derive(Serialize)]
 pub struct ProjectMap {
