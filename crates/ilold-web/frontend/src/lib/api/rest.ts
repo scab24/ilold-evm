@@ -486,6 +486,11 @@ export async function getValueFlow(): Promise<ValueFlowPairs> {
   return body(await fetch(`${BASE}/api/project/value-flow`), 'Value flow unavailable');
 }
 
+export async function getRoute(from: string, to: string, reads: boolean): Promise<Routes> {
+  const params = new URLSearchParams({ from, to, reads: String(reads) });
+  return body(await fetch(`${BASE}/api/project/route?${params}`), `No route from ${from} to ${to}`);
+}
+
 export async function getProject(): Promise<ProjectSummary> {
   return body(await fetch(`${BASE}/api/project`), 'Project unavailable');
 }

@@ -9,11 +9,13 @@
   import ErrorToasts from '$lib/components/ui/ErrorToasts.svelte';
   import MapTab from '$lib/components/project/MapTab.svelte';
   import ValueFlowTab from '$lib/components/project/ValueFlowTab.svelte';
+  import RouteTab from '$lib/components/project/RouteTab.svelte';
   import '$lib/components/project/project.css';
 
   const TABS = [
     { id: 'map', label: 'Map' },
     { id: 'value', label: 'Value flow' },
+    { id: 'route', label: 'Route' },
   ] as const;
   type Tab = (typeof TABS)[number]['id'];
 
@@ -76,6 +78,8 @@
   {#key tab}
     {#if tab === 'value'}
       <ValueFlowTab />
+    {:else if tab === 'route'}
+      <RouteTab contracts={project?.contracts ?? []} />
     {:else}
       <MapTab />
     {/if}

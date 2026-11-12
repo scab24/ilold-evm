@@ -83,8 +83,8 @@ view). Contracts are laid out left-to-right in the same topological order:
 Click a contract to drop into its functions, where the per-function analysis
 (`trace`, `slice`, `info`) takes over.
 
-The header tabs switch the project page between **Map** and **Value flow**;
-the tab and everything picked in it live in the URL, so a link
+The header tabs switch the project page between **Map**, **Value flow** and
+**Route**; the tab and everything picked in it live in the URL, so a link
 reopens the same view.
 
 - **Value flow** draws who pays whom, left to right: who pays in, the project
@@ -92,6 +92,10 @@ reopens the same view.
   names its assets; Uniswap v4 `Currency` moves read "ETH or token, set by the
   pool" on amber dashed lanes. The asset buttons filter the arrows, a click on
   an arrow or a box lists its transfers (with their ids) in the side panel.
+- **Route** shows how one deployed contract reaches another (the `route`
+  command): pick From and To, Swap, and Include reads to also follow read
+  calls. Each hop is drawn function to function; a hop inside a contract that
+  the call graph does not record is marked "steps inside not recorded".
 
 ## Practical workflow
 
