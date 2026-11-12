@@ -14,7 +14,7 @@
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
   import Row from './Row.svelte';
-  import { placeChips, type Point, type Side } from './chips';
+  import { FIT_PADDING, placeChips, type Point, type Side } from './chips';
   import { ASSET_ORDER, POOL_ASSET, POOL_ASSET_LONG, assetCounts, assetName, buildFlow, type FlowArrow, type FlowParty } from './value-graph';
 
   const VALUE = '#7aba8a';
@@ -267,7 +267,7 @@
         onedgemouseleave={() => (tip = null)}
         canDeleteNodes={false}
         keepPositions={false}
-        initialFit={{ padding: 0.08 }}
+        initialFit={{ padding: FIT_PADDING }}
         minZoom={0.2}
       />
     {/if}

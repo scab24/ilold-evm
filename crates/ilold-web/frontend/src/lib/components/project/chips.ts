@@ -3,6 +3,8 @@ export interface Point { x: number; y: number }
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface ChipItem { id: string; s: Point & { side: Side }; t: Point & { side: Side }; text: string }
 
+export const FIT_PADDING = { top: '64px', right: '28px', bottom: '28px', left: '28px' } as const;
+
 const CURVATURE = 0.25;
 const CHIP_H = 20;
 const TRIES = [0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8];

@@ -12,7 +12,7 @@
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
   import Row from './Row.svelte';
-  import { placeChips } from './chips';
+  import { FIT_PADDING, placeChips } from './chips';
   import { assetName, transferKey } from './value-graph';
 
   let { contracts }: { contracts: ContractSummary[] } = $props();
@@ -224,7 +224,7 @@
           }}
           canDeleteNodes={false}
         keepPositions={false}
-          initialFit={{ padding: 0.12, maxZoom: 1.1 }}
+          initialFit={{ padding: FIT_PADDING, maxZoom: 1.1 }}
           minZoom={0.2}
         />
       {/key}

@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { MarkerType, type Edge, type Node } from '@xyflow/svelte';
+  import { MarkerType, type Edge, type FitViewOptions, type Node } from '@xyflow/svelte';
   import {
     getContract, getProjectConnections, getProjectDepgraph, getValueFlow,
     type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph,
@@ -17,7 +17,7 @@
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
   import Row from './Row.svelte';
-  import { placeChips, type Point, type Side } from './chips';
+  import { FIT_PADDING, placeChips, type Point, type Side } from './chips';
   import {
     DEFAULT_LINES, INTERFACES, LIBRARIES, LINES, OUTSIDE, STYLE,
     edges as mapEdges, itemState, items as mapItems, neighbourhood, nextState, shortName,
@@ -38,7 +38,7 @@
   let hovered = $state<string | null>(null);
   let tip = $state<{ x: number; y: number; edge: MapEdge } | null>(null);
   let find = $state('');
-  let fit: ((options?: { padding?: number; duration?: number }) => Promise<boolean>) | null = null;
+  let fit: ((options?: FitViewOptions) => Promise<boolean>) | null = null;
 
   const params = $derived(page.url.searchParams);
   const selected = $derived(params.get('c'));
@@ -234,7 +234,7 @@
     if (expand) next.add(fold);
     else next.delete(fold);
     setQuery({ expand: [...next].sort().join(',') || null });
-    setTimeout(() => fit?.({ padding: 0.1, duration: 250 }), 200);
+    setTimeout(() => fit?.({ padding: FIT_PADDING, duration: 250 }), 200);
   }
   function select(id: string | null) {
     setQuery({ c: id, pair: null });
@@ -400,7 +400,7 @@
         onready={(api) => (fit = api.fitView)}
         canDeleteNodes={false}
         keepPositions={false}
-        initialFit={{ padding: 0.1 }}
+        initialFit={{ padding: FIT_PADDING }}
         minZoom={0.1}
       />
     {/if}
@@ -472,7 +472,7 @@
       <span class="lbl">{l.label}</span>{#if lines[l.id] !== 'show'}<span class="st">{lines[l.id] === 'dim' ? 'dimmed' : 'hidden'}</span>{/if}
     </button>
   {/each}
-  <span class="hint">Hover a line for counts, click it for the function list</span>
+  <span class="hint" title="Hover a line for counts, click it for the function list">Hover a line for counts, click it for the function list</span>
 </div>
 
 {#if tip}
