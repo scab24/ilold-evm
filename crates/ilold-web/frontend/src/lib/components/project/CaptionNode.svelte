@@ -5,5 +5,5 @@
 <div class="caption">{data.label}</div>
 
 <style>
-  .caption { font: 600 12px var(--font-sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--root, #8b949e); white-space: nowrap; pointer-events: none; }
+  .caption { font: 600 12px var(--font-sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--root); white-space: nowrap; pointer-events: none; }
 </style>

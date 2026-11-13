@@ -1,4 +1,5 @@
 import type { ContractCall, ContractSummary, ProjectConnections, ProjectDepGraph } from '$lib/api/rest';
+import { AMBIGUOUS_COLOR } from '$lib/utils/links';
 
 export type Line = 'calls' | 'reads' | 'value' | 'library' | 'inherits' | 'holds' | 'iface' | 'unresolved';
 export type LineState = 'show' | 'dim' | 'hide';
@@ -20,14 +21,14 @@ export const DEFAULT_LINES: Record<Line, LineState> = {
 };
 
 export const STYLE: Record<Look, { color: string; width: number; dash: string }> = {
-  calls: { color: '#8b949e', width: 1.6, dash: '' },
-  reads: { color: '#8b949e', width: 1.3, dash: '2 4' },
-  library: { color: '#6b7a8d', width: 1.3, dash: '7 4' },
-  value: { color: '#7aba8a', width: 2.2, dash: '' },
+  calls: { color: 'var(--root)', width: 1.6, dash: '' },
+  reads: { color: 'var(--root)', width: 1.3, dash: '2 4' },
+  library: { color: 'var(--color-text-muted)', width: 1.3, dash: '7 4' },
+  value: { color: 'var(--color-success-light)', width: 2.2, dash: '' },
   inherits: { color: '#d2a8ff', width: 1.3, dash: '10 4' },
   holds: { color: '#56d4dd', width: 1.3, dash: '3 3' },
-  ambiguous: { color: '#f0b72f', width: 2, dash: '' },
-  unresolved: { color: '#f0b72f', width: 1.8, dash: '5 4' },
+  ambiguous: { color: AMBIGUOUS_COLOR, width: 2, dash: '' },
+  unresolved: { color: AMBIGUOUS_COLOR, width: 1.8, dash: '5 4' },
 };
 
 const RANK: Record<LineState, number> = { hide: 0, dim: 1, show: 2 };

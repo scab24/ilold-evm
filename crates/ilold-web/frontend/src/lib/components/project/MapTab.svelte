@@ -3,21 +3,19 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { MarkerType, type Edge, type FitViewOptions, type Node } from '@xyflow/svelte';
-  import {
-    getContract, getProjectConnections, getProjectDepgraph, getValueFlow,
-    type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph,
-  } from '$lib/api/rest';
+  import { getProjectConnections, getProjectDepgraph, type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
   import { splitRef } from '$lib/utils/links';
   import { openInIde } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
+  import { score } from '$lib/utils/fuzzy';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
   import BoxNode, { type BoxNodeData, type BoxPort } from './BoxNode.svelte';
   import RegionNode, { type RegionNodeData } from './RegionNode.svelte';
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
   import Row from './Row.svelte';
-  import { FIT_PADDING, placeChips, type Point, type Side } from './chips';
+  import { FIT_PADDING, READABLE_FIT, placeChips, type Point, type Side } from './chips';
   import {
     DEFAULT_LINES, INTERFACES, LIBRARIES, LINES, OUTSIDE, STYLE,
     edges as mapEdges, itemState, items as mapItems, neighbourhood, nextState, shortName,
@@ -27,22 +25,19 @@
 
   let { contracts }: { contracts: ContractSummary[] } = $props();
 
-  const ACCENT = '#8bb8e8';
+  const ACCENT = 'var(--color-accent-hover)';
   const FOLDS: Record<string, Fold> = { [LIBRARIES]: 'libraries', [INTERFACES]: 'interfaces', [OUTSIDE]: 'outside' };
 
   let connections = $state<ProjectConnections | null>(null);
   let depgraph = $state<ProjectDepGraph | null>(null);
-  let payers = $state(new Set<string>());
-  let access = $state(new Map<string, { entry: number; restricted: number }>());
   let error = $state<string | null>(null);
   let hovered = $state<string | null>(null);
   let tip = $state<{ x: number; y: number; edge: MapEdge } | null>(null);
   let find = $state('');
+  let missed = $state<string | null>(null);
   let fit: ((options?: FitViewOptions) => Promise<boolean>) | null = null;
 
   const params = $derived(page.url.searchParams);
-  const selected = $derived(params.get('c'));
-  const pickedPair = $derived(params.get('pair'));
   const depth = $derived(params.get('depth') === '2' ? 2 : 1);
   const direction = $derived((['callers', 'callees'] as const).find((d) => d === params.get('dir')) ?? 'both');
   const open = $derived(new Set((params.get('expand') ?? '').split(',').filter((f): f is Fold => f === 'libraries' || f === 'interfaces' || f === 'outside')));
@@ -56,11 +51,18 @@
   });
 
   const byName = $derived(new Map(contracts.map((c) => [c.name, c])));
-  const deployable = $derived(contracts.filter((c) => c.kind === 'Contract' && !c.is_dependency));
+  const summary = $derived(new Map((connections?.contracts ?? []).map((c) => [c.contract, c])));
   const all = $derived(connections ? mapItems(contracts, connections, depgraph) : ([] as Item[]));
   const g = $derived(connections ? mapGroups(contracts, connections) : null);
+  const names = $derived(g ? [...g.folders.values()].flat().concat(g.libraries, g.interfaces, g.outside) : []);
   const endpoint = $derived(g ? endpointOf(g, open) : (id: string) => id);
   const drawn = $derived(mapEdges(all, endpoint, lines));
+  const selected = $derived.by(() => {
+    const c = params.get('c');
+    return c !== null && names.includes(c) ? c : null;
+  });
+  const pair = $derived(drawn.find((e) => e.id === params.get('pair')) ?? null);
+  const pickedPair = $derived(pair?.id ?? null);
   const hood = $derived(selected ? neighbourhood(drawn, endpoint(selected), depth, direction) : null);
 
   onMount(async () => {
@@ -68,16 +70,6 @@
       [connections, depgraph] = await Promise.all([getProjectConnections(), getProjectDepgraph()]);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
-      return;
-    }
-    getValueFlow().then((flow) => (payers = new Set(flow.pairs.map((p) => p.in_context))), () => {});
-    for (const c of deployable) {
-      getContract(c.name).then((detail) => {
-        const fns = [...detail.functions, ...(detail.inherited_functions ?? [])];
-        const restricted = fns.filter((f) => typeof f.access === 'object' && 'Restricted' in f.access).length;
-        const entry = fns.filter((f) => f.access === 'Public').length + restricted;
-        access = new Map(access).set(c.name, { entry, restricted });
-      }, () => {});
     }
   });
   onDestroy(clearGraph);
@@ -90,20 +82,18 @@
   }
 
   function boxLines(id: string): BoxNodeData['lines'] {
-    if (!g) return [];
-    if (id === OUTSIDE) {
-      const calls = connections?.unresolved.reduce((n, u) => n + u.rows.length, 0) ?? 0;
-      return [{ text: `${g.outside.length} targets · ${calls} unresolved calls`, tone: 'amb' }];
-    }
+    if (!g || !connections) return [];
+    if (id === OUTSIDE) return [{ text: `${g.outside.length} targets · ${connections.totals.unresolved} unresolved calls`, tone: 'amb' }];
     if (id === LIBRARIES) return [{ text: `${g.libraries.length} libraries · click to show` }];
     if (id === INTERFACES) return [{ text: `${g.interfaces.length} interfaces · click to show` }];
     if (id.startsWith('out:')) return [{ text: 'outside the project', tone: 'amb' }];
     const c = byName.get(id);
     if (!c) return [{ text: 'library from a dependency' }];
     if (c.kind !== 'Contract') return [{ text: c.kind.toLowerCase() }];
-    const known = access.get(id);
-    const result: NonNullable<BoxNodeData['lines']> = [{ text: known ? `${known.entry} entry · ${known.restricted} restricted` : 'contract' }];
-    if (payers.has(id)) result.push({ text: 'moves value', tone: 'val', icon: 'value' });
+    const s = summary.get(id);
+    if (!s) return [{ text: 'contract' }];
+    const result: NonNullable<BoxNodeData['lines']> = [{ text: `${s.entry_points} entry · ${s.restricted} restricted` }];
+    if (s.moves_value) result.push({ text: 'moves value', tone: 'val', icon: 'value' });
     return result;
   }
 
@@ -120,8 +110,8 @@
     return vertical ? `${first} down · ${second} up` : `${first} → · ${second} ←`;
   }
 
-  function draw() {
-    if (!g) return;
+  const scene = $derived.by(() => {
+    if (!g) return null;
     const placed = layout(g, open, all);
     const ports = new Map<string, (BoxPort & { order: number })[]>();
     const add = (id: string, port: BoxPort & { order: number }) => (ports.get(id) ?? ports.set(id, []).get(id)!).push(port);
@@ -154,16 +144,20 @@
         });
       }
     }
-    const focus = hood !== null;
-    const inFocus = (e: MapEdge) => {
-      if (pickedPair) return e.id === pickedPair;
-      if (!hood) return true;
-      const [a, b] = [hood.get(e.a), hood.get(e.b)];
-      return a !== undefined && b !== undefined && Math.abs(a - b) === 1;
-    };
+    const focus = hood !== null || pickedPair !== null;
+    const lit = new Set(
+      shown
+        .filter((e) => {
+          if (pickedPair) return e.id === pickedPair;
+          if (!hood) return true;
+          const [a, b] = [hood.get(e.a), hood.get(e.b)];
+          return a !== undefined && b !== undefined && Math.abs(a - b) === 1;
+        })
+        .map((e) => e.id),
+    );
     const texts = new Map(shown.map((e) => [e.id, chipText(e, geometry.get(e.id)!.vertical, geometry.get(e.id)!.aFirst)]));
     const boxes = [...placed.nodes.values()].map((p) => ({ x: p.x, y: p.y, w: p.w, h: p.h })).concat(placed.regions.map((r) => ({ x: r.x, y: r.y, w: r.w, h: 28 })));
-    const ordered = [...shown].filter((e) => !focus || inFocus(e)).sort((x, y) => y.items.length - x.items.length);
+    const ordered = shown.filter((e) => lit.has(e.id)).sort((x, y) => y.items.length - x.items.length);
     const chipAt = placeChips(ordered.map((e) => ({ id: e.id, s: anchor.get(`${e.id}:a`)!, t: anchor.get(`${e.id}:b`)!, text: texts.get(e.id)! })), boxes);
 
     const nodes: Node<GraphNodeData>[] = placed.regions.map((r) => ({
@@ -191,17 +185,22 @@
           width: p.w,
           height: p.h,
           on: p.id === selected,
-          dim: focus && !hood!.has(p.id),
+          dim: hood !== null && !hood.has(p.id),
         } satisfies BoxNodeData,
       });
     }
-    const edges: Edge[] = shown.map((e) => {
+    return { shown, lit, focus, texts, chipAt, nodes };
+  });
+
+  const flowEdges = $derived.by((): Edge[] => {
+    if (!scene) return [];
+    return scene.shown.map((e) => {
       const style = STYLE[e.look];
       const on = e.id === pickedPair;
-      const lit = inFocus(e);
+      const lit = scene.lit.has(e.id);
       const near = hovered !== null && (e.a === hovered || e.b === hovered);
       const color = on ? ACCENT : style.color;
-      const opacity = on ? 1 : !lit ? 0.07 : e.state === 1 ? 0.35 : hovered && !near && !focus ? 0.3 : 1;
+      const opacity = on ? 1 : !lit ? 0.07 : e.state === 1 ? 0.35 : hovered && !near && !scene.focus ? 0.3 : 1;
       const marker = { type: MarkerType.ArrowClosed, color, width: 14, height: 14 };
       return {
         id: e.id,
@@ -215,26 +214,37 @@
         zIndex: on ? 2 : undefined,
         style: `stroke: ${color}; stroke-width: ${style.width + (on || near ? 1 : 0)}; opacity: ${opacity}${style.dash ? `; stroke-dasharray: ${style.dash}` : ''}`,
         data: {
-          chip: lit ? texts.get(e.id) : undefined,
+          chip: lit ? scene.texts.get(e.id) : undefined,
           tone: e.look === 'unresolved' || e.look === 'ambiguous' ? 'amb' : e.look === 'value' ? 'val' : '',
           on,
-          labelAt: on ? (chipAt.get(e.id) ?? 0.5) : (chipAt.get(e.id) ?? null),
+          labelAt: on ? (scene.chipAt.get(e.id) ?? 0.5) : (scene.chipAt.get(e.id) ?? null),
           onpick: pickPair,
         } satisfies ChipEdgeData,
       };
     });
-    setNodes(nodes);
-    setEdges(edges);
+  });
+
+  $effect(() => {
+    if (scene) setNodes(scene.nodes);
+  });
+  $effect(() => setEdges(flowEdges));
+
+  function focusLater(ids: () => string[]) {
+    setTimeout(() => {
+      const nodes = ids().map((id) => ({ id }));
+      fit?.(nodes.length ? { ...READABLE_FIT, nodes, duration: 250 } : { padding: FIT_PADDING, duration: 250 });
+    }, 200);
   }
-
-  $effect(draw);
-
+  function members(fold: Fold): string[] {
+    if (!g) return [];
+    return fold === 'libraries' ? g.libraries : fold === 'interfaces' ? g.interfaces : g.outside;
+  }
   function toggleFold(fold: Fold, expand: boolean) {
     const next = new Set(open);
     if (expand) next.add(fold);
     else next.delete(fold);
-    setQuery({ expand: [...next].sort().join(',') || null });
-    setTimeout(() => fit?.({ padding: FIT_PADDING, duration: 250 }), 200);
+    setQuery({ expand: [...next].sort().join(',') || null, pair: null });
+    focusLater(() => (expand ? members(fold) : []));
   }
   function select(id: string | null) {
     setQuery({ c: id, pair: null });
@@ -254,23 +264,31 @@
   function setLine(line: Line) {
     const next = { ...lines, [line]: nextState(line, lines[line]) };
     const changed = LINES.filter((l) => next[l.id] !== DEFAULT_LINES[l.id]).map((l) => `${l.id}-${next[l.id]}`);
-    setQuery({ lines: changed.join(',') || null });
+    setQuery({ lines: changed.join(',') || null, pair: null });
   }
   function search(event: SubmitEvent) {
     event.preventDefault();
-    const q = find.trim().toLowerCase();
-    if (!q || !g) return;
-    const names = [...g.folders.values()].flat().concat(g.libraries, g.interfaces, g.outside);
-    const hit = names.find((n) => shortName(n).toLowerCase() === q) ?? names.find((n) => shortName(n).toLowerCase().startsWith(q)) ?? names.find((n) => shortName(n).toLowerCase().includes(q));
-    if (!hit) return;
+    const q = find.trim();
+    missed = null;
+    if (!q || !g || !connections) return;
+    const ranked = names
+      .map((n) => ({ n, s: score(shortName(n), q) }))
+      .filter((r) => r.s >= 0)
+      .sort((a, b) => b.s - a.s || Number(summary.has(b.n)) - Number(summary.has(a.n)) || a.n.localeCompare(b.n));
+    const hit = ranked[0]?.n;
+    if (!hit) {
+      missed = q;
+      return;
+    }
     const fold = g.libraries.includes(hit) ? 'libraries' : g.interfaces.includes(hit) ? 'interfaces' : g.outside.includes(hit) ? 'outside' : null;
     const expand = fold && !open.has(fold) ? [...open, fold].sort().join(',') : null;
     setQuery({ c: hit, pair: null, ...(expand ? { expand } : {}) });
+    focusLater(() => (hood ? [...hood.keys()] : [hit]));
   }
   function onKey(event: KeyboardEvent) {
-    const t = event.target;
-    if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
-    if (event.key === 'Enter' && selected) openContract(selected);
+    const t = event.target instanceof Element ? event.target : null;
+    if (t?.closest('input, select, textarea')) return;
+    if (event.key === 'Enter' && selected && !t?.closest('button, a, [role="button"]')) openContract(selected);
     else if (event.key === 'Escape' && (selected || pickedPair)) setQuery({ c: null, pair: null });
   }
   function onEdgeHover(edge: Edge, event: MouseEvent) {
@@ -292,7 +310,7 @@
   }
   function rowTitle(item: Item & { row: ContractCall }): string {
     const callee = item.row.callees.find((d) => d.contract === item.to);
-    const target = callee ? `${shortName(item.to)}.${member(callee.function)}` : (item.row.target ?? '?').replace('::', '.');
+    const target = callee ? `${shortName(item.to)}.${member(callee.function)}` : (item.row.target?.replace('::', '.') ?? label(item.to));
     const caller = item.from === selected ? member(item.row.function) : `${item.from}.${member(item.row.function)}`;
     return `${caller} → ${target}`;
   }
@@ -302,7 +320,7 @@
     else if (item.row.callees.some((d) => d.contract === item.to && d.basis === 'selector_match')) parts.push('selector match');
     if (item.row.via) parts.push(`address in ${member(item.row.via)}`);
     if (item.ambiguous) parts.push(`${item.row.callees.length} possible · AMBIGUOUS`);
-    if (item.row.unresolved_reason) parts.push(`no project contract implements ${shortName(item.to)}`);
+    if (item.row.unresolved_reason) parts.push(item.row.unresolved_reason === 'dynamic_address' ? 'the call names no declaration' : `no project contract implements ${shortName(item.to)}`);
     if (item.row.in_try) parts.push('inside try');
     return parts.join(' · ');
   }
@@ -315,26 +333,11 @@
   const incoming = $derived(selected ? withRow(all.filter((i) => i.to === selected)) : []);
   const unresolved = $derived(selected ? withRow(all.filter((i) => i.from === selected && i.line === 'unresolved')) : []);
   const structural = $derived(selected ? all.filter((i) => i.row === null && (i.from === selected || i.to === selected) && itemState(i, lines) > 0) : []);
-  const pair = $derived(pickedPair ? (drawn.find((e) => e.id === pickedPair) ?? null) : null);
-  const counts = $derived(new Map((connections?.contracts ?? []).map((c) => [c.contract, c])));
   const top = $derived([...(connections?.contracts ?? [])].sort((a, b) => b.outgoing_calls + b.incoming_calls - (a.outgoing_calls + a.incoming_calls) || a.contract.localeCompare(b.contract)).slice(0, 5));
-  const totals = $derived.by(() => {
-    const pairs = connections?.pairs ?? [];
-    const sum = (f: (p: (typeof pairs)[number]) => number) => pairs.reduce((n, p) => n + f(p), 0);
-    const deployed = new Set(deployable.map((c) => c.name));
-    return {
-      calls: sum((p) => p.calls),
-      reads: sum((p) => p.reads),
-      library: sum((p) => p.library),
-      iface: sum((p) => p.via_interface),
-      value: sum((p) => (deployed.has(p.to) ? p.transfers : 0)),
-      inherits: all.filter((i) => i.line === 'inherits').length,
-      holds: all.filter((i) => i.line === 'holds').length,
-      unresolved: connections?.unresolved.reduce((n, u) => n + u.rows.length, 0) ?? 0,
-      targets: g?.outside.length ?? 0,
-    };
-  });
+  const inherits = $derived(all.filter((i) => i.line === 'inherits').length);
+  const holds = $derived(all.filter((i) => i.line === 'holds').length);
   const folderCount = $derived(new Set(contracts.map((c) => c.folder)).size);
+  const rowsWord = (n: number) => `${n} ${n === 1 ? 'row' : 'rows'}`;
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -374,8 +377,9 @@
     {/each}
   </div>
   <form onsubmit={search} style="margin-left: auto">
-    <input class="find" type="search" placeholder="Find a contract" aria-label="Find a contract" bind:value={find} />
+    <input class="find" type="search" placeholder="Find a contract" aria-label="Find a contract" bind:value={find} oninput={() => (missed = null)} />
   </form>
+  {#if missed}<span class="tlabel amb" role="status">No match for “{missed}”</span>{/if}
 </div>
 
 <div class="work">
@@ -417,22 +421,20 @@
       <div style="margin-top: 14px"><button type="button" class="btn" onclick={() => setQuery({ pair: null })}>Back</button></div>
     {:else if selected}
       {@const c = byName.get(selected)}
-      {@const n = counts.get(selected)}
+      {@const n = summary.get(selected)}
       <h1>{label(selected)}</h1>
       <p class="sub">{c ? `${c.folder || 'root'} · ${c.kind.toLowerCase()}` : selected.startsWith('out:') ? 'outside the project' : 'library from a dependency'}</p>
       {#if n}
         <div class="stat"><Icon name="call" /><span class="k">Calls and reads to other contracts</span><span class="v">{n.outgoing_calls}</span></div>
-        <div class="stat"><Icon name="entry" /><span class="k">From other contracts</span><span class="v">{n.incoming_calls}</span></div>
+        <div class="stat"><Icon name="entry" /><span class="k">Calls and reads from other contracts</span><span class="v">{n.incoming_calls}</span></div>
+        <div class="stat"><Icon name="lock" /><span class="k">Entry points · restricted</span><span class="v">{n.entry_points} · {n.restricted}</span></div>
+        {#if n.moves_value}<div class="stat val"><Icon name="value" /><span class="k">Moves value</span></div>{/if}
       {/if}
-      {#if access.get(selected)}
-        {@const a = access.get(selected)!}
-        <div class="stat"><Icon name="lock" /><span class="k">Entry points · restricted</span><span class="v">{a.entry} · {a.restricted}</span></div>
-      {/if}
-      {#if payers.has(selected)}<div class="stat"><Icon name="value" class="val" /><span class="k" style="color: var(--color-success-light)">Moves value</span></div>{/if}
       {#if c}<div style="margin-top: 12px"><button type="button" class="btn" onclick={() => openContract(selected)}>Open functions <span class="tlabel">Enter</span></button></div>{/if}
-      {#if outgoing.length}<h2><Icon name="call" />Calls<span class="n">{outgoing.length}</span></h2>{@render rows(outgoing)}{/if}
-      {#if incoming.length}<h2><Icon name="entry" />Called by<span class="n">{incoming.length}</span></h2>{@render rows(incoming)}{/if}
-      {#if unresolved.length}<h2 class="amb"><Icon name="unres" />Unresolved<span class="n">{unresolved.length}</span></h2>{@render rows(unresolved)}{/if}
+      {#if outgoing.length}<h2><Icon name="call" />Calls out<span class="n">{rowsWord(outgoing.length)}</span></h2>{@render rows(outgoing)}{/if}
+      {#if incoming.length}<h2><Icon name="entry" />Called by<span class="n">{rowsWord(incoming.length)}</span></h2>{@render rows(incoming)}{/if}
+      {#if unresolved.length}<h2 class="amb"><Icon name="unres" />Unresolved<span class="n">{rowsWord(unresolved.length)}</span></h2>{@render rows(unresolved)}{/if}
+      {#if outgoing.length || incoming.length}<p class="note">A row is one function calling another; library calls are rows too, and a call with several possible targets is a row under each.</p>{/if}
       {#if structural.length}
         <h2><Icon name="inherit" />Inherits and holds<span class="n">{structural.length}</span></h2>
         <p class="sub">{structural.map((i) => `${label(i.from)} ${i.line} ${label(i.to)}`).join(' · ')}</p>
@@ -440,17 +442,20 @@
       {#if !outgoing.length && !incoming.length && !unresolved.length}<p class="note">No line shown by the legend touches it.</p>{/if}
     {:else}
       <h1>Project</h1>
-      <p class="sub">{contracts.length} contracts in {folderCount} folders · {deployable.length} deployable</p>
+      <p class="sub">{contracts.length} contracts in {folderCount} folders · {connections?.contracts.length ?? 0} deployable</p>
       <h2>Links between contracts<span class="n">function level</span></h2>
-      <div class="stat"><Icon name="call" /><span class="k">Calls</span><span class="v">{totals.calls}</span></div>
-      <div class="stat"><Icon name="read" /><span class="k">Reads</span><span class="v">{totals.reads}</span></div>
-      <div class="stat"><Icon name="lib" /><span class="k">Library calls</span><span class="v">{totals.library}</span></div>
-      <div class="stat"><Icon name="iface" /><span class="k">Via interface</span><span class="v">{totals.iface}</span></div>
-      <div class="stat" style="color: var(--color-success-light)"><Icon name="value" /><span class="k">Value moves between contracts</span><span class="v">{totals.value}</span></div>
-      <div class="stat"><Icon name="inherit" /><span class="k">Inherits a project contract</span><span class="v">{totals.inherits}</span></div>
-      <div class="stat"><Icon name="deploy" /><span class="k">Holds the address of one</span><span class="v">{totals.holds}</span></div>
-      {#if totals.unresolved}
-        <ul class="list"><li class="li"><button type="button" class="rb" onclick={() => toggleFold('outside', true)}><Icon name="unres" class="amb" /><span class="rb-body"><span class="rt" style="color: var(--amber)">{totals.unresolved} unresolved calls</span><span class="rs">to {totals.targets} interfaces outside the project{open.has('outside') ? '' : ' · show them'}</span></span></button></li></ul>
+      {#if connections}
+        {@const t = connections.totals}
+        <div class="stat"><Icon name="call" /><span class="k">Calls</span><span class="v">{t.calls}</span></div>
+        <div class="stat"><Icon name="read" /><span class="k">Reads</span><span class="v">{t.reads}</span></div>
+        <div class="stat"><Icon name="lib" /><span class="k">Library calls</span><span class="v">{t.library}</span></div>
+        <div class="stat"><Icon name="iface" /><span class="k">Via interface</span><span class="v">{t.via_interface}</span></div>
+        <div class="stat val"><Icon name="value" /><span class="k">Value moves on these calls</span><span class="v">{t.transfers}</span></div>
+        <div class="stat"><Icon name="inherit" /><span class="k">Inherits a project contract</span><span class="v">{inherits}</span></div>
+        <div class="stat"><Icon name="deploy" /><span class="k">Holds the address of one</span><span class="v">{holds}</span></div>
+        {#if t.unresolved}
+          <ul class="list"><li class="li"><button type="button" class="rb" onclick={() => toggleFold('outside', true)}><Icon name="unres" class="amb" /><span class="rb-body"><span class="rt amb">{t.unresolved} unresolved calls</span><span class="rs">to {g?.outside.length ?? 0} targets outside the project{open.has('outside') ? '' : ' · show them'}</span></span></button></li></ul>
+        {/if}
       {/if}
       <h2>Most connected<span class="n">calls in and out</span></h2>
       <ul class="list">
@@ -468,11 +473,11 @@
   {#each LINES as l (l.id)}
     {@const s = STYLE[l.id === 'iface' ? 'calls' : l.id]}
     <button type="button" class="fchip" data-s={lines[l.id]} title={l.tip} onclick={() => setLine(l.id)} aria-label="{l.label}: {lines[l.id]}">
-      {#if l.id === 'iface'}<Icon name="iface" />{:else}<svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{/if}
+      {#if l.id === 'iface'}<Icon name="iface" />{:else}<svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{/if}
       <span class="lbl">{l.label}</span>{#if lines[l.id] !== 'show'}<span class="st">{lines[l.id] === 'dim' ? 'dimmed' : 'hidden'}</span>{/if}
     </button>
   {/each}
-  <span class="hint" title="Hover a line for counts, click it for the function list">Hover a line for counts, click it for the function list</span>
+  <span class="hint">Hover a line for counts · click for functions</span>
 </div>
 
 {#if tip}

@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { getProject, type ProjectSummary } from '$lib/api/rest';
+  import { AMBIGUOUS_COLOR } from '$lib/utils/links';
   import { setSearchContext } from '$lib/stores/search.svelte';
   import { togglePalette, setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
@@ -63,7 +64,7 @@
   onDestroy(clearPaletteCommands);
 </script>
 
-<div class="pj">
+<div class="pj" style:--amber={AMBIGUOUS_COLOR}>
   <header class="top">
     <span class="brand">ilold</span>
     <span class="sub-brand">execution path analyzer</span>

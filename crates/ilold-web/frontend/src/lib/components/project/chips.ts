@@ -4,6 +4,7 @@ export interface Rect { x: number; y: number; w: number; h: number }
 export interface ChipItem { id: string; s: Point & { side: Side }; t: Point & { side: Side }; text: string }
 
 export const FIT_PADDING = { top: '64px', right: '28px', bottom: '28px', left: '28px' } as const;
+export const READABLE_FIT = { padding: FIT_PADDING, minZoom: 0.85, maxZoom: 1.2 };
 
 const CURVATURE = 0.25;
 const CHIP_H = 20;

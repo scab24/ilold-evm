@@ -1,8 +1,8 @@
 import type { ContractSummary, ProjectConnections } from '$lib/api/rest';
 import { INTERFACES, LIBRARIES, OUTSIDE, outsideId, shortName, type Item } from './map-graph';
 
-export const NODE_W = 190;
-export const NODE_H = 66;
+const NODE_W = 190;
+const NODE_H = 66;
 const GAP_Y = 14;
 const PAD = 10;
 const HEAD = 30;

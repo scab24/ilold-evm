@@ -63,26 +63,26 @@
 {/each}
 
 <style>
-  .box { position: relative; box-sizing: border-box; min-width: 150px; padding: 8px 12px 9px; border-radius: 6px; background: var(--color-surface-alt); border: 1.25px solid var(--color-text-dim); cursor: pointer; font: 12px/1.45 var(--font-sans); color: var(--root, #8b949e); }
+  .box { position: relative; box-sizing: border-box; min-width: 150px; padding: 8px 12px 9px; border-radius: 6px; background: var(--color-surface-alt); border: 1.25px solid var(--color-text-dim); cursor: pointer; font: 12px/1.45 var(--font-sans); color: var(--root); }
   .box:hover { border-color: var(--color-accent-hover); }
   .box.on { background: var(--color-tint-accent); border: 2px solid var(--color-accent); }
   .box.dim { opacity: 0.3; }
   .box.abstract { border-style: dashed; }
   .box.iface { border-style: dotted; }
   .box.cluster { border-style: dashed; background: var(--color-surface); }
-  .box.out { border: 1.25px dashed var(--amber, #f0b72f); background: var(--color-tint-warning); }
+  .box.out { border: 1.25px dashed var(--amber); background: var(--color-tint-warning); }
   .box.route { background: var(--color-tint-accent); border: 2px solid var(--color-accent); }
   .name { display: flex; align-items: center; gap: 6px; font: 600 13px var(--font-sans); color: var(--color-text-light); white-space: nowrap; }
   .name span { overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; align-items: flex-start; gap: 5px; overflow-wrap: anywhere; }
   .meta :global(.pj-icon) { margin-top: 2px; }
   .val { color: var(--color-success-light); }
-  .amb { color: var(--amber, #f0b72f); }
+  .amb { color: var(--amber); }
   .mono { font-family: var(--font-mono); }
   .rows { list-style: none; margin: 6px 0 0; padding: 0; }
   .row { position: relative; display: flex; align-items: center; gap: 6px; height: 26px; font: 13px var(--font-mono); color: var(--color-text); white-space: nowrap; }
   .row span { overflow: hidden; text-overflow: ellipsis; }
-  .row.amb { font: 12px var(--font-sans); color: var(--amber, #f0b72f); }
+  .row.amb { font: 12px var(--font-sans); color: var(--amber); }
   .row :global(.svelte-flow__handle) { opacity: 0; }
   :global(.svelte-flow__node-box .svelte-flow__handle) { width: 4px; height: 4px; min-width: 0; min-height: 0; border: 0; background: transparent; }
 </style>

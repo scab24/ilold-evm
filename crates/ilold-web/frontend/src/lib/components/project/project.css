@@ -1,5 +1,4 @@
 .pj {
-  --amber: #f0b72f;
   --root: #8b949e;
   --insp: 360px;
   position: fixed;
@@ -14,7 +13,7 @@
   .pj { --insp: 284px; }
 }
 .pj :focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: 2px; }
-.pj code, .pj .mono { font-family: var(--font-mono); font-size: 12px; }
+.pj .mono { font-family: var(--font-mono); font-size: 12px; }
 
 .pj .top { display: flex; align-items: center; gap: 20px; padding: 0 20px; background: var(--color-hover); border-bottom: 1px solid var(--color-border-subtle); min-width: 0; }
 .pj .brand { font-size: 18px; font-weight: 700; color: var(--color-text-light); }
@@ -65,21 +64,22 @@
 .pj .list { list-style: none; margin: 0; padding: 0; }
 .pj .li { display: flex; align-items: flex-start; gap: 2px; border-radius: 6px; min-width: 0; }
 .pj .li:hover { background: var(--color-hover); }
-.pj .li.on { background: var(--color-tint-accent); }
-.pj .rb { flex: 1 1 auto; display: flex; align-items: flex-start; gap: 8px; min-width: 0; background: none; border: 0; text-align: left; padding: 6px; border-radius: 6px; cursor: pointer; color: inherit; font: inherit; }
-.pj span.rb { cursor: default; }
-.pj .rb > .pj-icon { margin-top: 2px; color: var(--root); }
-.pj .rb > .pj-icon.val { color: var(--color-success-light); }
-.pj .rb > .pj-icon.amb { color: var(--amber); }
+.pj .rb, .pj .rw { flex: 1 1 auto; display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 6px; border-radius: 6px; }
+.pj .rb { background: none; border: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.pj :is(.rb, .rw) > .pj-icon { margin-top: 2px; color: var(--root); }
+.pj :is(.rb, .rw) > .pj-icon.val { color: var(--color-success-light); }
+.pj :is(.rb, .rw) > .pj-icon.amb { color: var(--amber); }
 .pj .rb-body { flex: 1 1 auto; min-width: 0; display: block; }
 .pj .rt { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-light); overflow-wrap: break-word; }
 .pj .rs { display: block; font-size: 12px; color: var(--root); overflow-wrap: anywhere; }
+.pj .rt.amb, .pj .tlabel.amb { color: var(--amber); }
 .pj .rs .val { color: var(--color-success-light); }
 .pj .rs .amb { color: var(--amber); }
 .pj .src { flex: none; padding: 6px 6px 0 4px; font-family: var(--font-mono); font-size: 12px; color: var(--color-accent); background: none; border: 0; cursor: pointer; }
 .pj .src:hover { color: var(--color-accent-hover); text-decoration: underline; }
 .pj .stat { display: flex; align-items: center; gap: 10px; padding: 5px 6px; }
 .pj .stat .k { flex: 1; min-width: 0; }
+.pj .stat.val { color: var(--color-success-light); }
 .pj .stat .v { font-weight: 600; color: var(--color-text-light); font-variant-numeric: tabular-nums; }
 
 .pj .legend { display: flex; align-items: center; gap: 8px; padding: 0 20px; border-top: 1px solid var(--color-border-subtle); background: var(--color-hover); min-width: 0; white-space: nowrap; overflow: hidden; }
