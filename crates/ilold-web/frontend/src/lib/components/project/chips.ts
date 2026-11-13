@@ -9,6 +9,7 @@ export const READABLE_FIT = { padding: FIT_PADDING, minZoom: 0.85, maxZoom: 1.2 
 const CURVATURE = 0.25;
 const CHIP_H = 20;
 const TRIES = [0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8];
+export const NEAR_SOURCE = [0.16, 0.24, 0.32, 0.1, 0.42, 0.5];
 
 function offset(distance: number): number {
   return distance >= 0 ? 0.5 * distance : CURVATURE * 25 * Math.sqrt(-distance);
@@ -39,13 +40,13 @@ function overlaps(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
-export function placeChips(items: ChipItem[], obstacles: Rect[]): Map<string, number | null> {
+export function placeChips(items: ChipItem[], obstacles: Rect[], tries: number[] = TRIES): Map<string, number | null> {
   const taken: Rect[] = [];
   const placed = new Map<string, number | null>();
   for (const item of items) {
     const w = chipWidth(item.text);
     let chosen: number | null = null;
-    for (const at of TRIES) {
+    for (const at of tries) {
       const p = bezierPoint(item.s, item.s.side, item.t, item.t.side, at);
       const rect = { x: p.x - w / 2 - 3, y: p.y - CHIP_H / 2 - 2, w: w + 6, h: CHIP_H + 4 };
       if (taken.some((r) => overlaps(r, rect)) || obstacles.some((r) => overlaps(r, rect))) continue;

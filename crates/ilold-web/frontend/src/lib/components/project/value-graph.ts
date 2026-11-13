@@ -1,20 +1,5 @@
-import type { AssetKind, Party, ValueFlowPairs, ValuePair, ValueReason, ValueTransfer } from '$lib/api/rest';
-
-export const ASSET_NAME: Record<AssetKind, string> = {
-  native: 'ETH',
-  erc20: 'ERC-20',
-  erc721: 'ERC-721',
-  erc1155: 'ERC-1155',
-  erc6909: 'ERC-6909',
-  unknown: 'unknown asset',
-};
-export const POOL_ASSET = 'ETH or token';
-export const POOL_ASSET_LONG = 'ETH or token, set by the pool';
-export const ASSET_ORDER = ['ETH', 'ERC-20', 'ERC-721', 'ERC-1155', 'ERC-6909', POOL_ASSET, 'unknown asset'];
-
-export function assetName(fact: { asset_kind: AssetKind; reason: ValueReason | null }): string {
-  return fact.reason === 'currency' ? POOL_ASSET : ASSET_NAME[fact.asset_kind];
-}
+import type { Party, ValueFlowPairs, ValuePair, ValueTransfer } from '$lib/api/rest';
+import { ASSET_ORDER, assetName } from '$lib/utils/value';
 
 export type PartyKind = 'contract' | 'declared' | 'users';
 
@@ -65,7 +50,7 @@ export function transferKey(t: { in_context: string; id: string }): string {
 
 export function assetCounts(data: ValueFlowPairs): Map<string, number> {
   const seen = new Map<string, string>();
-  for (const pair of data.pairs) for (const id of pair.transfers) seen.set(`${pair.in_context}|${id}`, assetName(pair));
+  for (const pair of data.pairs) for (const id of pair.transfers) seen.set(transferKey({ in_context: pair.in_context, id }), assetName(pair));
   const counts = new Map<string, number>();
   for (const asset of seen.values()) counts.set(asset, (counts.get(asset) ?? 0) + 1);
   return counts;
@@ -101,7 +86,7 @@ export function buildFlow(data: ValueFlowPairs, asset: string | null): Flow {
     const name = assetName(pair);
     if (!arrow.assets.includes(name)) arrow.assets.push(name);
     for (const ref of pair.transfers) {
-      const t = byKey.get(`${pair.in_context}|${ref}`);
+      const t = byKey.get(transferKey({ in_context: pair.in_context, id: ref }));
       if (!t || arrow.transfers.includes(t)) continue;
       arrow.transfers.push(t);
       moved.set(transferKey(t), t);

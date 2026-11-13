@@ -1,7 +1,7 @@
 <script lang="ts" module>
   import type { IconName } from './Icon.svelte';
 
-  export type Tone = '' | 'val' | 'amb' | 'mono';
+  export type Tone = '' | 'val' | 'amb' | 'mono' | 'dim';
   export interface BoxLine { text: string; tone?: Tone; icon?: IconName }
   export interface BoxPort { id: string; side: 'l' | 'r' | 't' | 'b'; type: 'source' | 'target' }
   export interface BoxRow { id: string; text: string; icon?: IconName; tone?: Tone; title?: string }
@@ -83,6 +83,7 @@
   .row { position: relative; display: flex; align-items: center; gap: 6px; height: 26px; font: 13px var(--font-mono); color: var(--color-text); white-space: nowrap; }
   .row span { overflow: hidden; text-overflow: ellipsis; }
   .row.amb { font: 12px var(--font-sans); color: var(--amber); }
+  .row.dim { color: var(--root); }
   .row :global(.svelte-flow__handle) { opacity: 0; }
   :global(.svelte-flow__node-box .svelte-flow__handle) { width: 4px; height: 4px; min-width: 0; min-height: 0; border: 0; background: transparent; }
 </style>

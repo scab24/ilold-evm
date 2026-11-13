@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { page } from '$app/state';
-  import { MarkerType, type Edge, type Node } from '@xyflow/svelte';
+  import { MarkerType, type Edge, type FitViewOptions, type Node } from '@xyflow/svelte';
   import { getValueFlow, type ValueFlowPairs, type ValueTransfer } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
-  import { describeTransfers } from '$lib/utils/value';
-  import { splitRef } from '$lib/utils/links';
+  import { ASSET_ORDER, POOL_ASSET, POOL_ASSET_LONG, assetName, describeTransfers } from '$lib/utils/value';
+  import { AMBIGUOUS_COLOR, splitRef } from '$lib/utils/links';
   import { openFunctionLine } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
@@ -14,12 +14,12 @@
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
   import Row from './Row.svelte';
-  import { FIT_PADDING, placeChips, type Point, type Side } from './chips';
-  import { ASSET_ORDER, POOL_ASSET, POOL_ASSET_LONG, assetCounts, assetName, buildFlow, type FlowArrow, type FlowParty } from './value-graph';
+  import { READABLE_FIT, placeChips, type Point, type Side } from './chips';
+  import { assetCounts, buildFlow, type FlowArrow, type FlowParty } from './value-graph';
 
-  const VALUE = '#7aba8a';
-  const AMBER = '#f0b72f';
-  const ACCENT = '#8bb8e8';
+  const VALUE = 'var(--color-success-light)';
+  const AMBER = AMBIGUOUS_COLOR;
+  const ACCENT = 'var(--color-accent-hover)';
   const WIDTH = 200;
   const GAP_X = 130;
   const GAP_Y = 34;
@@ -28,16 +28,20 @@
   let data = $state<ValueFlowPairs | null>(null);
   let error = $state<string | null>(null);
   let tip = $state<{ x: number; y: number; arrow: FlowArrow } | null>(null);
+  let fit: ((options?: FitViewOptions) => Promise<boolean>) | null = null;
 
-  const asset = $derived(page.url.searchParams.get('asset'));
-  const selected = $derived(page.url.searchParams.get('sel'));
-  const picked = $derived(page.url.searchParams.get('arrow'));
   const counts = $derived(data ? assetCounts(data) : new Map<string, number>());
+  const asset = $derived.by(() => {
+    const a = page.url.searchParams.get('asset');
+    return a !== null && counts.has(a) ? a : null;
+  });
   const total = $derived([...counts.values()].reduce((a, b) => a + b, 0));
   const flow = $derived(data ? buildFlow(data, asset) : null);
   const partyOf = $derived(new Map((flow?.parties ?? []).map((p) => [p.key, p])));
-  const arrow = $derived(flow?.arrows.find((a) => a.id === picked) ?? null);
-  const party = $derived(selected ? (partyOf.get(selected) ?? null) : null);
+  const arrow = $derived(flow?.arrows.find((a) => a.id === page.url.searchParams.get('arrow')) ?? null);
+  const party = $derived(partyOf.get(page.url.searchParams.get('sel') ?? '') ?? null);
+  const selected = $derived(party?.key ?? null);
+  const picked = $derived(arrow?.id ?? null);
 
   const shown = $derived.by(() => {
     if (!flow) return [] as FlowArrow[];
@@ -54,6 +58,13 @@
     }
   });
   onDestroy(clearGraph);
+
+  $effect(() => {
+    const keys = arrow || party ? [...new Set(shown.flatMap((a) => [a.from, a.to]))] : [];
+    const nodes = keys.map((id) => ({ id }));
+    const timer = setTimeout(() => fit?.(nodes.length ? { ...READABLE_FIT, nodes, duration: 250 } : { ...READABLE_FIT, duration: 250 }), 120);
+    return () => clearTimeout(timer);
+  });
 
   function partyLines(p: FlowParty): BoxNodeData['lines'] {
     if (p.kind === 'users') {
@@ -267,7 +278,8 @@
         onedgemouseleave={() => (tip = null)}
         canDeleteNodes={false}
         keepPositions={false}
-        initialFit={{ padding: FIT_PADDING }}
+        onready={(api) => (fit = api.fitView)}
+        initialFit={READABLE_FIT}
         minZoom={0.2}
       />
     {/if}
@@ -302,8 +314,8 @@
 
 <div class="legend">
   <span class="tlabel">Key</span>
-  <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" stroke={VALUE} stroke-width="2" /></svg>Money moves this way</span>
-  <span class="key amb"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" stroke={AMBER} stroke-width="2" stroke-dasharray="5 4" /></svg>{POOL_ASSET_LONG}</span>
+  <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={VALUE} stroke-width="2" /></svg>Money moves this way</span>
+  <span class="key amb"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={AMBER} stroke-width="2" stroke-dasharray="5 4" /></svg>{POOL_ASSET_LONG}</span>
   <span class="key"><Icon name="lib" />Library code it runs</span>
   <span class="hint">Hover an arrow for its transfers, click it to list them</span>
 </div>
