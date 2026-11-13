@@ -1451,7 +1451,6 @@
           onpathselect={selectPath}
           onloadmorepaths={loadMorePaths}
           onexpandcfg={(funcName, nodeId) => toggleFuncExpand(funcName, nodeId)}
-          callgraph={callgraphRaw}
           onviewsource={(contract, func) => { sourcePanel = { contract, func }; }}
         />
       {/if}

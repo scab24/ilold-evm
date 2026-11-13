@@ -6,7 +6,6 @@
   import StatePanel from './StatePanel.svelte';
   import NodeInspector from '$lib/components/contract/NodeInspector.svelte';
   import ConnectionsInspector from '$lib/components/contract/ConnectionsInspector.svelte';
-  import type { CytoscapeGraph } from '$lib/api/rest';
   import { getScenarios, getActiveScenario } from '$lib/stores/session.svelte';
   import { promptScenarioName } from '$lib/scenarios/name';
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
@@ -33,7 +32,6 @@
     onpathselect = () => {},
     onloadmorepaths = () => {},
     onexpandcfg = () => {},
-    callgraph = null,
     onviewsource = () => {},
     inspect = null,
     onphase = () => {},
@@ -52,7 +50,6 @@
     onpathselect?: (funcName: string, path: any) => void;
     onloadmorepaths?: (funcName: string) => void;
     onexpandcfg?: (funcName: string, nodeId?: string) => void;
-    callgraph?: CytoscapeGraph | null;
     onviewsource?: (contract: string, func: string) => void;
     inspect?: { contract: string; member: string | null } | null;
     onphase?: (contract: string, member: string) => void;
@@ -191,8 +188,6 @@
           {onpathselect}
           {onloadmorepaths}
           {onexpandcfg}
-          {callgraph}
-          {onviewsource}
         />
         {/if}
         {#if inspect}
