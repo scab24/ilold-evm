@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
-  import LinksPanel from './LinksPanel.svelte';
-  import ValueFlowsPanel from './ValueFlowsPanel.svelte';
+  import Icon from '$lib/components/chrome/Icon.svelte';
   import { visibilityLabel } from '$lib/utils/visibility';
   import { describeGuard, formatAccess, isAccessGuard, isConditional, restricts } from '$lib/utils/access';
   import { describeTries } from '$lib/utils/trycatch';
@@ -14,12 +13,16 @@
     mode,
     onadd,
     onremove,
+    counts,
+    onconnections,
   }: {
     contract: ContractDetail;
     canvasFuncs: Set<string>;
     mode: Mode;
     onadd: (func: string) => void;
     onremove: (func: string) => void;
+    counts: { out: number; in: number } | null;
+    onconnections: () => void;
   } = $props();
 
   let sidebarOpen = $state(typeof window === 'undefined' || window.innerWidth >= 1200);
@@ -86,7 +89,7 @@
   const totalCount = $derived(allRows.length);
   const visibleCount = $derived(filtered.length);
   const canvasCount = $derived(canvasFuncs.size);
-  const canClear = $derived(mode !== 'session' && canvasCount > 0);
+  const canClear = $derived(mode !== 'session' && mode !== 'connections' && canvasCount > 0);
 
   function toggleVisibility(v: Visibility) {
     const next = new Set(visFilter);
@@ -206,8 +209,9 @@
         {/if}
       {/if}
     </div>
-    <LinksPanel name={contract.name} outgoing={contract.outgoing_links} incoming={contract.incoming_links} />
-    <ValueFlowsPanel flows={contract.value_flows} />
+    <button type="button" class="conn" data-testid="connections-line" onclick={onconnections} title={counts ? `${contract.name} makes ${counts.out} calls and reads to other contracts and receives ${counts.in} from them (libraries and itself not counted). Opens Connections` : 'Opens Connections'}>
+      <Icon name="call" /><span>Connections · <b>{counts?.out ?? '…'}</b> → · <b>{counts?.in ?? '…'}</b> ←</span>
+    </button>
   {/if}
 </div>
 
@@ -225,6 +229,7 @@
       onclick={() => onadd(row.key)}
       title={inSession
         ? 'Add step to active scenario'
+        : mode === 'connections' ? (onCanvas ? 'Selected on the board' : 'Select on the board')
         : (onCanvas ? 'On canvas — click ✕ to remove' : 'Add to canvas')}
     >
       <span class="row-name" title={row.key}>{row.name}{#if row.key !== row.name}<span class="row-sig">{row.key.slice(row.name.length)}</span>{/if}</span>
@@ -275,6 +280,12 @@
     background: none; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px;
     color: var(--root); cursor: pointer; font-size: 12px;
   }
+  .conn {
+    display: flex; align-items: center; gap: 8px; flex: none; padding: 12px 14px; border: 0;
+    border-top: 1px solid var(--color-border-subtle); background: none; color: var(--color-text); font: 13px var(--font-sans); cursor: pointer; text-align: left;
+  }
+  .conn:hover { background: var(--color-hover); color: var(--color-accent-hover); }
+  .conn b { color: var(--color-text-light); font-variant-numeric: tabular-nums; }
   .collapse-btn:hover { color: var(--color-accent-hover); border-color: var(--color-border-subtle); }
 
   .search-wrap {

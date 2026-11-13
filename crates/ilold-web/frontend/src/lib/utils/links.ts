@@ -1,4 +1,4 @@
-import type { Basis, ContractLink, RelationTag } from '$lib/api/rest';
+import type { Basis, RelationTag } from '$lib/api/rest';
 
 export type Relation = 'calls' | 'reads' | 'library' | 'value' | 'inherits' | 'holds' | 'unresolved';
 
@@ -43,9 +43,4 @@ export function tagColor(tag: RelationTag): string {
 export function splitRef(ref: string): { contract: string; member: string } {
   const at = ref.lastIndexOf('::');
   return at < 0 ? { contract: '', member: ref } : { contract: ref.slice(0, at), member: ref.slice(at + 2) };
-}
-
-export function describeLink(link: ContractLink): string {
-  const via = link.via_state_vars.length ? ` · address in ${link.via_state_vars.join(', ')}` : '';
-  return `${BASIS_LABEL[link.basis]} · ${link.tag}${via}`;
 }

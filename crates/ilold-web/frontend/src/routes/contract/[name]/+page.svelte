@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onDestroy, tick, untrack } from 'svelte';
-  import { getContract, getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, type ContractDetail, type ContractSummary, type CytoscapeGraph, type SequenceAnalysis } from '$lib/api/rest';
-  import { projectSummary } from '$lib/stores/project-data';
+  import { getContract, getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, type Connections, type ContractDetail, type ContractSummary, type CytoscapeGraph, type SequenceAnalysis } from '$lib/api/rest';
+  import { contractConnections, projectSummary } from '$lib/stores/project-data';
   import { goto } from '$app/navigation';
   import { toggleTerminal } from '$lib/stores/terminal.svelte';
   import { openInIde } from '$lib/utils/ide-links';
@@ -17,11 +17,10 @@
   import { promptScenarioName } from '$lib/scenarios/name';
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
   import { postCommand } from '$lib/api/session';
-  import Legend from '$lib/components/contract/Legend.svelte';
   import WorkbenchLegend from '$lib/components/contract/WorkbenchLegend.svelte';
   import ConnectionsBoard from '$lib/components/contract/connections/ConnectionsBoard.svelte';
-  import { applyBoard, currentBoard } from '$lib/components/contract/connections/board-view.svelte';
-  import { contractOf, fnKey, keyParts } from '$lib/components/contract/connections/board-state';
+  import { applyBoard, currentBoard, openMain } from '$lib/components/contract/connections/board-view.svelte';
+  import { contractOf, fnKey, keyParts, touch } from '$lib/components/contract/connections/board-state';
   import FunctionSidebar from '$lib/components/contract/FunctionSidebar.svelte';
   import TopBar from '$lib/components/contract/TopBar.svelte';
   import StatusBar from '$lib/components/contract/StatusBar.svelte';
@@ -80,6 +79,8 @@
   let canvasFuncs: Set<string> = $state(new Set()); // functions currently on canvas
 
   let projectContracts: ContractSummary[] = $state([]);
+  let mainConnections: Connections | null = $state(null);
+  let sessionSidebar: SessionSidebar | null = $state(null);
 
   let sourcePanel: { contract?: string; func: string } | null = $state(null);
 
@@ -531,6 +532,7 @@
     cfgCache.clear();
     cfgCacheVersion++;
     contract = null;
+    mainConnections = null;
     callgraphRaw = null;
     seqTree = null;
     seqAnalysis = null;
@@ -550,10 +552,11 @@
       if (!current()) return;
       callgraphRaw = callgraphData;
       contract = detail;
-      const [seq, analysis, pm] = await Promise.allSettled([
+      const [seq, analysis, pm, links] = await Promise.allSettled([
         getSequences(contractName, { depth: 1, limit: 0 }),
         getSequenceAnalysis(contractName),
         projectSummary(),
+        contractConnections(contractName),
       ]);
       if (!current()) return;
       if (seq.status === 'fulfilled') seqTree = seq.value;
@@ -562,6 +565,8 @@
       else notifyError('load sequence analysis', analysis.reason);
       if (pm.status === 'fulfilled') projectContracts = pm.value.contracts;
       else notifyError('load project', pm.reason);
+      if (links.status === 'fulfilled') mainConnections = links.value;
+      else notifyError('load connections', links.reason);
     } catch (e) {
       if (current()) error = e instanceof Error ? e.message : `Contract "${contractName}" not found`;
     }
@@ -638,6 +643,32 @@
     return new Set(fn && contractOf(fn) === contract?.name ? [keyParts(fn).member] : []);
   });
   const libraries = $derived(new Set(projectContracts.filter((c) => c.kind === 'Library').map((c) => c.name)));
+
+  const inspect = $derived.by(() => {
+    if (!contract) return null;
+    if (mode === 'connections') {
+      const fn = currentBoard(contract.name).fn;
+      return fn ? { contract: contractOf(fn), member: splitRef(keyParts(fn).member).member } : { contract: contract.name, member: null };
+    }
+    const funcKey = selectedNode?._type === 'function' && !selectedNode.is_external ? (selectedNode.funcKey ?? selectedNode.label) : null;
+    return { contract: contract.name, member: funcKey };
+  });
+
+  function showConnections() {
+    setQuery({ mode: modeParam('connections'), fn: null });
+    sessionSidebar?.showInspector();
+  }
+
+  function pickPhaseFunction(owner: string, member: string) {
+    if (!contract) return;
+    if (mode !== 'connections') {
+      handleSidebarAdd(routeKey(member));
+      return;
+    }
+    const board = currentBoard(contract.name);
+    if (board.open.includes(owner)) applyBoard({ ...touch(board, owner), fn: fnKey(owner, member) });
+    else openMain(owner, fnKey(owner, member));
+  }
 
   function selectOnBoard(funcName: string | null) {
     if (!contract) return;
@@ -1380,7 +1411,7 @@
     />
     <div class="wb-main">
       {#if contract}
-        <FunctionSidebar {contract} canvasFuncs={mode === 'connections' ? boardSelected : canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={mode === 'connections' ? () => selectOnBoard(null) : removeFuncFromCanvas} />
+        <FunctionSidebar {contract} canvasFuncs={mode === 'connections' ? boardSelected : canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={mode === 'connections' ? () => selectOnBoard(null) : removeFuncFromCanvas} counts={mainConnections ? { out: mainConnections.outgoing_calls, in: mainConnections.incoming_calls } : null} onconnections={showConnections} />
       {/if}
 
       <div class="wb-canvas">
@@ -1403,7 +1434,11 @@
 
       {#if contract}
         <SessionSidebar
+          bind:this={sessionSidebar}
           contract={contract.name}
+          {inspect}
+          onphase={pickPhaseFunction}
+          onopen={(c) => openMain(c)}
           {selectedNode}
           {selectedPath}
           {funcPaths}
@@ -1455,7 +1490,6 @@
       />
     {/if}
 
-    <Legend phases={contract?.phase_candidates} onfunction={(ref) => handleSidebarAdd(routeKey(splitRef(ref).member))} />
   {/if}
   <ErrorToasts />
 </div>

@@ -5,6 +5,7 @@
   import SessionTimeline from './SessionTimeline.svelte';
   import StatePanel from './StatePanel.svelte';
   import NodeInspector from '$lib/components/contract/NodeInspector.svelte';
+  import ConnectionsInspector from '$lib/components/contract/ConnectionsInspector.svelte';
   import type { CytoscapeGraph } from '$lib/api/rest';
   import { getScenarios, getActiveScenario } from '$lib/stores/session.svelte';
   import { promptScenarioName } from '$lib/scenarios/name';
@@ -34,6 +35,9 @@
     onexpandcfg = () => {},
     callgraph = null,
     onviewsource = () => {},
+    inspect = null,
+    onphase = () => {},
+    onopen = () => {},
   }: {
     contract: string;
     selectedNode?: any;
@@ -50,14 +54,22 @@
     onexpandcfg?: (funcName: string, nodeId?: string) => void;
     callgraph?: CytoscapeGraph | null;
     onviewsource?: (contract: string, func: string) => void;
+    inspect?: { contract: string; member: string | null } | null;
+    onphase?: (contract: string, member: string) => void;
+    onopen?: (contract: string) => void;
   } = $props();
+
+  export function showInspector() {
+    open = true;
+    activeTab = 'inspector';
+  }
 
   let open = $state(true);
   let activeTab: Tab = $state('timeline');
 
   let prevSelectedId = $state<string | null>(null);
   $effect(() => {
-    const currentId = selectedNode?.id ?? null;
+    const currentId = selectedNode?.id ?? (mode === 'connections' && inspect?.member ? `${inspect.contract}|${inspect.member}` : null);
     const prev = untrack(() => prevSelectedId);
     if (currentId && !prev) {
       activeTab = 'inspector';
@@ -156,7 +168,7 @@
       <button type="button" class="chip" onclick={newScenario} title="Create new scenario" aria-label="Create new scenario">+</button>
     </div>
     <div class="ssb-tabs">
-      <Seg label="Sidebar" options={TABS.map((t) => (t.id === 'inspector' ? { ...t, label: selectedNode ? 'Inspector ●' : 'Inspector', title: selectedNode ? `Inspect: ${selectedNode._funcName || selectedNode.label}` : 'Select a node to inspect it' } : t))} value={activeTab} onpick={(t) => (activeTab = t)} />
+      <Seg label="Sidebar" options={TABS.map((t) => (t.id === 'inspector' ? { ...t, label: selectedNode || inspect?.member ? 'Inspector ●' : 'Inspector', title: selectedNode ? `Inspect: ${selectedNode._funcName || selectedNode.label}` : 'Select a node to inspect it' } : t))} value={activeTab} onpick={(t) => (activeTab = t)} />
     </div>
 
     <div class="flex-1 overflow-y-auto min-h-0 px-1">
@@ -165,6 +177,7 @@
       {:else if activeTab === 'state'}
         <StatePanel {contract} />
       {:else if contractDetail}
+        {#if mode !== 'connections'}
         <NodeInspector
           {selectedNode}
           {selectedPath}
@@ -181,6 +194,10 @@
           {callgraph}
           {onviewsource}
         />
+        {/if}
+        {#if inspect}
+          <ConnectionsInspector main={contract} contract={inspect.contract} member={inspect.member} titled={mode === 'connections'} {onphase} {onopen} onsource={onviewsource} />
+        {/if}
       {/if}
     </div>
   </div>

@@ -178,7 +178,20 @@ function (the [`links`](../commands/contract.md#links) rows):
 - double-click a box (or press Enter on its title) to make it the main
   contract of the board. Delete removes nothing in this mode.
 - the whole board (open boxes, trail, selection, direction, filters) lives in
-  the URL, so a reload or a link reopens it; it is not saved in scenarios. Panels, section titles, chips and buttons use
+  the URL, so a reload or a link reopens it; it is not saved in scenarios.
+
+The function list on the left selects in every mode (in Connections it selects
+on the board). At its foot, **Connections · N → · M ←** counts the calls and
+reads this contract makes to other contracts and receives from them
+(libraries and the contract itself not counted); clicking it switches to
+Connections with the contract summary in the Inspector. The Inspector lists
+the selected function's calls, callers, reads, readers, library calls, value
+moves and unresolved calls, one row each with a link to the source line (and
+the assignment of the address it calls through), and **Open X** for a
+function of another contract. Below it the contract summary shows the
+**Phases** (the state variables that gate which entry points can run; click
+a function to select it on the board, or to add it to the canvas in CFG and
+Seq) and the contract's **Value flows**. Panels, section titles, chips and buttons use
 the same styles as the project page.
 
 ## Practical workflow

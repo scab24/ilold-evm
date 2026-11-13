@@ -145,3 +145,4 @@
 .pj .wb-canvas { position: relative; flex: 1 1 auto; min-width: 0; }
 .pj .wb-flow { position: absolute; inset: 0; }
 .pj .wb-flow.off { visibility: hidden; }
+.pj .insp.flat { border-left: 0; background: none; overflow: visible; padding: 16px 12px 24px; }
