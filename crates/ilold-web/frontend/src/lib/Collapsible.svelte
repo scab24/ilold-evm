@@ -11,10 +11,10 @@
 
 <div class="my-1">
   <button class="flex items-center gap-1 w-full bg-transparent border-none py-1 px-0.5 cursor-pointer font-[inherit] text-left hover:bg-hover hover:rounded-sm" onclick={() => isOpen = !isOpen}>
-    <span class="text-[8px] text-text-dim w-3 text-center">{isOpen ? '▼' : '▶'}</span>
-    <span class="text-[10px] text-text-muted uppercase tracking-wide font-semibold flex-1">{title}</span>
+    <span class="text-[12px] text-root w-3 text-center">{isOpen ? '▼' : '▶'}</span>
+    <span class="text-[13px] text-text-light font-bold flex-1">{title}</span>
     {#if count !== undefined}
-      <span class="text-[9px] text-text-dim">{count}</span>
+      <span class="text-[12px] text-root font-semibold">{count}</span>
     {/if}
   </button>
   {#if isOpen}

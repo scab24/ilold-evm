@@ -82,6 +82,7 @@
   const MIN_W = 400;
   const MIN_H = 200;
   const TITLE_BAR_H = 36;
+  const BOTTOM_BARS = 76;
 
   let dragging = $state(false);
 
@@ -176,12 +177,12 @@
 
   function clampToViewport() {
     posX = Math.max(0, Math.min(posX, window.innerWidth - panelWidth));
-    posY = Math.max(0, Math.min(posY, window.innerHeight - panelHeight));
+    posY = Math.max(0, Math.min(posY, window.innerHeight - panelHeight - BOTTOM_BARS));
   }
 
   onMount(() => {
     posX = window.innerWidth - panelWidth - 16;
-    posY = window.innerHeight - panelHeight - 16;
+    posY = window.innerHeight - panelHeight - BOTTOM_BARS;
 
     requestAnimationFrame(() => { fadeIn = true; });
 
@@ -343,16 +344,6 @@
           style="background: var(--color-danger);"
           title="Close"
           aria-label="Close terminal"
-          onmousedown={(e: MouseEvent) => e.stopPropagation()}
-          onclick={() => closePanel()}
-        ></button>
-        <!-- Hide (yellow) — kept alongside red for the macOS traffic-light
-             aesthetic. Both close the terminal; reopen via TopBar >_. -->
-        <button
-          class="w-3 h-3 rounded-full border-none cursor-pointer transition-all duration-150 hover:brightness-125"
-          style="background: var(--color-warning);"
-          title="Hide terminal"
-          aria-label="Hide terminal"
           onmousedown={(e: MouseEvent) => e.stopPropagation()}
           onclick={() => closePanel()}
         ></button>

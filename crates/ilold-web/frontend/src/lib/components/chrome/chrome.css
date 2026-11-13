@@ -1,5 +1,5 @@
 .pj {
-  --root: #8b949e;
+  --root: var(--color-root);
   --insp: 360px;
   position: fixed;
   inset: 0;

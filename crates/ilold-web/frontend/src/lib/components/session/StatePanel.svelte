@@ -57,7 +57,7 @@
       -webkit-backdrop-filter: blur(16px) saturate(1.8);
     "
   >
-    <span class="text-[10px] text-text-muted uppercase tracking-wider font-semibold">State Variables</span>
+    <span class="text-[13px] text-text-light font-bold">State variables</span>
     <button
       class="bg-transparent border text-text-muted cursor-pointer text-xs px-2 py-0.5 leading-none transition-colors duration-150 hover:text-accent-hover hover:border-accent disabled:opacity-40 disabled:cursor-default"
       style="

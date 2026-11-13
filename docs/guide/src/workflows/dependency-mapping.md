@@ -191,7 +191,16 @@ the assignment of the address it calls through), and **Open X** for a
 function of another contract. Below it the contract summary shows the
 **Phases** (the state variables that gate which entry points can run; click
 a function to select it on the board, or to add it to the canvas in CFG and
-Seq) and the contract's **Value flows**. Panels, section titles, chips and buttons use
+Seq) and the contract's **Value flows**.
+
+The legend bar at the bottom of the workbench is the same as on the project
+page: in Connections it filters the lines, in the other modes it explains the
+node colours. The status bar shows the server connection, how many nodes are
+selected and the keys of the current mode (H pan, V select, Delete remove in
+CFG and Seq; Backspace undo and Esc clear in Connections). The embedded
+terminal starts closed: **Terminal** opens it above the legend, its red
+button closes it. Below 1200px wide the function list starts folded; its
+arrow opens it. Panels, section titles, chips and buttons use
 the same styles as the project page.
 
 ## Practical workflow

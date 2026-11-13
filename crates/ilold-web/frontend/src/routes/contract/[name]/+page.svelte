@@ -1458,13 +1458,7 @@
 
     <WorkbenchLegend {mode} />
 
-    <StatusBar
-      {mode}
-      canvasCount={canvasFuncs.size}
-      expandedCount={expandedFuncs.size}
-      activeScenario={getActiveScenario()}
-      {selectionCount}
-    />
+    <StatusBar {mode} selectionCount={mode === 'connections' ? (contract && currentBoard(contract.name).fn ? 1 : 0) : selectionCount} />
 
     <ContextMenu
       menu={contextMenu}

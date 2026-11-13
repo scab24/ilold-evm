@@ -112,7 +112,7 @@
       -webkit-backdrop-filter: blur(16px) saturate(1.8);
     "
   >
-    <span class="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Session Timeline</span>
+    <span class="text-[13px] text-text-light font-bold">Session timeline</span>
     <span
       class="text-[10px] text-text-dim font-mono px-2 py-0.5"
       style="border-radius: 8px; background: color-mix(in srgb, var(--color-border) 30%, transparent);"
