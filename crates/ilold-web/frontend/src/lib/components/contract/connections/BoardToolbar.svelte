@@ -39,7 +39,7 @@
       {#if Array.isArray(step)}
         <button type="button" class="chip" title={step.map(label).join(' → ')} aria-label="{step.length} more steps" onclick={() => pick(step.at(-1)!)}>+{step.length}</button>
       {:else}
-        <button type="button" class="chip" class:on={board.fn === step} title="Select {label(step)}" onclick={() => pick(step)}>{#if !step.startsWith('#')}<span class="owner">{owner(step)}</span>{rowLabel(step, contractOf(step))}{:else}{label(step)}{/if}</button>
+        <button type="button" class="chip" class:on={board.fn === step} title="Select {label(step)}" onclick={() => pick(step)}>{#if !step.startsWith('#')}<span><span class="owner">{owner(step)}</span>{rowLabel(step, contractOf(step))}</span>{:else}{label(step)}{/if}</button>
       {/if}
     {/each}
   {/if}

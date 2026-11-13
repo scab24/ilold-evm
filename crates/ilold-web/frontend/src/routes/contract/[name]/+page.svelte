@@ -572,9 +572,12 @@
     }
   }
 
+  let loadedName: string | null = null;
   $effect(() => {
     const contractName = page.params.name;
-    if (contractName) untrack(() => loadContract(contractName));
+    if (!contractName || contractName === loadedName) return;
+    loadedName = contractName;
+    untrack(() => loadContract(contractName));
   });
 
   // a path search result opens once its contract shows; any other navigation in between drops it
