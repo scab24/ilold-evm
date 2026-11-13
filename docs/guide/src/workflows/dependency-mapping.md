@@ -146,9 +146,11 @@ layers stays in `analyze --deps`.
 
 Opening a contract keeps the project header: its tabs lead back to the Map,
 Value flow and Route, and after the contract name the mode control switches
-between CFG, Seq and Session. The bar under the header holds the canvas tools
-of the current mode (Seq layout down or right, Back and Clear of the active
-scenario, Center, Terminal). Panels, section titles, chips and buttons use
+between CFG, Seq and Session. The mode lives in the URL (`?mode=cfg`,
+`?mode=session`; Seq when absent), so a reload or a link keeps it and the
+browser Back button returns to the previous mode. The bar under the header
+holds the canvas tools of the current mode: the Seq layout (down or right),
+Back and Clear of the active scenario (Session only), Center and Terminal. Panels, section titles, chips and buttons use
 the same styles as the project page.
 
 ## Practical workflow

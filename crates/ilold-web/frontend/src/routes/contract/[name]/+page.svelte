@@ -25,7 +25,8 @@
   import FunctionSourcePanel from '$lib/components/contract/FunctionSourcePanel.svelte';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
   import SessionSidebar from '$lib/components/session/SessionSidebar.svelte';
-  import AppHeader, { type Mode } from '$lib/components/chrome/AppHeader.svelte';
+  import AppHeader, { modeOf, modeParam, type Mode } from '$lib/components/chrome/AppHeader.svelte';
+  import { setQuery } from '$lib/utils/query';
   import '$lib/components/chrome/chrome.css';
   import {
     getNodes, getEdges,
@@ -57,7 +58,7 @@
   let funcPaths: Record<string, any> = $state.raw({});
   let expandedFuncs: Set<string> = $state(new Set());
   let selectionCount: number = $state(0);
-  let mode: Mode = $state('sequences');
+  const mode = $derived<Mode>(modeOf(page.url.searchParams.get('mode')));
   let seqTree: any = $state(null);
   let seqAnalysis: SequenceAnalysis | null = $state(null);
   let seqExpanded: Map<string, boolean> = $state(new Map());
@@ -1181,6 +1182,19 @@
   }
 
   function switchMode(newMode: Mode) {
+    setQuery({ mode: modeParam(newMode) });
+  }
+
+  let shownMode: Mode | null = null;
+  $effect(() => {
+    const current = mode;
+    untrack(() => {
+      if (shownMode !== null && shownMode !== current) clearModeNodes();
+      shownMode = current;
+    });
+  });
+
+  function clearModeNodes() {
     const toRemove = new Set<string>();
     for (const n of getNodes()) {
       if (n.data._type === 'block' || n.data._type === 'seq-next') {
@@ -1194,7 +1208,6 @@
     seqExpanded = new Map();
     selectedNode = null;
     selectedPath = null;
-    mode = newMode;
   }
 
   function highlightPath(funcName: string, path: any) {

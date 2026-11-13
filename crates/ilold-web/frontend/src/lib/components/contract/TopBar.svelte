@@ -30,8 +30,11 @@
     <span class="tlabel">Layout</span>
     <Seg label="Sequence tree direction" options={DIRECTIONS} value={seqDirection} onpick={onseqdirection} />
   {/if}
-  <button type="button" class="btn" onclick={onsessionback} title="Remove the last step of the active scenario">↶ Back</button>
-  <button type="button" class="btn" onclick={onsessionclear} title="Remove every step of the active scenario">Clear</button>
+  {#if mode === 'session'}
+    <span class="tlabel">Active scenario</span>
+    <button type="button" class="btn" onclick={onsessionback} title="Remove the last step of the active scenario">↶ Back</button>
+    <button type="button" class="btn" onclick={onsessionclear} title="Remove every step of the active scenario">Clear</button>
+  {/if}
   <span class="tools-end">
     <button type="button" class="btn" onclick={oncenter} title="Fit every node in view">Center</button>
     <button type="button" class="btn mono" onclick={toggleTerminal} aria-pressed={isTerminalVisible()} title={isTerminalVisible() ? 'Hide terminal' : 'Show terminal'}>&gt;_ Terminal</button>

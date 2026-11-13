@@ -8,11 +8,21 @@
     { id: 'route', label: 'Route' },
   ];
 
-  export const MODES: { id: Mode; label: string; title: string }[] = [
-    { id: 'cfg', label: 'CFG', title: 'Control-flow graph view' },
-    { id: 'sequences', label: 'Seq', title: 'Function sequence view' },
-    { id: 'session', label: 'Session', title: 'Session mode: click a function to add a step' },
+  export const MODES: { id: Mode; label: string; title: string; param: string }[] = [
+    { id: 'cfg', label: 'CFG', title: 'Control-flow graph view', param: 'cfg' },
+    { id: 'sequences', label: 'Seq', title: 'Function sequence view', param: 'seq' },
+    { id: 'session', label: 'Session', title: 'Session mode: click a function to add a step', param: 'session' },
   ];
+
+  export const DEFAULT_MODE: Mode = 'sequences';
+
+  export function modeOf(param: string | null): Mode {
+    return MODES.find((m) => m.param === param)?.id ?? DEFAULT_MODE;
+  }
+
+  export function modeParam(mode: Mode): string | null {
+    return mode === DEFAULT_MODE ? null : MODES.find((m) => m.id === mode)!.param;
+  }
 
   export function tabHref(id: ProjectTab): string {
     return id === 'map' ? '/' : `/?tab=${id}`;
