@@ -5,7 +5,7 @@
   import { openFunctionLine, openInIde } from '$lib/utils/ide-links';
   import { BASIS_LABEL, splitRef } from '$lib/utils/links';
   import { assetLabel } from '$lib/utils/value';
-  import { shortContract } from './connections/board-links';
+  import { shortName } from '$lib/components/project/map-graph';
 
   let { contract, member, connections, detail, main, titled, onopen, onsource }: {
     contract: string;
@@ -85,7 +85,7 @@
     <ul class="list">
       {#each s.list as l (l.id)}
         {@const site = assignment(l.row)}
-        <Row icon={l.row.transfers.length ? 'value' : s.icon} tone={l.row.callees.some((d) => d.tag === 'AMBIGUOUS') ? 'amb' : l.row.transfers.length ? 'val' : ''} title={l.out ? `${name(l.row.function)} → ${shortContract(l.other)}.${l.otherFn}` : `${shortContract(l.other)}.${l.otherFn} → ${member.split('(')[0]}`} line={l.row.span.start_line} onsource={source(l.row)}>
+        <Row icon={l.row.transfers.length ? 'value' : s.icon} tone={l.row.callees.some((d) => d.tag === 'AMBIGUOUS') ? 'amb' : l.row.transfers.length ? 'val' : ''} title={l.out ? `${name(l.row.function)} → ${shortName(l.other)}.${l.otherFn}` : `${shortName(l.other)}.${l.otherFn} → ${member.split('(')[0]}`} line={l.row.span.start_line} onsource={source(l.row)}>
           {#snippet meta()}{describe(l)}{#if l.row.transfers.length}{describe(l) ? ' · ' : ''}<span class="val">moves value</span>{/if}{#if site}{describe(l) || l.row.transfers.length ? ' · ' : ''}set by {site.kind.replaceAll('_', ' ')} <span class="mono">{site.expr_text}</span>{#if site.function}{' '}<button type="button" class="src" onclick={() => onsource(splitRef(site.function!).contract, splitRef(site.function!).member)}>{name(site.function)} ↗</button>{/if}{/if}{/snippet}
         </Row>
       {/each}

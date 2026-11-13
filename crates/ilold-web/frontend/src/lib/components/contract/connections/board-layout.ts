@@ -1,8 +1,8 @@
 import type { BoardEdge, BoardNode, BoardRow, Built } from './board-links';
 
-export const OPEN_W = 248;
-export const FOLD_W = 178;
-export const STRIP_W = 40;
+const OPEN_W = 248;
+const FOLD_W = 178;
+const STRIP_W = 40;
 const MARGIN = 20;
 const BAND = 26;
 

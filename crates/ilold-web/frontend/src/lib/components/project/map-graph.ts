@@ -63,8 +63,22 @@ export function shortName(key: string): string {
 
 const WEAKEST: Basis[] = ['selector_match', 'self'];
 
-function weakest(found: (Basis | null)[]): Basis | null {
+export function weakest(found: (Basis | null)[]): Basis | null {
   return WEAKEST.find((b) => found.includes(b)) ?? found[0] ?? null;
+}
+
+export function itemOf(row: ContractCall, to: string): Item {
+  const mine = row.callees.filter((d) => d.contract === to);
+  return {
+    from: row.in_context,
+    to,
+    line: !row.callees.length ? 'unresolved' : row.kind === 'read' ? 'reads' : row.kind === 'library' ? 'library' : 'calls',
+    iface: mine.some((d) => d.basis === 'inherits_interface'),
+    value: row.transfers.length > 0,
+    ambiguous: mine.some((d) => d.tag === 'AMBIGUOUS'),
+    basis: weakest(mine.map((d) => d.basis)),
+    row,
+  };
 }
 
 export function packageOf(key: string): string {
@@ -79,24 +93,11 @@ export function items(contracts: ContractSummary[], connections: ProjectConnecti
   const found: Item[] = [];
   for (const pair of connections.pairs) {
     for (const row of pair.rows) {
-      if (row.kind === 'self') continue;
-      const mine = row.callees.filter((d) => d.contract === pair.to);
-      found.push({
-        from: pair.from,
-        to: pair.to,
-        line: row.kind === 'call' ? 'calls' : row.kind === 'read' ? 'reads' : 'library',
-        iface: mine.some((d) => d.basis === 'inherits_interface'),
-        value: row.transfers.length > 0,
-        ambiguous: mine.some((d) => d.tag === 'AMBIGUOUS'),
-        basis: weakest(mine.map((d) => d.basis)),
-        row,
-      });
+      if (row.kind !== 'self') found.push(itemOf(row, pair.to));
     }
   }
   for (const group of connections.unresolved) {
-    for (const row of group.rows) {
-      found.push({ from: group.from, to: outsideId(group.target), line: 'unresolved', iface: false, value: row.transfers.length > 0, ambiguous: false, basis: null, row });
-    }
+    for (const row of group.rows) found.push(itemOf(row, outsideId(group.target)));
   }
   for (const c of contracts) {
     for (const base of c.inherit_keys) {
@@ -122,6 +123,11 @@ export function itemLook(item: Item, lines: Record<Line, LineState>): Look {
   if (item.ambiguous) return 'ambiguous';
   if (item.value && lines.value === 'show') return 'value';
   return item.line;
+}
+
+export function lookOf(found: Item[], lines: Record<Line, LineState>): Look {
+  const looks = found.map((i) => itemLook(i, lines));
+  return PRIORITY.find((l) => looks.includes(l)) ?? 'calls';
 }
 
 export interface MapEdge {
@@ -155,14 +161,13 @@ export function edges(all: Item[], endpoint: (id: string) => string, lines: Reco
   }
   for (const edge of byPair.values()) {
     const strongest = edge.items.filter((i) => itemState(i, lines) === edge.state);
-    const looks = strongest.map((i) => itemLook(i, lines));
-    edge.look = PRIORITY.find((l) => looks.includes(l)) ?? 'calls';
+    edge.look = lookOf(strongest, lines);
     edge.basis = weakest(strongest.map((i) => i.basis));
   }
   return [...byPair.values()];
 }
 
-export function edgeStyle(edge: MapEdge): LineStyle {
+export function edgeStyle(edge: Pick<MapEdge, 'look' | 'basis'>): LineStyle {
   return edge.look === 'ambiguous' ? lineStyle('calls', edge.basis, 'AMBIGUOUS') : lineStyle(edge.look, edge.basis);
 }
 

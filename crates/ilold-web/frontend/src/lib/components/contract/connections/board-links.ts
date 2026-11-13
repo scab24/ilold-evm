@@ -1,10 +1,7 @@
 import type { Basis, Connections, ContractCall, DispatchCandidate } from '$lib/api/rest';
-import { itemLook, itemState, type Item, type Line, type LineState, type Look } from '$lib/components/project/map-graph';
+import { itemOf, itemState, shortName, weakest, LIBRARIES, OUTSIDE, type Item, type Line, type LineState } from '$lib/components/project/map-graph';
 import { splitRef } from '$lib/utils/links';
 import { collapsed, expanded, fnKey, keyParts, type Board } from './board-state';
-
-export const LIBRARIES = '#lib';
-export const OUTSIDE = '#out';
 
 export interface Link extends Item {
   row: ContractCall;
@@ -14,58 +11,38 @@ export interface Link extends Item {
   toKey: string;
 }
 
-export function member(ref: string): string {
-  return splitRef(ref).member;
-}
-
-export function shortName(ref: string): string {
-  return member(ref).split('(')[0];
-}
-
-function weakest(found: Basis[]): Basis | null {
-  return (['selector_match', 'self'] as const).find((b) => found.includes(b)) ?? found[0] ?? null;
-}
-
 export function linksOf(all: Connections[], libraries: Set<string>): Link[] {
   const seen = new Set<string>();
   const found: Link[] = [];
   const keyOf = (contract: string, ref: string) => {
     const decl = splitRef(ref).contract;
-    return libraries.has(decl) && decl !== contract ? fnKey(contract, ref) : fnKey(contract, member(ref));
+    return libraries.has(decl) && decl !== contract ? fnKey(contract, ref) : fnKey(contract, splitRef(ref).member);
   };
-  const add = (row: ContractCall, to: string, callees: DispatchCandidate[]) => {
+  const add = (row: ContractCall, to: string) => {
     const id = `${row.in_context}|${row.function}|${row.span.start_line}:${row.span.start_col}|${to}`;
     if (seen.has(id)) return;
     seen.add(id);
-    const callee = callees[0] ?? null;
-    const line: Link['line'] = row.kind === 'call' || row.kind === 'self' ? 'calls' : row.kind === 'read' ? 'reads' : 'library';
+    const item = itemOf(row, to);
+    const callee = row.callees.find((d) => d.contract === to) ?? null;
     found.push({
-      from: row.in_context,
-      to,
-      line,
-      iface: callees.some((d) => d.basis === 'inherits_interface'),
-      value: row.transfers.length > 0,
-      ambiguous: row.callees.some((d) => d.tag === 'AMBIGUOUS'),
-      basis: weakest(callees.map((d) => d.basis)),
+      ...item,
       row,
       callee,
       self: row.kind === 'self',
       fromKey: keyOf(row.in_context, row.function),
-      toKey: callee ? (line === 'library' ? fnKey(LIBRARIES, callee.function) : keyOf(to, callee.function)) : fnKey(OUTSIDE, row.target ?? ''),
+      toKey: callee ? (item.line === 'library' ? fnKey(LIBRARIES, callee.function) : keyOf(to, callee.function)) : fnKey(OUTSIDE, row.target ?? ''),
     });
   };
   for (const c of all) {
     for (const group of [...c.outgoing, ...c.incoming]) {
       for (const row of group.calls) {
-        const to = row.kind === 'self' ? row.in_context : group.contract === row.in_context ? null : group.contract;
-        const target = to ?? c.contract;
-        if (row.kind !== 'self' && target === row.in_context) continue;
-        add(row, target, row.callees.filter((d) => d.contract === target));
+        const to = row.kind === 'self' ? row.in_context : group.contract === row.in_context ? c.contract : group.contract;
+        if (row.kind !== 'self' && to === row.in_context) continue;
+        add(row, to);
       }
     }
-    for (const row of c.unresolved) add(row, OUTSIDE, []);
+    for (const row of c.unresolved) add(row, OUTSIDE);
   }
-  for (const l of found) if (l.to === OUTSIDE) l.line = 'unresolved';
   return found;
 }
 
@@ -108,12 +85,8 @@ export function rowLabel(key: string, box: string): string {
   const { contract, member: m } = keyParts(key);
   const ref = splitRef(m);
   const name = ref.member.split('(')[0];
-  if (contract === OUTSIDE || contract === LIBRARIES || (ref.contract && ref.contract !== box)) return `${shortContract(ref.contract)}.${name}`;
+  if (contract === OUTSIDE || contract === LIBRARIES || (ref.contract && ref.contract !== box)) return `${shortName(ref.contract)}.${name}`;
   return name;
-}
-
-export function shortContract(name: string): string {
-  return name.slice(name.lastIndexOf(':') + 1);
 }
 
 export function build(b: Board, links: Link[], lines: Record<Line, LineState>, functions: (c: string) => string[]): Built {
@@ -181,13 +154,6 @@ export function build(b: Board, links: Link[], lines: Record<Line, LineState>, f
   const minCol = Math.min(...cols);
   for (const n of nodes.values()) if (n.type === 'strip') n.col = minCol - 1;
   return { nodes: [...nodes.values()], edges: [...edges.values()], dimmed: [...dimmed.values()] };
-}
-
-const PRIORITY: Look[] = ['unresolved', 'ambiguous', 'value', 'calls', 'library', 'reads'];
-
-export function edgeLook(e: BoardEdge, lines: Record<Line, LineState>): Look {
-  const looks = e.links.map((l) => itemLook(l, lines));
-  return PRIORITY.find((p) => looks.includes(p)) ?? 'calls';
 }
 
 export function edgeBasis(e: BoardEdge): Basis | null {

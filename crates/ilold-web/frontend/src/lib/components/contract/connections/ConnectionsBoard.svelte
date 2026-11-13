@@ -3,10 +3,10 @@
   import type { Connections, ContractDetail, FunctionSummary } from '$lib/api/rest';
   import { contractConnections, contractDetail } from '$lib/stores/project-data';
   import { notifyError } from '$lib/components/ui/notifications.svelte';
-  import { lineStyle, AMBIGUOUS_COLOR } from '$lib/utils/links';
   import { restricts } from '$lib/utils/access';
   import Tooltip from '$lib/components/chrome/Tooltip.svelte';
-  import { build, edgeBasis, edgeLook, linksOf, rowLabel, LIBRARIES, OUTSIDE, type BoardEdge, type Link } from './board-links';
+  import { edgeStyle, lookOf, LIBRARIES, OUTSIDE } from '$lib/components/project/map-graph';
+  import { build, edgeBasis, linksOf, rowLabel, type Link } from './board-links';
   import { arrange, assignPorts, geometry, pathD, placeLabels, routeLong, type Placed, type Wire } from './board-layout';
   import { closeBox, contractOf, keyParts, openStep, popStep, touch, type Board } from './board-state';
   import { applyBoard, currentBoard, currentLines, openMain, pan } from './board-view.svelte';
@@ -87,8 +87,8 @@
   });
 
   function styleOf(w: Wire): { color: string; width: number; dash: string } {
-    const look = edgeLook(w.src, lines);
-    const s = look === 'ambiguous' ? lineStyle('calls', edgeBasis(w.src), 'AMBIGUOUS') : lineStyle(look, edgeBasis(w.src));
+    const look = lookOf(w.src.links, lines);
+    const s = edgeStyle({ look, basis: edgeBasis(w.src) });
     if (w.on && (look === 'calls' || look === 'library' || look === 'reads')) return { ...s, color: ACCENT, width: s.width + 0.6 };
     return w.on ? { ...s, width: s.width + 0.6 } : s;
   }
