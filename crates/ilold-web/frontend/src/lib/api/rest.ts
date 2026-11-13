@@ -488,10 +488,6 @@ export function segment(value: string): string {
   return encodeURIComponent(value);
 }
 
-export async function getProjectMap(): Promise<ProjectMap> {
-  return body(await fetch(`${BASE}/api/project/map`), 'Project map unavailable');
-}
-
 export interface DepGraphNode {
   data: {
     id: string;

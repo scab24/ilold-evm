@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   import { onMount } from 'svelte';
   import { subscribe, getConnectionState } from '$lib/api/ws';
   import type { ConnectionEvent, ConnectionState } from '$lib/api/types';
@@ -11,7 +12,7 @@
     activeScenario,
     selectionCount,
   }: {
-    mode: 'cfg' | 'sequences' | 'session';
+    mode: Mode;
     canvasCount: number;
     expandedCount: number;
     activeScenario: string;
@@ -60,11 +61,11 @@
 
   {#if showCanvasChips}
     <span class="sep" aria-hidden="true">·</span>
-    <span class="chip" title="Functions currently rendered on the canvas">
+    <span class="sb-chip" title="Functions currently rendered on the canvas">
       <span aria-hidden="true">⊙</span> {canvasCount} on canvas
     </span>
     {#if expandedCount > 0}
-      <span class="chip dim" title="Functions with CFG expanded">
+      <span class="sb-chip dim" title="Functions with CFG expanded">
         · {expandedCount} expanded
       </span>
     {/if}
@@ -72,14 +73,14 @@
 
   {#if showScenarioChip}
     <span class="sep" aria-hidden="true">·</span>
-    <span class="chip" title="Active scenario and step count">
+    <span class="sb-chip" title="Active scenario and step count">
       <span aria-hidden="true">⎇</span> {activeScenario} · {sessionStepsCount} steps
     </span>
   {/if}
 
   {#if showSelectionChip}
     <span class="sep" aria-hidden="true">·</span>
-    <span class="chip accent" title="Nodes currently selected on the canvas">
+    <span class="sb-chip accent" title="Nodes currently selected on the canvas">
       <span aria-hidden="true">⧉</span> {selectionCount} selected
     </span>
   {/if}
@@ -138,14 +139,14 @@
   .ws-pending { color: var(--color-warning); }
   .ws-down { color: var(--color-danger); }
 
-  .chip {
+  .sb-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     color: var(--color-text-muted);
   }
-  .chip.dim { color: var(--color-text-dim); }
-  .chip.accent { color: var(--color-accent-hover); }
+  .sb-chip.dim { color: var(--color-text-dim); }
+  .sb-chip.accent { color: var(--color-accent-hover); }
 
   .hints {
     margin-left: auto;

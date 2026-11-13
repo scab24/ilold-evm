@@ -14,10 +14,12 @@
   import BoxNode, { type BoxNodeData } from './BoxNode.svelte';
   import RegionNode, { type RegionNodeData } from './RegionNode.svelte';
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
-  import Icon from './Icon.svelte';
-  import Tooltip from './Tooltip.svelte';
+  import Icon from '$lib/components/chrome/Icon.svelte';
+  import Tooltip from '$lib/components/chrome/Tooltip.svelte';
   import { selectionKeys } from './selection-keys';
-  import Row from './Row.svelte';
+  import Row from '$lib/components/chrome/Row.svelte';
+  import Seg from '$lib/components/chrome/Seg.svelte';
+  import LegendBar from '$lib/components/chrome/LegendBar.svelte';
   import { READABLE_FIT, addPort, anchors, placeChips, sidesBetween, type Port } from './chips';
   import {
     DEFAULT_LINES, INTERFACES, LIBRARIES, LINES, OUTSIDE,
@@ -321,6 +323,8 @@
     tip = e ? { x: event.clientX, y: event.clientY, edge: e } : null;
   }
 
+  const DIRECTIONS = [{ id: 'callers', label: 'Callers' }, { id: 'both', label: 'Both' }, { id: 'callees', label: 'Callees' }] as const;
+
   const BASIS_KEY: [Basis, string][] = [['inherits_interface', 'interface'], ['selector_match', 'selector'], ['self', 'this']];
 
   const KIND_WORD: Record<Item['line'], string> = { calls: 'call', reads: 'read', library: 'library call', inherits: 'inherits', holds: 'holds', unresolved: 'target not resolved' };
@@ -410,17 +414,9 @@
   {:else}
     <span class="tlabel">Select a contract to explore around it</span>
   {/if}
-  <div class="seg" role="group" aria-label="Direction">
-    {#each [['callers', 'Callers'], ['both', 'Both'], ['callees', 'Callees']] as [id, text] (id)}
-      <button type="button" disabled={!selected} title={selected ? undefined : 'Select a contract first'} aria-pressed={selected !== null && direction === id} onclick={() => setQuery({ dir: id === 'both' ? null : id })}>{text}</button>
-    {/each}
-  </div>
+  <Seg label="Direction" options={DIRECTIONS.map((o) => ({ ...o, disabled: !selected, title: selected ? undefined : 'Select a contract first' }))} value={selected ? direction : null} onpick={(id) => setQuery({ dir: id === 'both' ? null : id })} />
   <span class="tlabel">Depth</span>
-  <div class="seg" role="group" aria-label="Depth">
-    {#each [1, 2] as d (d)}
-      <button type="button" disabled={!selected} title={selected ? undefined : 'Select a contract first'} aria-pressed={selected !== null && depth === d} onclick={() => setQuery({ depth: d === 1 ? null : '2' })}>{d}</button>
-    {/each}
-  </div>
+  <Seg label="Depth" options={(['1', '2'] as const).map((id) => ({ id, label: id, disabled: !selected, title: selected ? undefined : 'Select a contract first' }))} value={selected ? (String(depth) as '1' | '2') : null} onpick={(id) => setQuery({ depth: id === '1' ? null : '2' })} />
   <form class="find-form" onsubmit={search}>
     <input class="find" type="search" placeholder="Find a contract" aria-label="Find a contract" bind:value={find} oninput={() => (missed = null)} />
   </form>
@@ -515,15 +511,7 @@
   </aside>
 </div>
 
-<div class="legend lines">
-  <span class="tlabel">Lines</span>
-  {#each LINES as l (l.id)}
-    {@const s = l.id === 'iface' ? null : lineStyle(l.id)}
-    <button type="button" class="fchip" data-s={lines[l.id]} title={l.tip} onclick={() => setLine(l.id)} aria-label="{l.label}: {lines[l.id]}">
-      {#if !s}<Icon name="iface" />{:else}<svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{/if}
-      <span class="lbl">{l.label}</span>{#if lines[l.id] !== 'show'}<span class="st">{lines[l.id] === 'dim' ? 'dimmed' : 'hidden'}</span>{/if}
-    </button>
-  {/each}
+<LegendBar label="Lines" wide pills={LINES.map((l) => ({ ...l, state: lines[l.id], ...(l.id === 'iface' ? { icon: 'iface' as const } : { line: lineStyle(l.id) }) }))} onpill={(id) => setLine(id as Line)} hint="Hover a line for counts · click for functions">
   <span class="basis" title="How the call target was found: through the interface it implements, by selector match, or a this call">
     <span class="tlabel">Found by</span>
     {#each BASIS_KEY as [basis, text] (basis)}
@@ -531,8 +519,7 @@
       <span class="key"><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{text}</span>
     {/each}
   </span>
-  <span class="hint">Hover a line for counts · click for functions</span>
-</div>
+</LegendBar>
 
 {#if tip}
   {@const called = tip.edge.items.filter(hasRow)}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   interface Props {
     menu: {
       x: number;
@@ -10,7 +11,7 @@
     } | null;
     expandedFuncs: Set<string>;
     seqExpanded: Map<string, boolean>;
-    mode: 'cfg' | 'sequences' | 'session';
+    mode: Mode;
     onexpandcfg: (funcName: string, nodeId: string) => void;
     onremovefunc: (funcName: string) => void;
     onremovenode: (nodeId: string) => void;

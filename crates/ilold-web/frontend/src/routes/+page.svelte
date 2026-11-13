@@ -2,37 +2,28 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { getProject, type ProjectSummary } from '$lib/api/rest';
+  import type { ProjectSummary } from '$lib/api/rest';
+  import { projectSummary } from '$lib/stores/project-data';
   import { AMBIGUOUS_COLOR } from '$lib/utils/links';
   import { setSearchContext } from '$lib/stores/search.svelte';
-  import { togglePalette, setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
+  import { setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
   import ErrorToasts from '$lib/components/ui/ErrorToasts.svelte';
   import MapTab from '$lib/components/project/MapTab.svelte';
   import ValueFlowTab from '$lib/components/project/ValueFlowTab.svelte';
   import RouteTab from '$lib/components/project/RouteTab.svelte';
-  import '$lib/components/project/project.css';
-
-  const TABS = [
-    { id: 'map', label: 'Map' },
-    { id: 'value', label: 'Value flow' },
-    { id: 'route', label: 'Route' },
-  ] as const;
-  type Tab = (typeof TABS)[number]['id'];
+  import AppHeader, { TABS, type ProjectTab } from '$lib/components/chrome/AppHeader.svelte';
+  import '$lib/components/chrome/chrome.css';
 
   let project = $state<ProjectSummary | null>(null);
   let failed = $state(false);
 
-  const tab = $derived<Tab>(TABS.find((t) => t.id === page.url.searchParams.get('tab'))?.id ?? 'map');
-
-  function tabHref(id: Tab): string {
-    return id === 'map' ? '/' : `/?tab=${id}`;
-  }
+  const tab = $derived<ProjectTab>(TABS.find((t) => t.id === page.url.searchParams.get('tab'))?.id ?? 'map');
 
   onMount(async () => {
     setSearchContext(null);
     try {
-      project = await getProject();
+      project = await projectSummary();
     } catch {
       failed = true;
     }
@@ -65,17 +56,7 @@
 </script>
 
 <div class="pj" style:--amber={AMBIGUOUS_COLOR}>
-  <header class="top">
-    <span class="brand">ilold</span>
-    <span class="sub-brand">execution path analyzer</span>
-    {#if project}<span class="sub-brand">{project.contracts.length} contracts</span>{/if}
-    <nav class="views" aria-label="Project views">
-      {#each TABS as t}
-        <a href={tabHref(t.id)} aria-current={tab === t.id ? 'page' : undefined}>{t.label}</a>
-      {/each}
-    </nav>
-    <button type="button" class="btn search-btn" onclick={togglePalette}>⌘K Search</button>
-  </header>
+  <AppHeader count={project?.contracts.length ?? null} {tab} />
 
   {#if !project}
     <div class="state-msg full" class:err={failed}>{failed ? 'Failed to connect. Is "ilold serve" running?' : 'Analyzing…'}</div>

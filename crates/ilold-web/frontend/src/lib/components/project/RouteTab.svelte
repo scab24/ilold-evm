@@ -12,10 +12,12 @@
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
   import BoxNode, { type BoxNodeData, type BoxRow } from './BoxNode.svelte';
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '$lib/components/chrome/Icon.svelte';
   import { selectionKeys } from './selection-keys';
-  import Tooltip from './Tooltip.svelte';
-  import Row from './Row.svelte';
+  import Tooltip from '$lib/components/chrome/Tooltip.svelte';
+  import Row from '$lib/components/chrome/Row.svelte';
+  import Seg from '$lib/components/chrome/Seg.svelte';
+  import LegendBar from '$lib/components/chrome/LegendBar.svelte';
   import { FIT_PADDING, NEAR_SOURCE, placeChips } from './chips';
   import { transferKey } from './value-graph';
   import { assetName } from '$lib/utils/value';
@@ -308,11 +310,7 @@
         <div class="actions"><button type="button" class="btn" onclick={() => openContract(pickedContract!)}>Open {pickedContract} <span class="tlabel">Enter</span></button></div>
       {/if}
       {#if routes.routes.length > 1}
-        <div class="seg wrap" role="group" aria-label="Route">
-          {#each routes.routes as _, i (i)}
-            <button type="button" aria-pressed={i === chosen} onclick={() => setQuery({ route: String(i + 1), sel: null })}>{i + 1}</button>
-          {/each}
-        </div>
+        <Seg label="Route" wrap options={routes.routes.map((_, i) => ({ id: String(i + 1), label: String(i + 1) }))} value={String(chosen + 1)} onpick={(id) => setQuery({ route: id, sel: null })} />
       {/if}
       {#if routes.truncated}
         <p class="note amb"><Icon name="unres" /> More routes of this length exist; the first {routes.routes.length} are shown.</p>
@@ -340,15 +338,14 @@
   </aside>
 </div>
 
-<div class="legend">
-  <span class="tlabel">Key</span>
+<LegendBar label="Key">
   <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={ROUTE} stroke-width="2" /></svg>Route, function to function</span>
   <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={VALUE} stroke-width="2" /></svg>Hop that moves value</span>
   <span class="key amb"><Icon name="unres" />Steps inside a contract not recorded</span>
   {#if (routes?.routes.length ?? 0) > 1}
     <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={ROUTE} stroke-width="2" opacity="0.3" /></svg>Other route (dimmed)</span>
   {/if}
-</div>
+</LegendBar>
 
 {#if tip}
   <Tooltip x={tip.x} y={tip.y} within={canvasEl}><b>{tip.title}</b>{'\n'}{tip.text}</Tooltip>

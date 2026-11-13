@@ -114,7 +114,9 @@ any group opened in the URL; drag the canvas to reach the rest:
   package (`library from v4-core`) under the name, in the panel and in the
   call rows.
 
-The header tabs switch the project page between **Map**, **Value flow** and
+The header (ilold, "execution path analyzer", the contract count, the tabs
+and ⌘K Search) is the same on the project page and in the contract
+workbench. The header tabs switch the project page between **Map**, **Value flow** and
 **Route**; the tab and everything picked in it live in the URL, so a link
 reopens the same view, and the browser Back and Forward buttons step through
 the contracts, pairs, arrows and route ends you picked (filters change the URL
@@ -139,6 +141,15 @@ layers stays in `analyze --deps`.
   fold the others into one "more on other routes" row. Hover a hop for its
   calls; click a box to select it (a box of another route switches to that
   route), click it again or press Enter to open the contract.
+
+## The contract workbench
+
+Opening a contract keeps the project header: its tabs lead back to the Map,
+Value flow and Route, and after the contract name the mode control switches
+between CFG, Seq and Session. The bar under the header holds the canvas tools
+of the current mode (Seq layout down or right, Back and Clear of the active
+scenario, Center, Terminal). Panels, section titles, chips and buttons use
+the same styles as the project page.
 
 ## Practical workflow
 

@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { IconName } from './Icon.svelte';
+  import type { IconName } from '$lib/components/chrome/Icon.svelte';
 
   export type Tone = '' | 'val' | 'amb' | 'mono' | 'dim';
   export interface BoxLine { text: string; tone?: Tone; icon?: IconName }
@@ -26,7 +26,7 @@
 
 <script lang="ts">
   import { Handle, Position } from '@xyflow/svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '$lib/components/chrome/Icon.svelte';
 
   let { data }: { data: BoxNodeData } = $props();
 

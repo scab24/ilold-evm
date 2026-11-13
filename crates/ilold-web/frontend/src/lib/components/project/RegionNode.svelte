@@ -11,7 +11,7 @@
 </script>
 
 <script lang="ts">
-  import Icon from './Icon.svelte';
+  import Icon from '$lib/components/chrome/Icon.svelte';
 
   let { data }: { data: RegionNodeData } = $props();
 </script>

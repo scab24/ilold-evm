@@ -12,18 +12,22 @@
 @media (max-width: 1199px) {
   .pj { --insp: 284px; }
 }
+.pj.wb { grid-template-rows: 52px 46px minmax(0, 1fr) 24px; }
 .pj :focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: 2px; }
-.pj :is(.seg, .legend, .insp, .views) :focus-visible { outline-offset: -2px; }
+.pj :is(.seg, .legend, .insp) :focus-visible { outline-offset: -2px; }
 .pj .mono { font-family: var(--font-mono); font-size: 12px; }
 
 .pj .top { display: flex; align-items: center; gap: 20px; padding: 0 20px; background: var(--color-hover); border-bottom: 1px solid var(--color-border-subtle); min-width: 0; }
 .pj .brand { font-size: 18px; font-weight: 700; color: var(--color-text-light); }
+.pj .brand:hover { color: var(--color-accent-hover); }
 .pj .top .sub-brand { color: var(--root); white-space: nowrap; }
-.pj .views { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--color-border-subtle); border-radius: 8px; }
-.pj .views a { padding: 4px 12px; border-radius: 6px; color: var(--root); font-weight: 600; white-space: nowrap; }
-.pj .views a:hover { color: var(--color-text-light); }
-.pj .views a[aria-current='page'] { background: var(--color-tint-accent); color: var(--color-accent-light); }
+.pj .top.wb { gap: 14px; }
+.pj .top .contract-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1279px) {
+  .pj .top.wb .wide-only { display: none; }
+}
 .pj .search-btn { margin-left: auto; }
+.pj .tools-end { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
 .pj .toolbar { display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--color-border-subtle); min-width: 0; white-space: nowrap; }
 .pj .crumb { color: var(--color-accent-hover); font-weight: 600; }
@@ -31,14 +35,16 @@
 .pj .find-form { margin-left: auto; }
 .pj .crumb-here { color: var(--color-text-light); font-weight: 600; }
 .pj .tlabel { color: var(--root); white-space: nowrap; }
-.pj .seg { display: flex; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: 7px; min-width: 0; overflow: hidden; }
-.pj .seg button { background: none; border: 0; padding: 3px 10px; border-radius: 5px; color: var(--root); cursor: pointer; white-space: nowrap; }
-.pj .seg button:hover { color: var(--color-text-light); }
-.pj .seg button[aria-pressed='true'] { background: var(--color-tint-accent); color: var(--color-accent-light); font-weight: 600; }
+.pj .seg { display: flex; flex: none; gap: 2px; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: 8px; min-width: 0; overflow: hidden; }
+.pj .seg :is(button, a) { background: none; border: 0; padding: 3px 12px; border-radius: 6px; font: 600 13px/1.5 var(--font-sans); color: var(--root); cursor: pointer; white-space: nowrap; }
+.pj .seg :is(button, a):hover { color: var(--color-text-light); }
+.pj .seg :is(button[aria-pressed='true'], a[aria-current='page']) { background: var(--color-tint-accent); color: var(--color-accent-light); }
 .pj .seg button:disabled { cursor: not-allowed; color: var(--color-text-dim); }
 .pj .seg button.amb { color: var(--amber); }
 .pj .btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border-subtle); border-radius: 6px; padding: 4px 10px; color: var(--color-accent-hover); cursor: pointer; white-space: nowrap; }
 .pj .btn:hover { border-color: var(--color-accent); }
+.pj .btn:disabled { cursor: not-allowed; color: var(--color-text-dim); border-color: var(--color-border); }
+.pj .btn.mono { font-family: var(--font-mono); font-size: 12px; }
 .pj .btn[aria-pressed='true'] { background: var(--color-tint-accent); border-color: color-mix(in srgb, var(--color-accent) 60%, transparent); color: var(--color-accent-light); }
 .pj select.pick, .pj input.find { height: 30px; background: var(--color-surface); border: 1px solid var(--color-border-subtle); border-radius: 6px; padding: 0 8px; max-width: 220px; color: var(--color-text); }
 .pj input.find { font-family: var(--font-mono); font-size: 12px; width: 200px; }
@@ -134,3 +140,6 @@
 .pj .tip { position: fixed; z-index: 30; max-width: 440px; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); pointer-events: none; white-space: pre-line; }
 .pj .tip.measuring { visibility: hidden; }
 .pj .tip b { color: var(--color-text-light); }
+
+.pj .wb-main { display: flex; min-height: 0; overflow: hidden; }
+.pj .wb-main > .graph-canvas-flow { flex: 1 1 auto; min-width: 0; }

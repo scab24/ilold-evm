@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { IconName } from './Icon.svelte';
+  import type { IconName } from '$lib/components/chrome/Icon.svelte';
 
   export interface ChipEdgeData {
     [key: string]: unknown;
@@ -15,7 +15,7 @@
 
 <script lang="ts">
   import { BaseEdge, EdgeLabel, getBezierPath, Position, type EdgeProps } from '@xyflow/svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '$lib/components/chrome/Icon.svelte';
   import { bezierPoint, type Side } from './chips';
 
   let { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerStart, markerEnd, data }: EdgeProps = $props();

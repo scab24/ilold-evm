@@ -14,10 +14,12 @@
   import BoxNode, { type BoxNodeData } from './BoxNode.svelte';
   import CaptionNode from './CaptionNode.svelte';
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
-  import Icon from './Icon.svelte';
-  import Tooltip from './Tooltip.svelte';
+  import Icon from '$lib/components/chrome/Icon.svelte';
+  import Tooltip from '$lib/components/chrome/Tooltip.svelte';
   import { selectionKeys } from './selection-keys';
-  import Row from './Row.svelte';
+  import Row from '$lib/components/chrome/Row.svelte';
+  import Seg from '$lib/components/chrome/Seg.svelte';
+  import LegendBar from '$lib/components/chrome/LegendBar.svelte';
   import { READABLE_FIT, addPort, anchors, placeChips, sidesBetween, type Port } from './chips';
   import { assetCounts, buildFlow, type FlowArrow, type FlowParty } from './value-graph';
 
@@ -260,12 +262,7 @@
 <div class="toolbar" role="toolbar" aria-label="Value flow">
   <span class="crumb-here">Value flow</span>
   <span class="tlabel">Asset</span>
-  <div class="seg" role="group" aria-label="Asset">
-    <button type="button" aria-pressed={asset === null} onclick={() => setAsset(null)}>All {total}</button>
-    {#each ASSET_ORDER.filter((a) => counts.has(a)) as name (name)}
-      <button type="button" class:amb={name === POOL_ASSET} aria-pressed={asset === name} onclick={() => setAsset(name)} title={name === POOL_ASSET ? POOL_ASSET_LONG : name}>{name} {counts.get(name)}</button>
-    {/each}
-  </div>
+  <Seg label="Asset" options={[{ id: '', label: `All ${total}` }, ...ASSET_ORDER.filter((a) => counts.has(a)).map((name) => ({ id: name, label: `${name} ${counts.get(name)}`, amb: name === POOL_ASSET, title: name === POOL_ASSET ? POOL_ASSET_LONG : name }))]} value={asset ?? ''} onpick={(id) => setAsset(id || null)} />
 </div>
 
 <div class="work">
@@ -324,13 +321,11 @@
   </aside>
 </div>
 
-<div class="legend">
-  <span class="tlabel">Key</span>
+<LegendBar label="Key" hint="Hover an arrow for its transfers, click it to list them">
   <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={VALUE} stroke-width="2" /></svg>Money moves this way</span>
   <span class="key amb"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={AMBER} stroke-width="2" /></svg>{POOL_ASSET_LONG}</span>
   <span class="key"><Icon name="lib" />Library code it runs</span>
-  <span class="hint">Hover an arrow for its transfers, click it to list them</span>
-</div>
+</LegendBar>
 
 {#if tip}
   <Tooltip x={tip.x} y={tip.y} within={canvasEl}>

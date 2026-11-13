@@ -1,13 +1,14 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onDestroy, tick, untrack } from 'svelte';
-  import { getContract, getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, getProjectMap, type ContractDetail, type CytoscapeGraph, type SequenceAnalysis, type MapContract } from '$lib/api/rest';
+  import { getContract, getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, type ContractDetail, type ContractSummary, type CytoscapeGraph, type SequenceAnalysis } from '$lib/api/rest';
+  import { projectSummary } from '$lib/stores/project-data';
   import { goto } from '$app/navigation';
   import { toggleTerminal } from '$lib/stores/terminal.svelte';
   import { openInIde } from '$lib/utils/ide-links';
   import { setSearchContext, getSearchNavigate, setSearchNavigate } from '$lib/stores/search.svelte';
   import type { SearchNavigatePayload } from '$lib/api/types';
-  import { togglePalette, setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
+  import { setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
   import { getHighlightedFunction, getScenarios, getActiveScenario, getForkOrigins, setSessionContract } from '$lib/stores/session.svelte';
   import { notifyError } from '$lib/components/ui/notifications.svelte';
@@ -24,6 +25,8 @@
   import FunctionSourcePanel from '$lib/components/contract/FunctionSourcePanel.svelte';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
   import SessionSidebar from '$lib/components/session/SessionSidebar.svelte';
+  import AppHeader, { type Mode } from '$lib/components/chrome/AppHeader.svelte';
+  import '$lib/components/chrome/chrome.css';
   import {
     getNodes, getEdges,
     setNodes, setEdges,
@@ -54,7 +57,7 @@
   let funcPaths: Record<string, any> = $state.raw({});
   let expandedFuncs: Set<string> = $state(new Set());
   let selectionCount: number = $state(0);
-  let mode: 'cfg' | 'sequences' | 'session' = $state('sequences');
+  let mode: Mode = $state('sequences');
   let seqTree: any = $state(null);
   let seqAnalysis: SequenceAnalysis | null = $state(null);
   let seqExpanded: Map<string, boolean> = $state(new Map());
@@ -71,7 +74,7 @@
 
   let canvasFuncs: Set<string> = $state(new Set()); // functions currently on canvas
 
-  let projectMap: MapContract[] = $state([]);
+  let projectContracts: ContractSummary[] = $state([]);
 
   let sourcePanel: { contract?: string; func: string } | null = $state(null);
 
@@ -544,15 +547,15 @@
       const [seq, analysis, pm] = await Promise.allSettled([
         getSequences(contractName, { depth: 1, limit: 0 }),
         getSequenceAnalysis(contractName),
-        getProjectMap(),
+        projectSummary(),
       ]);
       if (!current()) return;
       if (seq.status === 'fulfilled') seqTree = seq.value;
       else notifyError('load sequences', seq.reason);
       if (analysis.status === 'fulfilled') seqAnalysis = analysis.value;
       else notifyError('load sequence analysis', analysis.reason);
-      if (pm.status === 'fulfilled') projectMap = pm.value.contracts;
-      else notifyError('load project map', pm.reason);
+      if (pm.status === 'fulfilled') projectContracts = pm.value.contracts;
+      else notifyError('load project', pm.reason);
     } catch (e) {
       if (current()) error = e instanceof Error ? e.message : `Contract "${contractName}" not found`;
     }
@@ -1177,7 +1180,7 @@
     seqExpanded = new Map(seqExpanded);
   }
 
-  function switchMode(newMode: 'cfg' | 'sequences' | 'session') {
+  function switchMode(newMode: Mode) {
     const toRemove = new Set<string>();
     for (const n of getNodes()) {
       if (n.data._type === 'block' || n.data._type === 'seq-next') {
@@ -1303,7 +1306,7 @@
     });
 
     const seenContracts = new Set<string>([ctr.name]);
-    for (const c of projectMap) {
+    for (const c of projectContracts) {
       if (seenContracts.has(c.name)) continue;
       seenContracts.add(c.name);
       cmds.push({
@@ -1325,22 +1328,20 @@
   });
 </script>
 
-<div class="fixed inset-0 flex flex-col bg-dark">
+<div class="pj wb">
+  <AppHeader count={projectContracts.length || null} contract={contract?.name ?? page.params.name ?? ''} {mode} onmode={switchMode} />
   {#if error}
-    <div class="p-6 text-danger">{error}</div>
+    <div class="state-msg full err">{error}</div>
   {:else}
     <TopBar
-      contractName={contract?.name ?? '...'}
       {mode}
       {seqDirection}
-      onmodechange={switchMode}
-      onsearch={togglePalette}
       oncenter={() => flowApi?.fitView({ padding: 0.1 })}
       onseqdirection={(dir) => { seqDirection = dir; reorientAllSeqSubtrees(); }}
       onsessionback={handleSessionBack}
       onsessionclear={handleSessionClear}
     />
-    <div class="flex-1 flex overflow-hidden h-full">
+    <div class="wb-main">
       {#if contract}
         <FunctionSidebar {contract} {canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={removeFuncFromCanvas} />
       {/if}

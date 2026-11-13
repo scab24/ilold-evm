@@ -22,7 +22,7 @@ export const BASIS_DASH: Record<Basis, string> = {
 };
 
 export const BASIS_LABEL: Record<Basis, string> = {
-  inherits_interface: 'inherits interface',
+  inherits_interface: 'via interface',
   selector_match: 'selector match',
   self: 'this call',
   library: 'library',

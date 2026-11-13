@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   import Collapsible from '$lib/Collapsible.svelte';
   import { ownEntry } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
@@ -17,7 +18,7 @@
     funcPaths: Record<string, any>;
     expandedFuncs: Set<string>;
     seqExpanded: Map<string, boolean>;
-    mode: 'cfg' | 'sequences' | 'session';
+    mode: Mode;
     seqAnalysis: any;
     contract: { name: string; functions?: FunctionSummary[]; inherited_functions?: FunctionSummary[] };
     lookupBlock: (blockId: string) => { statements: string[]; node_type: string } | null;
