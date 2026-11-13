@@ -158,34 +158,37 @@ from the REPL or an MCP client (`ilold_function_analysis`, `ilold_trace`)
 switches to Seq and shows the function there.
 
 **Connections** is a board that accumulates what you open, function to
-function (the [`links`](../commands/contract.md#links) rows):
+function (the [`links`](../commands/contract.md#links) rows). It is drawn on
+the same canvas as CFG, Seq and Session: dotted grid, hand (**H**) and select
+(**V**) tools, zoom, fit and lock buttons, **Center**, cards you can drag and
+a lasso in select mode.
 
-- the contract opens with only its functions that call or are called by other
-  contracts (**All functions** lists the rest); the contracts it calls are
-  folded on its right, its callers on its left, each band labelled
-  ("LaunchCurve calls", "Callers of LaunchCurve", "KitsuneHook links"
-  when a box has both); libraries and the interfaces
-  outside the project fold into one box each.
+- the contract opens as a card with only its functions that call or are
+  called by other contracts (**All functions** lists the rest); each contract
+  it calls is a small card on its right, each caller a small card on its left;
+  libraries and the interfaces outside the project fold into one card each.
+  The first view fits the board at a readable zoom.
 - click a function (on the board or in the left list) to select it: its lines
-  light up, the others dim. Click a function in a folded box to open that
-  contract in place, one column further out, with that function selected.
+  light up with their source lines (`line 251 · moves value`), the others dim.
+  Click a small card, or one of its functions, to open that contract in its
+  place, one column further out, with that function selected; the cards under
+  it move down to make room and the view moves to the opened card.
+- cards are placed once, when they first appear; a card you drag stays where
+  you left it while you select, open, close or filter.
 - the trail above the board lists the opened steps (each one selectable; a
   long trail keeps the first and last step and folds the middle into `+N`).
-  **Backspace** removes the last step, **×** closes a box (and the boxes
-  opened from it), **Reset** returns to the start. Only the
-  two boxes used last stay open; older ones fold into strips at the left edge
-  (click a strip to open it again); the lines into a strip meet at one point
-  with the number of links next to it. The lines into one function share one
-  arrow. When the board is wider than the canvas, it opens on whole columns and
-  the `← N` / `N →` buttons and the faded edge show the boxes out of view; a
-  function selected outside the view brings its box back into view.
+  **Backspace** removes the last step, **×** closes a card (and the cards
+  opened from it), **Reset** returns to the start. Only the two cards used
+  last stay open; an older one folds in place into a card with its number of
+  links (click it to open it again) and its lines end on the card. A function
+  selected outside the view brings its card back into view.
 - **Callers / Both / Callees** keep one side, the **Lines** legend shows,
   dims or hides each kind of line as on the Map (Unresolved is never hidden).
-- double-click a box (or press Enter on its title) to make it the main
+- double-click a card (or press Enter on its title) to make it the main
   contract of the board; the line filters, the direction and **All
   functions** stay as they were. Delete removes nothing in this mode.
 - a contract that calls no other contract and that no other contract calls
-  says so on the board, with **Show all its functions** to list them anyway.
+  says so on the canvas, with **Show all its functions** to list them anyway.
 - the whole board (open boxes, trail, selection, direction, filters) lives in
   the URL, so a reload or a link reopens it; it is not saved in scenarios.
 
@@ -209,7 +212,7 @@ page: in Connections it filters the lines, in CFG and Seq it explains the
 node colours and in Session the scenario lines (active scenario, fork, other
 scenarios). The status bar shows the server connection, how many nodes are
 selected and the keys of the current mode (H or Esc pan, V select, Delete remove
-in CFG and Seq; Backspace undo and Esc clear in Connections). The embedded
+in CFG and Seq; H pan, V select, Backspace undo and Esc clear in Connections). The embedded
 terminal starts closed: **Terminal** opens it at the bottom right of the
 canvas, above the legend; it stays inside the canvas column (also when moved,
 resized or maximized), so it never covers the panels, and its **×** button

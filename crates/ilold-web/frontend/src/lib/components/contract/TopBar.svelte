@@ -42,7 +42,7 @@
     <button type="button" class="btn" onclick={onsessionclear} title="Remove every step of the active scenario">Clear</button>
   {/if}
   <span class="tools-end">
-    {#if mode !== 'connections'}<button type="button" class="btn" onclick={oncenter} title="Fit every node in view">Center</button>{/if}
+    <button type="button" class="btn" onclick={oncenter} title="Fit every node in view">Center</button>
     <button type="button" class="btn mono" onclick={toggleTerminal} aria-pressed={isTerminalVisible()} title={isTerminalVisible() ? 'Hide terminal' : 'Show terminal'}>&gt;_ Terminal</button>
   </span>
 </div>

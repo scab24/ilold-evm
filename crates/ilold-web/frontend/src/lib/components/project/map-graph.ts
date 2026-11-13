@@ -1,5 +1,5 @@
 import type { Basis, ContractCall, ContractSummary, ProjectConnections, ProjectDepGraph } from '$lib/api/rest';
-import { lineStyle, type LineStyle, type Relation } from '$lib/utils/links';
+import { lineStyle, type LineStyle, type Relation } from '../../utils/links.ts';
 
 export type Line = 'calls' | 'reads' | 'value' | 'library' | 'inherits' | 'holds' | 'iface' | 'unresolved';
 export type LineState = 'show' | 'dim' | 'hide';

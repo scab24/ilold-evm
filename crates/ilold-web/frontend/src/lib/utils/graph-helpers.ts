@@ -8,6 +8,8 @@ export interface LayoutOptions {
   rankSep?: number;
   nodeWidth?: number;
   nodeHeight?: number;
+  size?: (node: Node<GraphNodeData>) => { width: number; height: number };
+  minlen?: (edge: Edge) => number;
 }
 
 // own-property lookup, so names like `constructor` never hit Object.prototype
@@ -26,6 +28,8 @@ export function runDagreLayout(
     rankSep = 45,
     nodeWidth = 150,
     nodeHeight = 40,
+    size = () => ({ width: nodeWidth, height: nodeHeight }),
+    minlen = () => 1,
   } = options;
 
   const g = new dagre.graphlib.Graph();
@@ -33,11 +37,11 @@ export function runDagreLayout(
   g.setGraph({ rankdir: rankDir, nodesep: nodeSep, ranksep: rankSep });
 
   for (const node of nodes) {
-    g.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+    g.setNode(node.id, size(node));
   }
 
   for (const edge of edges) {
-    g.setEdge(edge.source, edge.target);
+    g.setEdge(edge.source, edge.target, { minlen: minlen(edge) });
   }
 
   dagre.layout(g);
@@ -46,7 +50,7 @@ export function runDagreLayout(
     const pos = g.node(node.id);
     return {
       ...node,
-      position: { x: pos.x - nodeWidth / 2, y: pos.y - nodeHeight / 2 },
+      position: { x: pos.x - pos.width / 2, y: pos.y - pos.height / 2 },
     };
   });
 }

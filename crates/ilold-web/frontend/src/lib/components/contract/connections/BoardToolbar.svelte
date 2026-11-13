@@ -1,7 +1,7 @@
 <script lang="ts">
   import Seg from '$lib/components/chrome/Seg.svelte';
   import { contractOf, expanded, reset, touch, type Direction } from './board-state';
-  import { applyBoard, currentBoard, pan } from './board-view.svelte';
+  import { applyBoard, currentBoard } from './board-view.svelte';
   import { rowLabel } from './board-links';
 
   let { main }: { main: string } = $props();
@@ -44,8 +44,6 @@
     {/each}
   {/if}
 </div>
-{#if pan.left}<button type="button" class="btn" title="{pan.left} more boxes on the left" aria-label="Scroll left: {pan.left} more boxes" onclick={() => pan.by?.(-1)}>← {pan.left}</button>{/if}
-{#if pan.right}<button type="button" class="btn" title="{pan.right} more boxes on the right" aria-label="Scroll right: {pan.right} more boxes" onclick={() => pan.by?.(1)}>{pan.right} →</button>{/if}
 <button type="button" class="btn" disabled={board.open.length === 1 && !board.fn} title={board.open.length === 1 && !board.fn ? 'Already at the start' : 'Back to the start. Backspace removes only the last step'} onclick={() => applyBoard(reset(board))}>Reset</button>
 <Seg label="Direction" options={DIRECTIONS} value={board.dir} onpick={(dir) => applyBoard({ ...board, dir })} />
 <button type="button" class="btn" aria-pressed={board.all} title="Also list functions with no links to other contracts" onclick={() => applyBoard({ ...board, all: !board.all })}>All functions</button>

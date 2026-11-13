@@ -29,13 +29,14 @@
     extraNodeTypes?: NodeTypes;
     edgeTypes?: EdgeTypes;
     keepPositions?: boolean;
+    followStore?: boolean;
     /** Fit once, after the pane has a size and every visible node is measured. */
     initialFit?: FitViewOptions;
     minZoom?: number;
     tools?: boolean;
   }
 
-  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, onedgemouseenter, onedgemouseleave, onedgetap, extraNodeTypes, edgeTypes, keepPositions = true, initialFit, minZoom = 0.1, tools = true }: Props = $props();
+  let { onnodetap, onbackgroundtap, oncontextmenu, onready, onnodesdelete, canDeleteNodes = true, onselectionchange, onnodemouseenter, onnodemouseleave, onedgemouseenter, onedgemouseleave, onedgetap, extraNodeTypes, edgeTypes, keepPositions = true, followStore = false, initialFit, minZoom = 0.1, tools = true }: Props = $props();
 
   const deleteKeysProp = $derived<string[] | null>(canDeleteNodes ? ['Delete', 'Backspace'] : null);
 
@@ -50,12 +51,18 @@
   let flowNodes = $state<Node[]>([]);
   let flowEdges = $state<Edge[]>([]);
 
+  let stored = new Map<string, { x: number; y: number }>();
+
+  // a drag only moves the live node, so a stored position that changed was set by the page
   $effect(() => {
     const storeNodes = getNodes();
     const liveByID = new Map(untrack(() => flowNodes).map(n => [n.id, n]));
+    const before = stored;
+    stored = new Map(storeNodes.map((sn) => [sn.id, sn.position]));
     flowNodes = storeNodes.map(sn => {
       const live = liveByID.get(sn.id);
-      if (keepPositions && live?.position) {
+      const moved = before.get(sn.id);
+      if (keepPositions && live?.position && (!followStore || !moved || (moved.x === sn.position.x && moved.y === sn.position.y))) {
         return { ...sn, position: live.position } as Node;
       }
       return sn as Node;
@@ -71,17 +78,50 @@
   let paneWidth = $state(0);
   let paneHeight = $state(0);
   let initialFitDone = false;
+  let pendingFit = $state<FitViewOptions | null>(null);
 
   // a fit before layout clamps to minZoom, so wait for real pane dimensions and measured nodes
-  $effect(() => {
-    if (initialFitDone || !initialFit || !flowFitView || paneWidth === 0 || paneHeight === 0) return;
-    const visible = flowNodes.filter((n) => !n.hidden);
-    if (visible.length === 0 || !visible.every((n) => n.measured?.width && n.measured?.height)) return;
-    initialFitDone = true;
-    const fit = flowFitView;
-    const options = initialFit;
+  function measured(options: FitViewOptions): boolean {
+    if (!flowFitView || paneWidth === 0 || paneHeight === 0) return false;
+    const wanted = options.nodes ? new Set(options.nodes.map((n) => n.id)) : null;
+    const visible = flowNodes.filter((n) => !n.hidden && (!wanted || wanted.has(n.id)));
+    return visible.length > 0 && visible.every((n) => n.measured?.width && n.measured?.height);
+  }
+
+  function fitLater(options: FitViewOptions) {
+    const fit = flowFitView!;
     requestAnimationFrame(() => { fit(options); });
+  }
+
+  $effect(() => {
+    if (initialFitDone || !initialFit || !measured(initialFit)) return;
+    initialFitDone = true;
+    fitLater(initialFit);
   });
+
+  $effect(() => {
+    if (!pendingFit || !measured(pendingFit)) return;
+    fitLater(pendingFit);
+    pendingFit = null;
+  });
+
+  let view: Pick<ReturnType<typeof useSvelteFlow>, 'getViewport' | 'setCenter'> | null = null;
+
+  export function reveal(id: string) {
+    const n = flowNodes.find((x) => x.id === id);
+    if (!n || !view || !n.measured?.width || !n.measured?.height) return;
+    const { x, y, zoom } = view.getViewport();
+    const w = n.measured.width;
+    const h = Math.min(n.measured.height, paneHeight / zoom - 40);
+    const left = n.position.x * zoom + x;
+    const top = n.position.y * zoom + y;
+    if (left >= 0 && top >= 0 && left + w * zoom <= paneWidth && top + h * zoom <= paneHeight) return;
+    view.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom, duration: 300 });
+  }
+
+  export function fitWhenReady(options: FitViewOptions) {
+    pendingFit = options;
+  }
 
   export function getLiveNode(id: string): Node | undefined {
     return flowNodes.find(n => n.id === id);
@@ -139,8 +179,9 @@
       onedgepointerenter={({ edge, event }) => onedgemouseenter?.(edge, event as MouseEvent)}
       onedgepointerleave={({ edge }) => onedgemouseleave?.(edge)}
       oninit={() => {
-        const { fitView } = useSvelteFlow();
+        const { fitView, getViewport, setCenter } = useSvelteFlow();
         flowFitView = fitView;
+        view = { getViewport, setCenter };
         onready?.({ fitView });
       }}
       {minZoom}

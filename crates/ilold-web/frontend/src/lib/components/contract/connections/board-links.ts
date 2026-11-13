@@ -1,7 +1,7 @@
 import type { Basis, Connections, ContractCall, DispatchCandidate } from '$lib/api/rest';
-import { itemOf, itemState, shortName, weakest, LIBRARIES, OUTSIDE, type Item, type Line, type LineState } from '$lib/components/project/map-graph';
-import { splitRef } from '$lib/utils/links';
-import { collapsed, expanded, fnKey, keyParts, type Board } from './board-state';
+import { itemOf, itemState, shortName, weakest, LIBRARIES, OUTSIDE, type Item, type Line, type LineState } from '../../project/map-graph.ts';
+import { splitRef } from '../../../utils/links.ts';
+import { collapsed, expanded, fnKey, keyParts, type Board } from './board-state.ts';
 
 export interface Link extends Item {
   row: ContractCall;
@@ -51,19 +51,17 @@ export interface BoardRow {
   label: string;
   title: string;
   amb?: boolean;
-  bb?: number;
 }
 
 export interface BoardNode {
   id: string;
-  type: 'open' | 'strip' | 'folded' | 'group';
+  type: 'open' | 'collapsed' | 'folded' | 'group';
   c: string;
   col: number;
   owner?: string;
   roles: Set<'caller' | 'callee'>;
   rows: Map<string, BoardRow>;
   n: number;
-  bb?: number;
 }
 
 export interface BoardEdge {
@@ -91,7 +89,7 @@ export function rowLabel(key: string, box: string): string {
 
 export function build(b: Board, links: Link[], lines: Record<Line, LineState>, functions: (c: string) => string[]): Built {
   const open = expanded(b);
-  const strips = new Set(collapsed(b));
+  const shut = new Set(collapsed(b));
   const nodes = new Map<string, BoardNode>();
   const edges = new Map<string, BoardEdge>();
   const dimmed = new Map<string, BoardEdge>();
@@ -100,16 +98,16 @@ export function build(b: Board, links: Link[], lines: Record<Line, LineState>, f
     return nodes.get(id)!;
   };
   for (const c of b.open) if (open.has(c)) node(`O:${c}`, { type: 'open', c, col: b.col[c] });
-  for (const c of strips) node(`K:${c}`, { type: 'strip', c, col: 0 });
+  for (const c of shut) node(`O:${c}`, { type: 'collapsed', c, col: b.col[c] });
   const addRow = (n: BoardNode, key: string, extra: Partial<BoardRow> = {}) => {
-    if (n.type !== 'strip' && !n.rows.has(key)) n.rows.set(key, { key, label: rowLabel(key, n.c), title: keyParts(key).member, ...extra });
+    if (n.type !== 'collapsed' && !n.rows.has(key)) n.rows.set(key, { key, label: rowLabel(key, n.c), title: keyParts(key).member, ...extra });
   };
   const outCol = (o: string, callee: boolean) => {
     const k = b.col[o];
     return k === 0 ? (callee ? 1 : -1) : k + Math.sign(k);
   };
   const folded = (p: string, col: number, owner: string, role: 'caller' | 'callee') => {
-    if (strips.has(p)) return nodes.get(`K:${p}`)!;
+    if (shut.has(p)) return nodes.get(`O:${p}`)!;
     const n = node(`C:${p}@${col}`, { type: p.startsWith('#') ? 'group' : 'folded', c: p, col, owner });
     n.roles.add(role);
     return n;
@@ -142,17 +140,14 @@ export function build(b: Board, links: Link[], lines: Record<Line, LineState>, f
       push(dimmed, `${A.id}>${Z.id}`, { a: A.id, ar: '', b: Z.id, br: '', links: [l] });
       continue;
     }
-    const ar = A.type === 'strip' ? '' : l.fromKey;
-    const br = Z.type === 'strip' ? '' : l.toKey;
+    const ar = A.type === 'collapsed' ? '' : l.fromKey;
+    const br = Z.type === 'collapsed' ? '' : l.toKey;
     if (ar) addRow(A, ar);
     if (br) addRow(Z, br, { amb: target === OUTSIDE || l.ambiguous });
     push(edges, `${A.id}|${ar}>${Z.id}|${br}`, { a: A.id, ar, b: Z.id, br, links: [l] });
   }
   if (b.fn && open.has(keyParts(b.fn).contract)) addRow(nodes.get(`O:${keyParts(b.fn).contract}`)!, b.fn);
   if (b.all) for (const c of open) for (const m of functions(c)) addRow(nodes.get(`O:${c}`)!, fnKey(c, m));
-  const cols = [...nodes.values()].filter((n) => n.type !== 'strip').map((n) => n.col);
-  const minCol = Math.min(...cols);
-  for (const n of nodes.values()) if (n.type === 'strip') n.col = minCol - 1;
   return { nodes: [...nodes.values()], edges: [...edges.values()], dimmed: [...dimmed.values()] };
 }
 

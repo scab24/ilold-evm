@@ -17,7 +17,7 @@
     cfg: [[['H', 'Esc'], 'Pan'], [['V'], 'Select'], [['Delete'], 'Remove'], [['⌘K'], 'Search']],
     sequences: [[['H', 'Esc'], 'Pan'], [['V'], 'Select'], [['Delete'], 'Remove'], [['⌘K'], 'Search']],
     session: [[['H', 'Esc'], 'Pan'], [['V'], 'Select'], [['⌘K'], 'Search']],
-    connections: [[['Backspace'], 'Undo last step'], [['Esc'], 'Clear selection'], [['⌘K'], 'Search']],
+    connections: [[['H'], 'Pan'], [['V'], 'Select'], [['Backspace'], 'Undo last step'], [['Esc'], 'Clear selection'], [['⌘K'], 'Search']],
   };
 </script>
 

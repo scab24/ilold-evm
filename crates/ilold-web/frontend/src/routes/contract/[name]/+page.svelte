@@ -21,12 +21,15 @@
   import ConnectionsBoard from '$lib/components/contract/connections/ConnectionsBoard.svelte';
   import { applyBoard, currentBoard, openMain } from '$lib/components/contract/connections/board-view.svelte';
   import { contractOf, fnKey, keyParts, touch } from '$lib/components/contract/connections/board-state';
+  import { isBoardEdge } from '$lib/components/contract/connections/board-graph';
   import FunctionSidebar from '$lib/components/contract/FunctionSidebar.svelte';
   import TopBar from '$lib/components/contract/TopBar.svelte';
   import StatusBar from '$lib/components/contract/StatusBar.svelte';
   import ContextMenu from '$lib/components/contract/ContextMenu.svelte';
   import FunctionSourcePanel from '$lib/components/contract/FunctionSourcePanel.svelte';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
+  import BoxNode from '$lib/components/project/BoxNode.svelte';
+  import ChipEdge from '$lib/components/project/ChipEdge.svelte';
   import SessionSidebar from '$lib/components/session/SessionSidebar.svelte';
   import AppHeader, { modeOf, modeParam, type Mode } from '$lib/components/chrome/AppHeader.svelte';
   import { setQuery } from '$lib/utils/query';
@@ -91,6 +94,7 @@
   let cfgCacheVersion = $state(0);
   let flowApi: { fitView: (opts?: any) => Promise<boolean> } | null = $state(null);
   let graphCanvas: GraphCanvasFlow;
+  let board: ConnectionsBoard | null = $state(null);
   const cfgCache = new Map<string, CytoscapeGraph>();
 
   function hasPaths(funcName: string): boolean {
@@ -416,6 +420,7 @@
         return {
           id: cn.id,
           type: 'function',
+          hidden: mode === 'connections',
           position: {
             x: SESSION_BASE_X + cn.stepIndex * SESSION_STEP_WIDTH,
             y: SESSION_BASE_Y + cn.lane * SESSION_LANE_HEIGHT,
@@ -464,6 +469,7 @@
           id: ce.id,
           source: ce.source,
           target: ce.target,
+          hidden: mode === 'connections',
           sourceHandle: 'r',
           targetHandle: 'l',
           type: 'default',
@@ -490,12 +496,12 @@
     untrack(() => {
       setNodes(getNodes().map((n) => {
         const isSessionNode = (n.data as any)._sessionStep === true;
-        const shouldHide = currentMode === 'session' && !isSessionNode;
+        const shouldHide = currentMode === 'connections' ? n.data._type !== 'box' : currentMode === 'session' && !isSessionNode;
         return n.hidden === shouldHide ? n : { ...n, hidden: shouldHide };
       }));
       setEdges(getEdges().map((e) => {
         const isSessionEdge = (e.data as any)?._type === 'session-path';
-        const shouldHide = currentMode === 'session' && !isSessionEdge;
+        const shouldHide = currentMode === 'connections' ? !isBoardEdge(e.id) : currentMode === 'session' && !isSessionEdge;
         return e.hidden === shouldHide ? e : { ...e, hidden: shouldHide };
       }));
     });
@@ -517,6 +523,7 @@
       const visible = () => getNodes().find(n => n.data._type === 'function' && !n.hidden && n.data.funcKey === key);
       if (mode === 'connections') {
         shownMode = 'sequences';
+        removeNodesById(new Set(getNodes().filter((n) => n.data._type === 'box').map((n) => n.id)));
         switchMode('sequences');
       }
       if (!visible() && mode !== 'session') addFuncToCanvas(key);
@@ -961,6 +968,7 @@
 
   function handleContextMenu(event: MouseEvent, node: Node<GraphNodeData>) {
     const data = node.data;
+    if (data._type === 'box') return;
     let sessionStep: { stepIndex: number } | undefined;
     if (data._type === 'function' && data._sessionStep === true) {
       const { _scenariosPassingThrough: scns, _activeScenario: active, stepIndex: idx } = data;
@@ -1256,7 +1264,7 @@
   function clearModeNodes() {
     const toRemove = new Set<string>();
     for (const n of getNodes()) {
-      if (n.data._type === 'block' || n.data._type === 'seq-next') {
+      if (n.data._type === 'block' || n.data._type === 'seq-next' || n.data._type === 'box') {
         toRemove.add(n.id);
       }
     }
@@ -1422,13 +1430,18 @@
 
       <div class="wb-canvas">
       {#if mode === 'connections' && contract}
-        <ConnectionsBoard main={contract.name} {libraries} />
+        <ConnectionsBoard bind:this={board} main={contract.name} {libraries} live={(id) => graphCanvas?.getLiveNode(id)} fit={(options) => graphCanvas?.fitWhenReady(options)} reveal={(id) => graphCanvas?.reveal(id)} />
       {/if}
-      <div class="wb-flow" class:off={mode === 'connections'}>
+      <div class="wb-flow">
       <GraphCanvasFlow
         bind:this={graphCanvas}
-        onnodetap={(node, event) => handleNodeClick(node, event)}
-        onbackgroundtap={handleBackgroundTap}
+        extraNodeTypes={{ box: BoxNode } as any}
+        followStore={mode === 'connections'}
+        edgeTypes={{ chip: ChipEdge } as any}
+        onnodetap={(node, event) => (mode === 'connections' ? board?.tap(node, event) : handleNodeClick(node, event))}
+        onbackgroundtap={() => (mode === 'connections' ? board?.clear() : handleBackgroundTap())}
+        onedgemouseenter={(edge, event) => board?.hover(edge, event)}
+        onedgemouseleave={() => board?.hover(null)}
         oncontextmenu={handleContextMenu}
         onnodesdelete={handleNodesDelete}
         canDeleteNodes={mode !== 'session' && mode !== 'connections'}
