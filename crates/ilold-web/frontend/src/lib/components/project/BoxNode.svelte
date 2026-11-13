@@ -4,7 +4,7 @@
   export type Tone = '' | 'val' | 'amb' | 'mono' | 'dim';
   export interface BoxLine { text: string; tone?: Tone; icon?: IconName }
   export interface BoxPort { id: string; side: 'l' | 'r' | 't' | 'b'; type: 'source' | 'target' }
-  export interface BoxRow { id: string; text: string; icon?: IconName; tone?: Tone; title?: string; marks?: IconName[]; on?: boolean; label?: string }
+  export interface BoxRow { id: string; text: string; icon?: IconName; tone?: Tone; title?: string; marks?: IconName[]; count?: string; on?: boolean; label?: string }
 
   export interface BoxNodeData {
     [key: string]: unknown;
@@ -59,7 +59,7 @@
         <li class="row {row.tone ?? ''}" class:on={row.on} title={row.title ?? row.text}>
           {#if data.rowAction}<button type="button" class="hit" data-row={row.id} aria-pressed={row.on ?? false} aria-label={row.label ?? row.text}></button>{/if}
           {#if row.icon}<Icon name={row.icon} size={13} />{:else if data.rowAction && lead}<span class="lead" aria-hidden="true"></span>{/if}<span>{row.text}</span>
-          {#if row.marks?.length}<span class="marks">{#each row.marks as mark (mark)}<Icon name={mark} size={13} />{/each}</span>{/if}
+          {#if row.count || row.marks?.length}<span class="marks">{#if row.count}<span class="count">{row.count}</span>{/if}{#each row.marks ?? [] as mark (mark)}<Icon name={mark} size={13} />{/each}</span>{/if}
           {#if data.rowPorts}
             <Handle type="target" id="{row.id}:in" position={Position.Left} class="row-in" />
             <Handle type="source" id="{row.id}:out" position={Position.Right} class="row-out" />
@@ -107,7 +107,8 @@
   .row:has(.hit):hover { background: var(--color-hover); }
   .hit { all: unset; position: absolute; inset: 0; cursor: pointer; }
   .lead { flex: none; width: 13px; }
-  .marks { display: flex; gap: 4px; margin-left: auto; color: var(--root); }
+  .marks { flex: none; display: flex; align-items: center; gap: 4px; margin-left: auto; color: var(--root); }
+  .count { font: 12px var(--font-mono); }
   .row :global(.svelte-flow__handle) { opacity: 0; }
   .row :global(.svelte-flow__handle.row-in) { left: -14px; }
   .row :global(.svelte-flow__handle.row-out) { right: -14px; left: auto; }
