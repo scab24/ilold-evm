@@ -1,6 +1,6 @@
 import type { BoxNodeData } from './BoxNode.svelte';
 
-// mirrors the BoxNode stylesheet so layouts can size cards before they are measured
+// BoxNode stylesheet metrics, read by layouts that run before the cards are measured
 const HEAD = 27;
 const BOTTOM = 9;
 const LINE = 17;
