@@ -146,11 +146,39 @@ layers stays in `analyze --deps`.
 
 Opening a contract keeps the project header: its tabs lead back to the Map,
 Value flow and Route, and after the contract name the mode control switches
-between CFG, Seq and Session. The mode lives in the URL (`?mode=cfg`,
-`?mode=session`; Seq when absent), so a reload or a link keeps it and the
-browser Back button returns to the previous mode. The bar under the header
-holds the canvas tools of the current mode: the Seq layout (down or right),
-Back and Clear of the active scenario (Session only), Center and Terminal. Panels, section titles, chips and buttons use
+between CFG, Seq, Session and Connections. The mode lives in the URL
+(`?mode=cfg`, `?mode=seq`, `?mode=session`; Connections when absent), so a
+reload or a link keeps it and the browser Back button returns to the previous
+mode. The bar under the header holds the tools of the current mode: the
+Connections trail and controls, the Seq layout (down or right), Back and Clear
+of the active scenario (Session only), Center and Terminal. A highlight sent
+from the REPL or an MCP client (`ilold_function_analysis`, `ilold_trace`)
+switches to Seq and shows the function there.
+
+**Connections** is a board that accumulates what you open, function to
+function (the [`links`](../commands/contract.md#links) rows):
+
+- the contract opens with only its functions that call or are called by other
+  contracts (**All functions** lists the rest); the contracts it calls are
+  folded on its right, its callers on its left, each band labelled
+  ("LaunchCurve calls", "Calls LaunchCurve"); libraries and the interfaces
+  outside the project fold into one box each.
+- click a function (on the board or in the left list) to select it: its lines
+  light up, the others dim. Click a function in a folded box to open that
+  contract in place, one column further out, with that function selected.
+- the trail above the board lists the opened steps (each one selectable; a
+  long trail keeps the first and last step and folds the middle into `+N`).
+  **Backspace** removes the last step, **×** closes a box (and the boxes
+  opened further out on its side), **Reset** returns to the start. Only the
+  two boxes used last stay open; older ones fold into strips at the left edge
+  (click a strip to open it again). When the board is wider than the canvas,
+  the `← N` / `N →` buttons scroll to the boxes out of view.
+- **Callers / Both / Callees** keep one side, the **Lines** legend shows,
+  dims or hides each kind of line as on the Map (Unresolved is never hidden).
+- double-click a box (or press Enter on its title) to make it the main
+  contract of the board. Delete removes nothing in this mode.
+- the whole board (open boxes, trail, selection, direction, filters) lives in
+  the URL, so a reload or a link reopens it; it is not saved in scenarios. Panels, section titles, chips and buttons use
 the same styles as the project page.
 
 ## Practical workflow

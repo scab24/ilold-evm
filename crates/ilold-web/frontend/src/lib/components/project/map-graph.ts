@@ -28,6 +28,19 @@ export function nextState(line: Line, state: LineState): LineState {
   return state === 'show' ? 'dim' : state === 'dim' ? 'hide' : 'show';
 }
 
+export function readLines(param: string | null): Record<Line, LineState> {
+  const state = { ...DEFAULT_LINES };
+  for (const entry of (param ?? '').split(',')) {
+    const [line, value] = entry.split('-') as [Line, LineState];
+    if (line in state && (value === 'show' || value === 'dim' || (value === 'hide' && line !== 'unresolved'))) state[line] = value;
+  }
+  return state;
+}
+
+export function linesParam(state: Record<Line, LineState>): string | null {
+  return LINES.filter((l) => state[l.id] !== DEFAULT_LINES[l.id]).map((l) => `${l.id}-${state[l.id]}`).join(',') || null;
+}
+
 export interface Item {
   from: string;
   to: string;

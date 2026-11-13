@@ -18,6 +18,10 @@
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
   import { postCommand } from '$lib/api/session';
   import Legend from '$lib/components/contract/Legend.svelte';
+  import WorkbenchLegend from '$lib/components/contract/WorkbenchLegend.svelte';
+  import ConnectionsBoard from '$lib/components/contract/connections/ConnectionsBoard.svelte';
+  import { applyBoard, currentBoard } from '$lib/components/contract/connections/board-view.svelte';
+  import { contractOf, fnKey, keyParts } from '$lib/components/contract/connections/board-state';
   import FunctionSidebar from '$lib/components/contract/FunctionSidebar.svelte';
   import TopBar from '$lib/components/contract/TopBar.svelte';
   import StatusBar from '$lib/components/contract/StatusBar.svelte';
@@ -510,6 +514,7 @@
     untrack(() => {
       if (!contract) return;
       const visible = () => getNodes().find(n => n.data._type === 'function' && !n.hidden && n.data.funcKey === key);
+      if (mode === 'connections') switchMode('sequences');
       if (!visible() && mode !== 'session') addFuncToCanvas(key);
       const node = visible();
       if (node) handleNodeTap(node);
@@ -628,7 +633,24 @@
     if (name) untrack(() => setSessionContract(name));
   });
 
+  const boardSelected = $derived.by(() => {
+    const fn = contract && mode === 'connections' ? currentBoard(contract.name).fn : null;
+    return new Set(fn && contractOf(fn) === contract?.name ? [keyParts(fn).member] : []);
+  });
+  const libraries = $derived(new Set(projectContracts.filter((c) => c.kind === 'Library').map((c) => c.name)));
+
+  function selectOnBoard(funcName: string | null) {
+    if (!contract) return;
+    const board = currentBoard(contract.name);
+    const key = funcName ? fnKey(contract.name, funcName) : null;
+    applyBoard({ ...board, fn: key === board.fn ? null : key });
+  }
+
   async function handleSidebarAdd(funcName: string) {
+    if (mode === 'connections') {
+      selectOnBoard(funcName);
+      return;
+    }
     if (mode === 'session') {
       try {
         await postCommand({ Call: { func: funcName } }, contract?.name);
@@ -1253,6 +1275,7 @@
       { id: 'mode:cfg', label: 'Mode: CFG', category: 'Mode', icon: '⊟', keywords: ['cfg', 'control flow'], run: () => switchMode('cfg') },
       { id: 'mode:sequences', label: 'Mode: Sequences', category: 'Mode', icon: '⇵', keywords: ['seq', 'calls'], run: () => switchMode('sequences') },
       { id: 'mode:session', label: 'Mode: Session', category: 'Mode', icon: '⎇', keywords: ['scenario', 'session'], run: () => switchMode('session') },
+      { id: 'mode:connections', label: 'Mode: Connections', category: 'Mode', icon: '⇄', keywords: ['links', 'calls', 'contracts'], run: () => switchMode('connections') },
     );
 
     cmds.push(
@@ -1347,6 +1370,7 @@
     <div class="state-msg full err">{error}</div>
   {:else}
     <TopBar
+      contract={contract?.name ?? page.params.name ?? ''}
       {mode}
       {seqDirection}
       oncenter={() => flowApi?.fitView({ padding: 0.1 })}
@@ -1356,19 +1380,26 @@
     />
     <div class="wb-main">
       {#if contract}
-        <FunctionSidebar {contract} {canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={removeFuncFromCanvas} />
+        <FunctionSidebar {contract} canvasFuncs={mode === 'connections' ? boardSelected : canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={mode === 'connections' ? () => selectOnBoard(null) : removeFuncFromCanvas} />
       {/if}
 
+      <div class="wb-canvas">
+      {#if mode === 'connections' && contract}
+        <ConnectionsBoard main={contract.name} {libraries} />
+      {/if}
+      <div class="wb-flow" class:off={mode === 'connections'}>
       <GraphCanvasFlow
         bind:this={graphCanvas}
         onnodetap={(node, event) => handleNodeClick(node, event)}
         onbackgroundtap={handleBackgroundTap}
         oncontextmenu={handleContextMenu}
         onnodesdelete={handleNodesDelete}
-        canDeleteNodes={mode !== 'session'}
+        canDeleteNodes={mode !== 'session' && mode !== 'connections'}
         onselectionchange={(nodes) => { selectionCount = nodes.length; }}
         onready={(api) => { flowApi = api; }}
       />
+      </div>
+      </div>
 
       {#if contract}
         <SessionSidebar
@@ -1390,6 +1421,8 @@
         />
       {/if}
     </div>
+
+    <WorkbenchLegend {mode} />
 
     <StatusBar
       {mode}
@@ -1422,7 +1455,7 @@
       />
     {/if}
 
-    <Legend {mode} phases={contract?.phase_candidates} onfunction={(ref) => handleSidebarAdd(routeKey(splitRef(ref).member))} />
+    <Legend phases={contract?.phase_candidates} onfunction={(ref) => handleSidebarAdd(routeKey(splitRef(ref).member))} />
   {/if}
   <ErrorToasts />
 </div>

@@ -543,6 +543,10 @@ export async function getContract(name: string): Promise<ContractDetail> {
   return body(await fetch(`${BASE}/api/contract/${segment(name)}`), `Contract ${name} not found`);
 }
 
+export async function getConnections(name: string): Promise<Connections> {
+  return body(await fetch(`${BASE}/api/contract/${segment(name)}/connections`), `No connections for ${name}`);
+}
+
 export async function getCallGraph(contractName: string): Promise<CytoscapeGraph> {
   const res = await fetch(`${BASE}/api/contract/${segment(contractName)}/callgraph`);
   return body(res, `No call graph for ${contractName}`);

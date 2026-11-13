@@ -1,7 +1,7 @@
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
 
-const SELECTION = ['c', 'pair', 'sel', 'arrow', 'from', 'to', 'mode'];
+const SELECTION = ['c', 'pair', 'sel', 'arrow', 'from', 'to', 'mode', 'fn', 'open'];
 
 export function setQuery(updates: Record<string, string | null>): void {
   const url = new URL(page.url);

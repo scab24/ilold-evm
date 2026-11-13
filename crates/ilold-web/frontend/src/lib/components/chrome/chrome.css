@@ -12,7 +12,7 @@
 @media (max-width: 1199px) {
   .pj { --insp: 284px; }
 }
-.pj.wb { grid-template-rows: 52px 46px minmax(0, 1fr) 24px; }
+.pj.wb { grid-template-rows: 52px 46px minmax(0, 1fr) 44px 24px; }
 .pj :focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: 2px; }
 .pj :is(.seg, .legend, .insp) :focus-visible { outline-offset: -2px; }
 .pj .mono { font-family: var(--font-mono); font-size: 12px; }
@@ -142,4 +142,6 @@
 .pj .tip b { color: var(--color-text-light); }
 
 .pj .wb-main { display: flex; min-height: 0; overflow: hidden; }
-.pj .wb-main > .graph-canvas-flow { flex: 1 1 auto; min-width: 0; }
+.pj .wb-canvas { position: relative; flex: 1 1 auto; min-width: 0; }
+.pj .wb-flow { position: absolute; inset: 0; }
+.pj .wb-flow.off { visibility: hidden; }

@@ -2,8 +2,10 @@
   import { toggleTerminal, isTerminalVisible } from '$lib/stores/terminal.svelte';
   import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   import Seg from '$lib/components/chrome/Seg.svelte';
+  import BoardToolbar from './connections/BoardToolbar.svelte';
 
   let {
+    contract,
     mode,
     seqDirection,
     oncenter,
@@ -11,6 +13,7 @@
     onsessionback,
     onsessionclear,
   }: {
+    contract: string;
     mode: Mode;
     seqDirection: 'TB' | 'LR';
     oncenter: () => void;
@@ -26,6 +29,9 @@
 </script>
 
 <div class="toolbar" role="toolbar" aria-label="Canvas">
+  {#if mode === 'connections'}
+    <BoardToolbar main={contract} />
+  {/if}
   {#if mode === 'sequences'}
     <span class="tlabel">Layout</span>
     <Seg label="Sequence tree direction" options={DIRECTIONS} value={seqDirection} onpick={onseqdirection} />
@@ -36,7 +42,7 @@
     <button type="button" class="btn" onclick={onsessionclear} title="Remove every step of the active scenario">Clear</button>
   {/if}
   <span class="tools-end">
-    <button type="button" class="btn" onclick={oncenter} title="Fit every node in view">Center</button>
+    {#if mode !== 'connections'}<button type="button" class="btn" onclick={oncenter} title="Fit every node in view">Center</button>{/if}
     <button type="button" class="btn mono" onclick={toggleTerminal} aria-pressed={isTerminalVisible()} title={isTerminalVisible() ? 'Hide terminal' : 'Show terminal'}>&gt;_ Terminal</button>
   </span>
 </div>

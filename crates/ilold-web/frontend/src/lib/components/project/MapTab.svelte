@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { MarkerType, type Edge, type FitViewOptions, type Node } from '@xyflow/svelte';
-  import { type Basis, type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph } from '$lib/api/rest';
+  import { type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
   import { projectConnections, projectDepgraph } from '$lib/stores/project-data';
   import { BASIS_LABEL, lineStyle, splitRef } from '$lib/utils/links';
@@ -22,9 +22,9 @@
   import LegendBar from '$lib/components/chrome/LegendBar.svelte';
   import { READABLE_FIT, addPort, anchors, placeChips, sidesBetween, type Port } from './chips';
   import {
-    DEFAULT_LINES, INTERFACES, LIBRARIES, LINES, OUTSIDE,
+    INTERFACES, LIBRARIES, LINES, OUTSIDE, linesParam, readLines,
     edgeStyle, edges as mapEdges, itemState, items as mapItems, neighbourhood, nextState, packageOf, shortName,
-    type Item, type Line, type LineState, type MapEdge,
+    type Item, type Line, type MapEdge,
   } from './map-graph';
   import { endpointOf, groups as mapGroups, layout, type Fold } from './map-layout';
 
@@ -47,14 +47,7 @@
   const depth = $derived(params.get('depth') === '2' ? 2 : 1);
   const direction = $derived((['callers', 'callees'] as const).find((d) => d === params.get('dir')) ?? 'both');
   const open = $derived(new Set((params.get('expand') ?? '').split(',').filter((f): f is Fold => f === 'libraries' || f === 'interfaces' || f === 'outside')));
-  const lines = $derived.by(() => {
-    const state = { ...DEFAULT_LINES };
-    for (const entry of (params.get('lines') ?? '').split(',')) {
-      const [line, value] = entry.split('-') as [Line, LineState];
-      if (line in state && (value === 'show' || value === 'dim' || (value === 'hide' && line !== 'unresolved'))) state[line] = value;
-    }
-    return state;
-  });
+  const lines = $derived(readLines(params.get('lines')));
 
   const byName = $derived(new Map(contracts.map((c) => [c.name, c])));
   const summary = $derived(new Map((connections?.contracts ?? []).map((c) => [c.contract, c])));
@@ -286,9 +279,7 @@
     setQuery({ pair: id === pickedPair ? null : id });
   }
   function setLine(line: Line) {
-    const next = { ...lines, [line]: nextState(line, lines[line]) };
-    const changed = LINES.filter((l) => next[l.id] !== DEFAULT_LINES[l.id]).map((l) => `${l.id}-${next[l.id]}`);
-    setQuery({ lines: changed.join(',') || null, pair: null });
+    setQuery({ lines: linesParam({ ...lines, [line]: nextState(line, lines[line]) }), pair: null });
   }
   function tier(id: string): number {
     const kind = byName.get(id)?.kind;
@@ -324,8 +315,6 @@
   }
 
   const DIRECTIONS = [{ id: 'callers', label: 'Callers' }, { id: 'both', label: 'Both' }, { id: 'callees', label: 'Callees' }] as const;
-
-  const BASIS_KEY: [Basis, string][] = [['inherits_interface', 'interface'], ['selector_match', 'selector'], ['self', 'this']];
 
   const KIND_WORD: Record<Item['line'], string> = { calls: 'call', reads: 'read', library: 'library call', inherits: 'inherits', holds: 'holds', unresolved: 'target not resolved' };
 
@@ -511,15 +500,7 @@
   </aside>
 </div>
 
-<LegendBar label="Lines" wide pills={LINES.map((l) => ({ ...l, state: lines[l.id], ...(l.id === 'iface' ? { icon: 'iface' as const } : { line: lineStyle(l.id) }) }))} onpill={(id) => setLine(id as Line)} hint="Hover a line for counts · click for functions">
-  <span class="basis" title="How the call target was found: through the interface it implements, by selector match, or a this call">
-    <span class="tlabel">Found by</span>
-    {#each BASIS_KEY as [basis, text] (basis)}
-      {@const s = lineStyle('calls', basis)}
-      <span class="key"><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{text}</span>
-    {/each}
-  </span>
-</LegendBar>
+<LegendBar label="Lines" wide foundBy pills={LINES.map((l) => ({ ...l, state: lines[l.id], ...(l.id === 'iface' ? { icon: 'iface' as const } : { line: lineStyle(l.id) }) }))} onpill={(id) => setLine(id as Line)} hint="Hover a line for counts · click for functions" />
 
 {#if tip}
   {@const called = tip.edge.items.filter(hasRow)}

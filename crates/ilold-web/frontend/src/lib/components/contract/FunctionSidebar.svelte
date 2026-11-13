@@ -22,7 +22,7 @@
     onremove: (func: string) => void;
   } = $props();
 
-  let sidebarOpen = $state(true);
+  let sidebarOpen = $state(typeof window === 'undefined' || window.innerWidth >= 1200);
   let query = $state('');
 
   type Visibility = 'Public' | 'External' | 'Internal' | 'Private';

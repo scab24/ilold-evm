@@ -1,5 +1,6 @@
 <script lang="ts" module>
-  import type { LineStyle } from '$lib/utils/links';
+  import { lineStyle, type LineStyle } from '$lib/utils/links';
+  import type { Basis } from '$lib/api/rest';
   import type { IconName } from './Icon.svelte';
 
   export type PillState = 'show' | 'dim' | 'hide';
@@ -18,14 +19,17 @@
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
-  let { label, pills = [], onpill, hint, wide = false, children }: {
+  let { label, pills = [], onpill, hint, wide = false, foundBy = false, children }: {
     label: string;
     pills?: LegendPill[];
     onpill?: (id: string) => void;
     hint?: string;
     wide?: boolean;
+    foundBy?: boolean;
     children?: Snippet;
   } = $props();
+
+  const BASIS_KEY: [Basis, string][] = [['inherits_interface', 'interface'], ['selector_match', 'selector'], ['self', 'this']];
 
   const WORD: Record<PillState, string> = { show: 'shown', dim: 'dimmed', hide: 'hidden' };
 </script>
@@ -43,5 +47,13 @@
     </button>
   {/each}
   {@render children?.()}
+  {#if foundBy}
+    <span class="basis" title="How the call target was found: through the interface it implements, by selector match, or a this call">
+      <span class="tlabel">Found by</span>
+      {#each BASIS_KEY as [basis, text] (basis)}
+        <span class="key">{@render swatch(lineStyle('calls', basis))}{text}</span>
+      {/each}
+    </span>
+  {/if}
   {#if hint}<span class="hint">{hint}</span>{/if}
 </div>

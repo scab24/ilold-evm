@@ -1,6 +1,6 @@
 <script lang="ts" module>
   export type ProjectTab = 'map' | 'value' | 'route';
-  export type Mode = 'cfg' | 'sequences' | 'session';
+  export type Mode = 'cfg' | 'sequences' | 'session' | 'connections';
 
   export const TABS: { id: ProjectTab; label: string }[] = [
     { id: 'map', label: 'Map' },
@@ -12,9 +12,10 @@
     { id: 'cfg', label: 'CFG', title: 'Control-flow graph view', param: 'cfg' },
     { id: 'sequences', label: 'Seq', title: 'Function sequence view', param: 'seq' },
     { id: 'session', label: 'Session', title: 'Session mode: click a function to add a step', param: 'session' },
+    { id: 'connections', label: 'Connections', title: 'Calls between this contract and others, function to function', param: 'connections' },
   ];
 
-  export const DEFAULT_MODE: Mode = 'sequences';
+  export const DEFAULT_MODE: Mode = 'connections';
 
   export function modeOf(param: string | null): Mode {
     return MODES.find((m) => m.param === param)?.id ?? DEFAULT_MODE;
