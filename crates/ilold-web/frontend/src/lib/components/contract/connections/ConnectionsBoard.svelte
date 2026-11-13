@@ -84,7 +84,7 @@
       const opened = board.open.filter((c) => !shown?.includes(c));
       if (!shown) fit(VIEW);
       else if (opened.length) fit({ ...VIEW, duration: 300, nodes: opened.flatMap((c) => [{ id: `O:${c}` }, ...(board.parent[c] ? [{ id: `O:${board.parent[c]}` }] : [])]) });
-      else if (board.fn && board.fn !== picked) requestAnimationFrame(() => reveal(`O:${contractOf(board.fn!)}`));
+      else if (board.fn && board.fn !== picked) reveal(`O:${contractOf(board.fn)}`);
       shown = board.open;
       picked = board.fn;
     });

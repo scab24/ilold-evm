@@ -107,9 +107,12 @@
 
   let view: Pick<ReturnType<typeof useSvelteFlow>, 'getViewport' | 'setCenter'> | null = null;
 
-  export function reveal(id: string) {
-    const n = flowNodes.find((x) => x.id === id);
+  let pendingReveal = $state<string | null>(null);
+
+  $effect(() => {
+    const n = flowNodes.find((x) => x.id === pendingReveal);
     if (!n || !view || !n.measured?.width || !n.measured?.height) return;
+    pendingReveal = null;
     const { x, y, zoom } = view.getViewport();
     const w = n.measured.width;
     const h = Math.min(n.measured.height, paneHeight / zoom - 40);
@@ -117,6 +120,10 @@
     const top = n.position.y * zoom + y;
     if (left >= 0 && top >= 0 && left + w * zoom <= paneWidth && top + h * zoom <= paneHeight) return;
     view.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom, duration: 300 });
+  });
+
+  export function reveal(id: string) {
+    pendingReveal = id;
   }
 
   export function fitWhenReady(options: FitViewOptions) {
