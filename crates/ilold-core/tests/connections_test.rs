@@ -347,7 +347,7 @@ fn connections_group_the_running_contract_calls_by_the_other_contract() {
 #[test]
 fn project_connections_add_up_each_pair_of_a_deployed_contract_and_a_contract_answering_it() {
     let relations = &analysis().relations;
-    let project = relations.project_connections();
+    let project = relations.project_connections(&analysis().classifications);
     let pairs: Vec<(&str, &str, [usize; 5], bool, Vec<u32>)> = project
         .pairs
         .iter()
@@ -369,6 +369,12 @@ fn project_connections_add_up_each_pair_of_a_deployed_contract_and_a_contract_an
     assert_eq!(unresolved, vec![("Router", "IExt", vec!["ExtBase::poke"])]);
     let counts: Vec<(&str, usize, usize)> = project.contracts.iter().map(|c| (c.contract.as_str(), c.outgoing_calls, c.incoming_calls)).collect();
     assert_eq!(counts, vec![("HookA", 0, 2), ("HookB", 0, 2), ("Router", 4, 0), ("Vault", 0, 2)]);
+    let totals = &project.totals;
+    assert_eq!(
+        [totals.calls, totals.reads, totals.library, totals.via_interface, totals.transfers, totals.unresolved],
+        [3, 1, 2, 4, 0, 1],
+        "the call with two possible hooks counts once"
+    );
     for c in &project.contracts {
         let one = relations.connections(&c.contract);
         assert_eq!((one.outgoing_calls, one.incoming_calls), (c.outgoing_calls, c.incoming_calls), "{}", c.contract);
@@ -514,4 +520,80 @@ fn project_library_code_runs_in_the_calling_contract() {
         .map(|p| (p.in_context.as_str(), format!("{:?}", p.from), format!("{:?}", p.to), p.transfers.len()))
         .collect();
     assert_eq!(pairs, vec![("Store", "Contract([\"Store\"])".to_string(), "Expression(Some(\"to\"))".to_string(), 2)]);
+}
+
+const TOTALS: &[(&str, &str)] = &[
+    (SOURCES[0].0, SOURCES[0].1),
+    (SOURCES[1].0, SOURCES[1].1),
+    (
+        "lib/ext/Ext.sol",
+        "pragma solidity 0.8.28;
+interface IExt { function ping() external; }
+library ExtMath { function half(uint256 a) internal pure returns (uint256) { return a / 2; } }
+",
+    ),
+    (
+        "src/Totals.sol",
+        "pragma solidity 0.8.28;
+import {IExt, ExtMath} from '@ext/Ext.sol';
+interface IPool { function fund() external payable; function size() external view returns (uint256); }
+interface IEcho { function echo() external; }
+contract Pool is IPool {
+    address public owner;
+    function fund() external payable {}
+    function size() external pure returns (uint256) { return 1; }
+    function drain() external { require(msg.sender == owner); payable(owner).transfer(address(this).balance); }
+}
+contract Echo is IEcho {
+    IEcho public peer;
+    function echo() external {}
+    function ring() external { peer.echo(); }
+}
+contract Payer {
+    IPool public pool;
+    IExt public ext;
+    function pay(function(uint256) external dial) external payable {
+        pool.fund{value: msg.value}();
+        pool.size();
+        ExtMath.half(1);
+        ext.ping();
+        dial(1);
+    }
+}
+",
+    ),
+];
+
+#[test]
+fn project_connections_count_each_row_once_and_serve_each_contract_summary() {
+    let analysis = ProjectAnalysis::build(&parse("totals", TOTALS), &AnalysisParams::new(1));
+    let mut served = serde_json::to_value(analysis.relations.project_connections(&analysis.classifications)).unwrap();
+    for list in ["pairs", "unresolved"] {
+        for entry in served[list].as_array_mut().unwrap() {
+            let rows = entry["rows"].as_array().unwrap().iter().map(|r| serde_json::json!([r["function"], r["span"]["start_line"]])).collect();
+            entry["rows"] = rows;
+        }
+    }
+    let counts = |contract: &str, out: usize, inc: usize, entry: usize, restricted: usize, moves: bool| {
+        serde_json::json!({"contract": contract, "outgoing_calls": out, "incoming_calls": inc, "entry_points": entry, "restricted": restricted, "moves_value": moves})
+    };
+    let pair = |to: &str, [calls, reads, library, via_interface, transfers]: [usize; 5], rows: serde_json::Value| {
+        serde_json::json!({"from": "Payer", "to": to, "calls": calls, "reads": reads, "library": library, "via_interface": via_interface, "transfers": transfers, "ambiguous": false, "rows": rows})
+    };
+    let expected = serde_json::json!({
+        "totals": {"calls": 1, "reads": 1, "library": 1, "via_interface": 2, "transfers": 1, "unresolved": 2},
+        "contracts": [counts("Echo", 0, 0, 2, 0, false), counts("Payer", 2, 0, 1, 0, true), counts("Pool", 0, 2, 3, 1, true)],
+        "pairs": [
+            pair("ExtMath", [0, 0, 1, 0, 0], serde_json::json!([["Payer::pay", 22]])),
+            pair("Pool", [1, 1, 0, 2, 1], serde_json::json!([["Payer::pay", 20], ["Payer::pay", 21]])),
+        ],
+        "unresolved": [
+            {"from": "Payer", "target": "IExt", "rows": [["Payer::pay", 23]]},
+            {"from": "Payer", "target": ilold_core::relations::UNKNOWN_TARGET, "rows": [["Payer::pay", 24]]},
+        ],
+    });
+    assert_eq!(served, expected, "Echo calling itself through IEcho and the dependency library add no outgoing call");
+    let echo = analysis.relations.connections("Echo");
+    assert_eq!((echo.outgoing_calls, echo.incoming_calls), (0, 0));
+    assert_eq!(analysis.relations.calls_from("Echo")[0].callees[0].contract, "Echo");
 }

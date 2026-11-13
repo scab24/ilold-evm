@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {IPoolManager} from "@pool/IPoolManager.sol";
+import {IPoolManager, PoolMath} from "@pool/IPoolManager.sol";
 import {IDen, IHook, IToken} from "./Interfaces.sol";
 
 contract Token is IToken {
@@ -37,6 +37,6 @@ contract Hook is IHook {
     }
 
     function fee() external pure returns (uint256) {
-        return 1;
+        return PoolMath.half(2);
     }
 }

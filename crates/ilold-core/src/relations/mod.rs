@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::context_cfg;
+use crate::classify::entry_points::AccessLevel;
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::model::common::{Param, SourceSpan};
 use crate::model::contract::{ContractDef, ContractKind};
@@ -197,10 +198,26 @@ pub struct CallCounts {
     pub contract: String,
     pub outgoing_calls: usize,
     pub incoming_calls: usize,
+    pub entry_points: usize,
+    pub restricted: usize,
+    pub moves_value: bool,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionTotals {
+    pub calls: usize,
+    pub reads: usize,
+    pub library: usize,
+    pub via_interface: usize,
+    pub transfers: usize,
+    pub unresolved: usize,
+}
+
+pub const UNKNOWN_TARGET: &str = "dynamic address";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectConnections {
+    pub totals: ConnectionTotals,
     pub contracts: Vec<CallCounts>,
     pub pairs: Vec<ContractPair>,
     pub unresolved: Vec<UnresolvedCalls>,
@@ -357,18 +374,33 @@ impl Relations {
         }
     }
 
-    pub fn project_connections(&self) -> ProjectConnections {
+    pub fn project_connections(&self, access: &HashMap<String, Vec<(String, AccessLevel)>>) -> ProjectConnections {
         let mut pairs: BTreeMap<(&str, &str), ContractPair> = BTreeMap::new();
         let mut unresolved: BTreeMap<(&str, &str), Vec<ContractCall>> = BTreeMap::new();
+        let mut totals = ConnectionTotals::default();
+        let mut moved: HashSet<(&str, &str)> = HashSet::new();
         for call in self.calls.iter().filter(|c| self.deploys(&c.in_context)) {
             if call.callees.is_empty() {
-                let target = call.target.as_deref().map_or("", |t| t.split_once("::").map_or(t, |(contract, _)| contract));
+                let target = call.target.as_deref().map_or(UNKNOWN_TARGET, |t| t.split_once("::").map_or(t, |(contract, _)| contract));
                 unresolved.entry((&call.in_context, target)).or_default().push(call.clone());
+                totals.unresolved += 1;
                 continue;
             }
             let mut answering: Vec<&str> = call.callees.iter().map(|d| d.contract.as_str()).filter(|c| *c != call.in_context).collect();
             answering.sort_unstable();
             answering.dedup();
+            if !answering.is_empty() {
+                match call.kind {
+                    ContractCallKind::Call => totals.calls += 1,
+                    ContractCallKind::Read => totals.reads += 1,
+                    ContractCallKind::Library => totals.library += 1,
+                    ContractCallKind::SelfCall => {}
+                }
+                if call.callees.iter().any(|d| d.contract != call.in_context && d.basis == Basis::InheritsInterface) {
+                    totals.via_interface += 1;
+                }
+                moved.extend(call.transfers.iter().map(|id| (call.in_context.as_str(), id.as_str())));
+            }
             for to in answering {
                 let pair = pairs.entry((&call.in_context, to)).or_insert_with(|| ContractPair {
                     from: call.in_context.clone(),
@@ -399,13 +431,22 @@ impl Relations {
         let contracts = self
             .deployed
             .iter()
-            .map(|c| CallCounts {
-                contract: c.clone(),
-                outgoing_calls: self.calls_from(c).iter().filter(|c| to_contracts(c)).count(),
-                incoming_calls: self.calls_into(c).filter(|c| to_contracts(c)).count(),
+            .map(|c| {
+                let levels = access.get(c).map(Vec::as_slice).unwrap_or_default();
+                let restricted = levels.iter().filter(|(_, a)| matches!(a, AccessLevel::Restricted { .. })).count();
+                CallCounts {
+                    contract: c.clone(),
+                    outgoing_calls: self.calls_from(c).iter().filter(|c| to_contracts(c)).count(),
+                    incoming_calls: self.calls_into(c).filter(|c| to_contracts(c)).count(),
+                    entry_points: restricted + levels.iter().filter(|(_, a)| a.is_unrestricted()).count(),
+                    restricted,
+                    moves_value: self.value_pairs.iter().any(|p| p.in_context == *c),
+                }
             })
             .collect();
+        totals.transfers = moved.len();
         ProjectConnections {
+            totals,
             contracts,
             pairs: pairs.into_values().collect(),
             unresolved: unresolved.into_iter().map(|((from, target), rows)| UnresolvedCalls { from: from.to_string(), target: target.to_string(), rows }).collect(),
@@ -427,7 +468,7 @@ impl Relations {
 }
 
 fn to_contracts(call: &ContractCall) -> bool {
-    matches!(call.kind, ContractCallKind::Call | ContractCallKind::Read) && !call.callees.is_empty()
+    matches!(call.kind, ContractCallKind::Call | ContractCallKind::Read) && call.callees.iter().any(|d| d.contract != call.in_context)
 }
 
 fn run_of<T>(sorted: &[T], order: impl Fn(&T) -> Ordering) -> &[T] {

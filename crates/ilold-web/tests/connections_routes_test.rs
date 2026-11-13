@@ -29,7 +29,9 @@ fn pairs(list: &[(&str, usize)]) -> Vec<(String, usize)> {
 
 const HOOK: &str = r#"{
   "contract": "Hook",
-  "outgoing": [],
+  "outgoing": [{"contract": "PoolMath", "calls": [
+        {"in_context": "Hook", "function": "Hook::fee", "span": {"file_index": 3, "start_line": 40, "start_col": 16, "end_line": 40, "end_col": 32}, "kind": "library", "target": "PoolMath::half", "callees": [{"function": "PoolMath::half", "contract": "PoolMath", "basis": "library", "tag": "TYPE_RESOLVED"}],
+         "unresolved_reason": null, "via": null, "in_try": false, "transfers": [], "file": "ROOT/src/Parts.sol"}]}],
   "incoming": [{"contract": "Curve", "calls": [
         {"in_context": "Curve", "function": "CurveBase::_graduate", "span": {"file_index": 1, "start_line": 27, "start_col": 9, "end_line": 27, "end_col": 63}, "kind": "call", "target": "IHook::migrate", "callees": [{"function": "Hook::migrate", "contract": "Hook", "basis": "inherits_interface", "tag": "INFERRED"}],
          "unresolved_reason": null, "via": "CurveBase::hook", "in_try": false, "transfers": ["CurveBase::_graduate#0"], "file": "ROOT/src/Curve.sol"},
@@ -99,15 +101,26 @@ async fn project_connections_add_up_the_calls_between_each_pair_of_contracts() {
         let [calls, reads, library, via_interface, transfers] = counts;
         json!({"from": from, "to": to, "calls": calls, "reads": reads, "library": library, "via_interface": via_interface, "transfers": transfers, "ambiguous": ambiguous, "rows": rows})
     };
-    let counts = |contract: &str, outgoing: u64, incoming: u64| json!({"contract": contract, "outgoing_calls": outgoing, "incoming_calls": incoming});
+    let counts = |contract: &str, [outgoing, incoming, entry, restricted]: [u64; 4], moves: bool| {
+        json!({"contract": contract, "outgoing_calls": outgoing, "incoming_calls": incoming, "entry_points": entry, "restricted": restricted, "moves_value": moves})
+    };
     let expected = json!({
-        "contracts": [counts("Curve", 5, 2), counts("DenA", 0, 1), counts("DenB", 0, 1), counts("Hook", 0, 2), counts("Router", 2, 0), counts("Token", 0, 2)],
+        "totals": {"calls": 5, "reads": 2, "library": 2, "via_interface": 7, "transfers": 4, "unresolved": 2},
+        "contracts": [
+            counts("Curve", [5, 2, 3, 0], true),
+            counts("DenA", [0, 1, 1, 0], false),
+            counts("DenB", [0, 1, 1, 0], false),
+            counts("Hook", [0, 2, 2, 0], true),
+            counts("Router", [2, 0, 2, 0], true),
+            counts("Token", [0, 2, 3, 0], false),
+        ],
         "pairs": [
             pair("Curve", "DenA", [1, 0, 0, 1, 0], true, json!([["Curve::buy", 36]])),
             pair("Curve", "DenB", [1, 0, 0, 1, 0], true, json!([["Curve::buy", 36]])),
             pair("Curve", "Hook", [1, 1, 0, 2, 1], false, json!([["CurveBase::_graduate", 27], ["CurveBase::_graduate", 27]])),
             pair("Curve", "Payout", [0, 0, 1, 0, 0], false, json!([["Curve::buy", 41]])),
             pair("Curve", "Token", [2, 0, 0, 2, 2], false, json!([["Curve::buy", 35], ["Payout::pay", 8]])),
+            pair("Hook", "PoolMath", [0, 0, 1, 0, 0], false, json!([["Hook::fee", 40]])),
             pair("Router", "Curve", [1, 1, 0, 2, 1], false, json!([["Router::buyWith", 14], ["Router::quote", 18]])),
         ],
         "unresolved": [{"from": "Hook", "target": "IPoolManager", "rows": [["Hook::migrate", 35], ["Hook::migrate", 36]]}],

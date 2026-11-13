@@ -196,7 +196,8 @@ others on their own: an abstract contract or a library is never listed under
 - **called by** — the calls into it, grouped by the contract running the
   calling code.
 - **Unresolved** — calls nothing in the project answers, with the reason
-  (`out_of_scope_interface`, `no_implementation`, `dynamic_address`).
+  (`out_of_scope_interface`, `no_implementation`, `dynamic_address`); a call
+  naming no declaration reads `dynamic address` as its target.
 - **Addresses set at** — where the state variables named in `via` get their
   value.
 
@@ -238,30 +239,36 @@ row.
 contract and a contract answering its calls, with its calls, reads and library
 calls (a call with several candidates counted once under each), how many go
 through an interface the target inherits, the value moved and `AMBIGUOUS`; then
-the unresolved calls per interface, and the calls and reads to and from other
-contracts of each deployed contract. The project map draws the same pairs.
+the unresolved calls per interface (`dynamic address` when the call names no
+declaration). The `in all` lines count each row and value transfer once. Each
+deployed contract shows its calls and reads to and from other contracts, its
+entry points (public and restricted functions) and whether it moves value. The
+project map draws the same pairs and totals.
 
 ```
 ilold[Curve]> links --all
 
-  Project connections  6 pair(s)
+  Project connections  7 pair(s)
+    in all  5 calls, 2 reads, 2 library calls  7 via interface  moves value ×4
     Curve → DenA  1 call  1 via interface  AMBIGUOUS
     Curve → DenB  1 call  1 via interface  AMBIGUOUS
     Curve → Hook  1 call, 1 read  2 via interface  moves value ×1
     Curve → Payout  1 library call
     Curve → Token  2 calls  2 via interface  moves value ×2
+    Hook → PoolMath  1 library call
     Router → Curve  1 call, 1 read  2 via interface  moves value ×1
 
   Unresolved
     Hook → IPoolManager  2 calls
+    in all 2 calls
 
-  Calls and reads per deployed contract
-    Curve  5 → · 2 ←
-    DenA  0 → · 1 ←
-    DenB  0 → · 1 ←
-    Hook  0 → · 2 ←
-    Router  2 → · 0 ←
-    Token  0 → · 2 ←
+  Deployed contracts
+    Curve  calls and reads 5 → · 2 ←  3 entry · 0 restricted  moves value
+    DenA  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    DenB  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    Hook  calls and reads 0 → · 2 ←  2 entry · 0 restricted  moves value
+    Router  calls and reads 2 → · 0 ←  2 entry · 0 restricted  moves value
+    Token  calls and reads 0 → · 2 ←  3 entry · 0 restricted
 ```
 
 ## route

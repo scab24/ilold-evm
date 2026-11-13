@@ -116,10 +116,35 @@ export interface ContractPair {
   rows: ContractCall[];
 }
 
+export interface UnresolvedCalls {
+  from: string;
+  target: string;
+  rows: ContractCall[];
+}
+
+export interface CallCounts {
+  contract: string;
+  outgoing_calls: number;
+  incoming_calls: number;
+  entry_points: number;
+  restricted: number;
+  moves_value: boolean;
+}
+
+export interface ConnectionTotals {
+  calls: number;
+  reads: number;
+  library: number;
+  via_interface: number;
+  transfers: number;
+  unresolved: number;
+}
+
 export interface ProjectConnections {
-  contracts: { contract: string; outgoing_calls: number; incoming_calls: number }[];
+  totals: ConnectionTotals;
+  contracts: CallCounts[];
   pairs: ContractPair[];
-  unresolved: { from: string; target: string; rows: ContractCall[] }[];
+  unresolved: UnresolvedCalls[];
 }
 
 export interface RouteCall {

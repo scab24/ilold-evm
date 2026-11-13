@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use ilold_core::relations::{
-    AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, ProjectConnections, RouteCall, Routes, Tag, ValueFlowPairs,
+    AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, ProjectConnections, RouteCall, Routes, Tag, ValueFlowPairs, UNKNOWN_TARGET,
     ValueReason, ValueTransfer,
 };
 
@@ -26,7 +26,7 @@ fn asset(kind: AssetKind, reason: Option<ValueReason>, token: Option<&str>) -> S
 fn call_row(call: &ContractCall, contract: &str, transfers: &[ValueTransfer]) -> String {
     let callees: Vec<&str> = call.callees.iter().map(|d| d.function.as_str()).collect();
     let target = match callees.as_slice() {
-        [] => call.target.clone().unwrap_or_else(|| "?".into()),
+        [] => call.target.clone().unwrap_or_else(|| UNKNOWN_TARGET.into()),
         [one] => one.to_string(),
         many => format!("{} possible: {}", many.len(), many.join(", ")),
     };
@@ -179,6 +179,18 @@ pub fn project_links(p: &ProjectConnections) -> String {
     writeln!(out, "\n  {}  {}", c_bright("Project connections"), c_muted(&format!("{} pair(s)", p.pairs.len()))).ok();
     if p.pairs.is_empty() {
         writeln!(out, "    {}", c_muted("no deployed contract calls another")).ok();
+    } else {
+        let t = &p.totals;
+        let kinds: Vec<String> =
+            [counted(t.calls, "call", "calls"), counted(t.reads, "read", "reads"), counted(t.library, "library call", "library calls")].into_iter().flatten().collect();
+        let mut row = format!("{}  {}", c_muted("in all"), kinds.join(", "));
+        if t.via_interface > 0 {
+            write!(row, "  {}", c_muted(&format!("{} via interface", t.via_interface))).ok();
+        }
+        if t.transfers > 0 {
+            write!(row, "  {}", c_warn(&format!("moves value ×{}", t.transfers))).ok();
+        }
+        writeln!(out, "    {row}").ok();
     }
     for pair in &p.pairs {
         let kinds: Vec<String> =
@@ -201,10 +213,16 @@ pub fn project_links(p: &ProjectConnections) -> String {
             let calls = counted(u.rows.len(), "call", "calls").unwrap_or_default();
             writeln!(out, "    {} → {}  {calls}", u.from, u.target).ok();
         }
+        writeln!(out, "    {}", c_muted(&format!("in all {}", counted(p.totals.unresolved, "call", "calls").unwrap_or_default()))).ok();
     }
-    writeln!(out, "\n  {}", c_bright("Calls and reads per deployed contract")).ok();
+    writeln!(out, "\n  {}", c_bright("Deployed contracts")).ok();
     for c in &p.contracts {
-        writeln!(out, "    {}  {}", c.contract, c_muted(&format!("{} → · {} ←", c.outgoing_calls, c.incoming_calls))).ok();
+        let mut row = format!("{}  {}", c.contract, c_muted(&format!("calls and reads {} → · {} ←", c.outgoing_calls, c.incoming_calls)));
+        write!(row, "  {}", c_muted(&format!("{} entry · {} restricted", c.entry_points, c.restricted))).ok();
+        if c.moves_value {
+            write!(row, "  {}", c_warn("moves value")).ok();
+        }
+        writeln!(out, "    {row}").ok();
     }
     out.push('\n');
     out

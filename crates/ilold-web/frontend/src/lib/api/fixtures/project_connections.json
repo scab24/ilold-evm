@@ -2,33 +2,51 @@
   "contracts": [
     {
       "contract": "Curve",
+      "entry_points": 3,
       "incoming_calls": 2,
-      "outgoing_calls": 5
+      "moves_value": true,
+      "outgoing_calls": 5,
+      "restricted": 0
     },
     {
       "contract": "DenA",
+      "entry_points": 1,
       "incoming_calls": 1,
-      "outgoing_calls": 0
+      "moves_value": false,
+      "outgoing_calls": 0,
+      "restricted": 0
     },
     {
       "contract": "DenB",
+      "entry_points": 1,
       "incoming_calls": 1,
-      "outgoing_calls": 0
+      "moves_value": false,
+      "outgoing_calls": 0,
+      "restricted": 0
     },
     {
       "contract": "Hook",
+      "entry_points": 2,
       "incoming_calls": 2,
-      "outgoing_calls": 0
+      "moves_value": true,
+      "outgoing_calls": 0,
+      "restricted": 0
     },
     {
       "contract": "Router",
+      "entry_points": 2,
       "incoming_calls": 0,
-      "outgoing_calls": 2
+      "moves_value": true,
+      "outgoing_calls": 2,
+      "restricted": 0
     },
     {
       "contract": "Token",
+      "entry_points": 3,
       "incoming_calls": 2,
-      "outgoing_calls": 0
+      "moves_value": false,
+      "outgoing_calls": 0,
+      "restricted": 0
     }
   ],
   "pairs": [
@@ -294,6 +312,44 @@
     },
     {
       "ambiguous": false,
+      "calls": 0,
+      "from": "Hook",
+      "library": 1,
+      "reads": 0,
+      "rows": [
+        {
+          "callees": [
+            {
+              "basis": "library",
+              "contract": "PoolMath",
+              "function": "PoolMath::half",
+              "tag": "TYPE_RESOLVED"
+            }
+          ],
+          "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Parts.sol",
+          "function": "Hook::fee",
+          "in_context": "Hook",
+          "in_try": false,
+          "kind": "library",
+          "span": {
+            "end_col": 32,
+            "end_line": 40,
+            "file_index": 3,
+            "start_col": 16,
+            "start_line": 40
+          },
+          "target": "PoolMath::half",
+          "transfers": [],
+          "unresolved_reason": null,
+          "via": null
+        }
+      ],
+      "to": "PoolMath",
+      "transfers": 0,
+      "via_interface": 0
+    },
+    {
+      "ambiguous": false,
       "calls": 1,
       "from": "Router",
       "library": 0,
@@ -359,6 +415,14 @@
       "via_interface": 2
     }
   ],
+  "totals": {
+    "calls": 5,
+    "library": 2,
+    "reads": 2,
+    "transfers": 4,
+    "unresolved": 2,
+    "via_interface": 7
+  },
   "unresolved": [
     {
       "from": "Hook",

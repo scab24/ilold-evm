@@ -77,7 +77,39 @@
     }
   ],
   "incoming_calls": 2,
-  "outgoing": [],
+  "outgoing": [
+    {
+      "calls": [
+        {
+          "callees": [
+            {
+              "basis": "library",
+              "contract": "PoolMath",
+              "function": "PoolMath::half",
+              "tag": "TYPE_RESOLVED"
+            }
+          ],
+          "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Parts.sol",
+          "function": "Hook::fee",
+          "in_context": "Hook",
+          "in_try": false,
+          "kind": "library",
+          "span": {
+            "end_col": 32,
+            "end_line": 40,
+            "file_index": 3,
+            "start_col": 16,
+            "start_line": 40
+          },
+          "target": "PoolMath::half",
+          "transfers": [],
+          "unresolved_reason": null,
+          "via": null
+        }
+      ],
+      "contract": "PoolMath"
+    }
+  ],
   "outgoing_calls": 0,
   "transfers": [
     {

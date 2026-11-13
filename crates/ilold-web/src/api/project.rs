@@ -83,7 +83,7 @@ pub async fn get_project(
 
 
 pub async fn get_project_connections(State(state): State<Arc<AppState>>) -> Json<ProjectConnections> {
-    Json(state.relations.project_connections())
+    Json(state.relations.project_connections(&state.classifications))
 }
 
 #[derive(Deserialize)]
