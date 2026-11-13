@@ -6,6 +6,7 @@
   import { BASIS_LABEL, splitRef } from '$lib/utils/links';
   import { assetLabel } from '$lib/utils/value';
   import { shortName } from '$lib/components/project/map-graph';
+  import { functionIndex } from '$lib/utils/function-keys';
 
   let { contract, member, connections, detail, main, titled, onopen, onsource }: {
     contract: string;
@@ -28,7 +29,7 @@
 
   const name = (ref: string) => splitRef(ref).member.split('(')[0];
   const mine = (ref: string) => splitRef(ref).member === member;
-  const summary = $derived(detail ? [...detail.functions, ...(detail.inherited_functions ?? [])].find((f) => f.key === member) ?? null : null);
+  const summary = $derived(detail ? (functionIndex(detail.functions, detail.inherited_functions).get(member) ?? null) : null);
 
   const outgoing = $derived(
     connections.outgoing.flatMap((g) =>

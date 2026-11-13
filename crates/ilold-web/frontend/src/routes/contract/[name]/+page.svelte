@@ -1264,7 +1264,7 @@
   function clearModeNodes() {
     const toRemove = new Set<string>();
     for (const n of getNodes()) {
-      if (n.data._type === 'block' || n.data._type === 'seq-next' || n.data._type === 'box') {
+      if (n.data._type === 'block' || n.data._type === 'seq-next') {
         toRemove.add(n.id);
       }
     }

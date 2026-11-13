@@ -1,18 +1,19 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import type { Edge, Node } from '@xyflow/svelte';
-  import type { Connections, ContractDetail, FunctionSummary } from '$lib/api/rest';
+  import type { Connections, ContractDetail } from '$lib/api/rest';
   import { contractConnections, contractDetail } from '$lib/stores/project-data';
   import { getEdges, getNodes, setEdges, setNodes, type GraphNodeData } from '$lib/stores/graph.svelte';
   import { restricts } from '$lib/utils/access';
+  import { functionIndex } from '$lib/utils/function-keys';
   import Tooltip from '$lib/components/chrome/Tooltip.svelte';
   import type { BoxNodeData } from '$lib/components/project/BoxNode.svelte';
   import { READABLE_FIT } from '$lib/components/project/chips';
   import { LIBRARIES, OUTSIDE } from '$lib/components/project/map-graph';
   import { build, linksOf, rowLabel, type BoardEdge, type BoardNode } from './board-links';
   import { boxHeight } from '$lib/components/project/box-size';
-  import { boardGraph, isBoardEdge, place, type Facts, type Known } from './board-graph';
+  import { boardGraph, isBoardEdge, place, shapeOf, type Facts, type Known } from './board-graph';
   import { closeBox, contractOf, keyParts, openStep, popStep, touch } from './board-state';
   import { applyBoard, currentBoard, currentLines, openMain } from './board-view.svelte';
 
@@ -23,6 +24,7 @@
   const conns = new SvelteMap<string, Connections>();
   const details = new SvelteMap<string, ContractDetail>();
   const failed = new SvelteMap<string, string>();
+  const detailFailed = new SvelteMap<string, string>();
   let layer = $state<HTMLDivElement | null>(null);
   let tip = $state<{ x: number; y: number; wire: BoardEdge; dim: boolean } | null>(null);
 
@@ -30,7 +32,7 @@
     for (const c of board.open) {
       if (failed.has(c)) continue;
       if (!conns.has(c)) contractConnections(c).then((v) => conns.set(c, v), (e) => failed.set(c, e instanceof Error ? e.message : String(e)));
-      if (!details.has(c)) contractDetail(c).then((v) => details.set(c, v), () => {});
+      if (!details.has(c) && !detailFailed.has(c)) contractDetail(c).then((v) => details.set(c, v), (e) => detailFailed.set(c, e instanceof Error ? e.message : String(e)));
     }
   });
 
@@ -39,13 +41,10 @@
     return !!c && !c.outgoing.length && !c.incoming.length && !c.unresolved.length;
   });
   const links = $derived(linksOf(board.open.map((c) => conns.get(c)).filter((c): c is Connections => !!c), libraries));
-  const functionsOf = (c: string): FunctionSummary[] => {
-    const d = details.get(c);
-    return d ? [...d.functions, ...(d.inherited_functions ?? [])] : [];
-  };
-  const keysOf = (c: string) => functionsOf(c).map((f) => f.key);
+  const indexes = $derived(new Map([...details].map(([c, d]) => [c, functionIndex(d.functions, d.inherited_functions)])));
+  const keysOf = (c: string) => [...new Set(indexes.get(c)?.values() ?? [])].map((f) => f.key);
   function factsOf(c: string, m: string): Facts | undefined {
-    const f = functionsOf(c).find((x) => x.key === m);
+    const f = indexes.get(c)?.get(m);
     if (!f) return undefined;
     const restricted = (typeof f.access === 'object' && 'Restricted' in f.access) || f.guards.some(restricts);
     return { entry: f.visibility === 'External' || f.visibility === 'Public', restricted, value: !!f.value_transfers?.length };
@@ -53,12 +52,24 @@
 
   const scene = $derived.by(() => {
     if (!conns.has(main) || (lonely && !board.all)) return null;
-    const B = build(board, links, lines, keysOf);
-    return { B, g: boardGraph(B, board, lines, factsOf, keysOf) };
+    const built = build(board, links, lines, keysOf);
+    const graph = boardGraph(built, board, lines, factsOf, keysOf);
+    for (const n of graph.nodes) {
+      const missing = n.id.startsWith('O:') ? detailFailed.get(n.data.label) : undefined;
+      if (missing) n.data = { ...n.data, lines: [...(n.data.lines ?? []), { text: `Function details did not load: ${missing}`, tone: 'amb' }] };
+    }
+    return { built, graph };
   });
 
   let shown: string[] | null = null;
   let picked: string | null = null;
+  let placedShape: string | null = null;
+  let shownAll = false;
+
+  onDestroy(() => {
+    setNodes(getNodes().filter((n) => n.data._type !== 'box'));
+    setEdges(getEdges().filter((e) => !isBoardEdge(e.id)));
+  });
 
   $effect(() => {
     const s = scene;
@@ -68,8 +79,19 @@
       if (!s) {
         setNodes(others);
         setEdges(otherEdges);
+        placedShape = null;
         return;
       }
+      const shape = shapeOf(s.graph);
+      if (shape === placedShape) {
+        const data = new Map(s.graph.nodes.map((n) => [n.id, n.data]));
+        setNodes(getNodes().map((n) => (data.has(n.id) ? { ...n, data: data.get(n.id)! } : n)));
+        setEdges([...otherEdges, ...s.graph.edges]);
+        if (board.fn && board.fn !== picked) reveal(`O:${contractOf(board.fn)}`);
+        picked = board.fn;
+        return;
+      }
+      placedShape = shape;
       const stored = new Map(getNodes().map((n) => [n.id, n.position]));
       const known = (id: string): Known | null => {
         const n = live(id);
@@ -79,13 +101,14 @@
         const { x, y } = n.position;
         return { x, y, w: n.measured?.width ?? data.width ?? 0, h: n.measured?.height ?? boxHeight(data), pinned: x !== at.x || y !== at.y, at };
       };
-      setNodes([...others, ...(place(s.B, board, s.g, known) as Node<GraphNodeData>[])]);
-      setEdges([...otherEdges, ...s.g.edges]);
+      setNodes([...others, ...(place(s.built, board, s.graph, known) as Node<GraphNodeData>[])]);
+      setEdges([...otherEdges, ...s.graph.edges]);
       const opened = board.open.filter((c) => !shown?.includes(c));
-      if (!shown) frame(s.g.nodes.map((n) => n.id), `O:${main}`, READABLE_FIT.minZoom);
+      if (!shown || board.all !== shownAll) frame(s.graph.nodes.map((n) => n.id), `O:${main}`, READABLE_FIT.minZoom, shown ? 300 : 0);
       else if (opened.length) frame(opened.flatMap((c) => [`O:${c}`, ...(board.parent[c] ? [`O:${board.parent[c]}`] : [])]), `O:${opened.at(-1)}`, READABLE_FIT.minZoom, 300);
       else if (board.fn && board.fn !== picked) reveal(`O:${contractOf(board.fn)}`);
       shown = board.open;
+      shownAll = board.all;
       picked = board.fn;
     });
   });
@@ -102,7 +125,7 @@
   }
 
   export function tap(node: Node, event: MouseEvent) {
-    const n = scene?.B.nodes.find((x) => x.id === node.id);
+    const n = scene?.built.nodes.find((x) => x.id === node.id);
     if (!n) return;
     const t = event.target instanceof Element ? event.target : null;
     const row = t?.closest('[data-row]')?.getAttribute('data-row') ?? null;
@@ -119,7 +142,7 @@
   }
 
   export function hover(edge: Edge | null, event?: MouseEvent) {
-    const wire = edge ? scene?.g.wires.get(edge.id) : undefined;
+    const wire = edge ? scene?.graph.wires.get(edge.id) : undefined;
     tip = wire && event ? { x: event.clientX, y: event.clientY, wire, dim: edge!.id.startsWith('cd:') } : null;
   }
 
@@ -130,7 +153,7 @@
       const next = popStep(board);
       event.preventDefault();
       if (next) applyBoard(next);
-    } else if (event.key === 'Escape') clear();
+    } else if (event.key === 'Escape' && !event.defaultPrevented) clear();
   }
 
   function tipLines(w: BoardEdge): string[] {
