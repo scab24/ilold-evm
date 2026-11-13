@@ -30,7 +30,6 @@
     edgeTypes?: EdgeTypes;
     keepPositions?: boolean;
     followStore?: boolean;
-    /** Fit once, after the pane has a size and every visible node is measured. */
     initialFit?: FitViewOptions;
     minZoom?: number;
     tools?: boolean;
@@ -78,7 +77,6 @@
   let paneWidth = $state(0);
   let paneHeight = $state(0);
   let initialFitDone = false;
-  let pendingFit = $state<FitViewOptions | null>(null);
 
   // a fit before layout clamps to minZoom, so wait for real pane dimensions and measured nodes
   function measured(options: FitViewOptions): boolean {
@@ -99,35 +97,50 @@
     fitLater(initialFit);
   });
 
+  let view: Pick<ReturnType<typeof useSvelteFlow>, 'getViewport' | 'setViewport'> | null = null;
+
+  interface Aim {
+    ids: string[];
+    fallback: string | null;
+    zoom: number | null;
+    duration: number;
+  }
+  let aim = $state<Aim | null>(null);
+  const margin = $derived({ top: tools ? 64 : 28, right: 28, bottom: 28, left: 56 });
+
   $effect(() => {
-    if (!pendingFit || !measured(pendingFit)) return;
-    fitLater(pendingFit);
-    pendingFit = null;
-  });
-
-  let view: Pick<ReturnType<typeof useSvelteFlow>, 'getViewport' | 'setCenter'> | null = null;
-
-  let pendingReveal = $state<string | null>(null);
-
-  $effect(() => {
-    const n = flowNodes.find((x) => x.id === pendingReveal);
-    if (!n || !view || !n.measured?.width || !n.measured?.height) return;
-    pendingReveal = null;
-    const { x, y, zoom } = view.getViewport();
-    const w = n.measured.width;
-    const h = Math.min(n.measured.height, paneHeight / zoom - 40);
-    const left = n.position.x * zoom + x;
-    const top = n.position.y * zoom + y;
-    if (left >= 0 && top >= 0 && left + w * zoom <= paneWidth && top + h * zoom <= paneHeight) return;
-    view.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom, duration: 300 });
+    const a = aim;
+    if (!a || !view || !paneWidth || !paneHeight) return;
+    const cards = flowNodes.filter((n) => a.ids.includes(n.id) && !n.hidden);
+    if (!cards.length || !cards.every((n) => n.measured?.width && n.measured?.height)) return;
+    aim = null;
+    const now = view.getViewport();
+    const zoom = a.zoom ?? now.zoom;
+    const bounds = (list: Node[]) => {
+      const x = Math.min(...list.map((n) => n.position.x));
+      const y = Math.min(...list.map((n) => n.position.y));
+      return { x, y, w: Math.max(...list.map((n) => n.position.x + n.measured!.width!)) - x, h: Math.max(...list.map((n) => n.position.y + n.measured!.height!)) - y };
+    };
+    let r = bounds(cards);
+    const fallback = cards.find((n) => n.id === a.fallback);
+    if (fallback && (r.w * zoom > paneWidth - margin.left - margin.right || r.h * zoom > paneHeight - margin.top - margin.bottom)) r = bounds([fallback]);
+    const along = (start: number, size: number, at: number, low: number, high: number) => {
+      const startAtLow = low - start * zoom;
+      const endAtHigh = high - (start + size) * zoom;
+      if (endAtHigh < startAtLow) return startAtLow;
+      return a.zoom === null ? Math.min(Math.max(at, startAtLow), endAtHigh) : (startAtLow + endAtHigh) / 2;
+    };
+    const x = along(r.x, r.w, now.x, margin.left, paneWidth - margin.right);
+    const y = along(r.y, r.h, now.y, margin.top, paneHeight - margin.bottom);
+    if (x !== now.x || y !== now.y || zoom !== now.zoom) view.setViewport({ x, y, zoom }, { duration: a.duration });
   });
 
   export function reveal(id: string) {
-    pendingReveal = id;
+    aim = { ids: [id], fallback: null, zoom: null, duration: 300 };
   }
 
-  export function fitWhenReady(options: FitViewOptions) {
-    pendingFit = options;
+  export function frame(ids: string[], fallback: string, zoom: number, duration = 0) {
+    aim = { ids, fallback, zoom, duration };
   }
 
   export function getLiveNode(id: string): Node | undefined {
@@ -186,9 +199,9 @@
       onedgepointerenter={({ edge, event }) => onedgemouseenter?.(edge, event as MouseEvent)}
       onedgepointerleave={({ edge }) => onedgemouseleave?.(edge)}
       oninit={() => {
-        const { fitView, getViewport, setCenter } = useSvelteFlow();
+        const { fitView, getViewport, setViewport } = useSvelteFlow();
         flowFitView = fitView;
-        view = { getViewport, setCenter };
+        view = { getViewport, setViewport };
         onready?.({ fitView });
       }}
       {minZoom}

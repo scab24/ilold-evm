@@ -6,7 +6,7 @@ export interface Port { id: string; side: Side; type: 'source' | 'target'; order
 export type Anchor = Point & { side: Side };
 
 export const FIT_PADDING = { top: '28px', right: '28px', bottom: '28px', left: '28px' } as const;
-export const READABLE_FIT = { padding: FIT_PADDING, minZoom: 0.85, maxZoom: 1.2 };
+export const READABLE_FIT = { padding: FIT_PADDING, minZoom: 1, maxZoom: 1.2 };
 
 const CURVATURE = 0.25;
 const CHIP_H = 20;

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
-  import type { Edge, FitViewOptions, Node } from '@xyflow/svelte';
+  import type { Edge, Node } from '@xyflow/svelte';
   import type { Connections, ContractDetail, FunctionSummary } from '$lib/api/rest';
   import { contractConnections, contractDetail } from '$lib/stores/project-data';
   import { getEdges, getNodes, setEdges, setNodes, type GraphNodeData } from '$lib/stores/graph.svelte';
@@ -16,7 +16,7 @@
   import { closeBox, contractOf, keyParts, openStep, popStep, touch } from './board-state';
   import { applyBoard, currentBoard, currentLines, openMain } from './board-view.svelte';
 
-  let { main, libraries, live, fit, reveal }: { main: string; libraries: Set<string>; live: (id: string) => Node | undefined; fit: (options: FitViewOptions) => void; reveal: (id: string) => void } = $props();
+  let { main, libraries, live, frame, reveal }: { main: string; libraries: Set<string>; live: (id: string) => Node | undefined; frame: (ids: string[], fallback: string, zoom: number, duration?: number) => void; reveal: (id: string) => void } = $props();
 
   const board = $derived(currentBoard(main));
   const lines = $derived(currentLines());
@@ -57,7 +57,6 @@
     return { B, g: boardGraph(B, board, lines, factsOf, keysOf) };
   });
 
-  const VIEW = { ...READABLE_FIT, maxZoom: 1 };
   let shown: string[] | null = null;
   let picked: string | null = null;
 
@@ -83,8 +82,8 @@
       setNodes([...others, ...(place(s.B, board, s.g, known) as Node<GraphNodeData>[])]);
       setEdges([...otherEdges, ...s.g.edges]);
       const opened = board.open.filter((c) => !shown?.includes(c));
-      if (!shown) fit(VIEW);
-      else if (opened.length) fit({ ...VIEW, duration: 300, nodes: opened.flatMap((c) => [{ id: `O:${c}` }, ...(board.parent[c] ? [{ id: `O:${board.parent[c]}` }] : [])]) });
+      if (!shown) frame(s.g.nodes.map((n) => n.id), `O:${main}`, READABLE_FIT.minZoom);
+      else if (opened.length) frame(opened.flatMap((c) => [`O:${c}`, ...(board.parent[c] ? [`O:${board.parent[c]}`] : [])]), `O:${opened.at(-1)}`, READABLE_FIT.minZoom, 300);
       else if (board.fn && board.fn !== picked) reveal(`O:${contractOf(board.fn)}`);
       shown = board.open;
       picked = board.fn;

@@ -1430,7 +1430,7 @@
 
       <div class="wb-canvas">
       {#if mode === 'connections' && contract}
-        <ConnectionsBoard bind:this={board} main={contract.name} {libraries} live={(id) => graphCanvas?.getLiveNode(id)} fit={(options) => graphCanvas?.fitWhenReady(options)} reveal={(id) => graphCanvas?.reveal(id)} />
+        <ConnectionsBoard bind:this={board} main={contract.name} {libraries} live={(id) => graphCanvas?.getLiveNode(id)} frame={(ids, fallback, zoom, duration) => graphCanvas?.frame(ids, fallback, zoom, duration)} reveal={(id) => graphCanvas?.reveal(id)} />
       {/if}
       <div class="wb-flow">
       <GraphCanvasFlow
