@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onDestroy, tick, untrack } from 'svelte';
-  import { getContract, getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, type Connections, type ContractDetail, type ContractSummary, type CytoscapeGraph, type SequenceAnalysis } from '$lib/api/rest';
-  import { contractConnections, projectSummary } from '$lib/stores/project-data';
+  import { getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, type Connections, type ContractDetail, type ContractSummary, type CytoscapeGraph, type SequenceAnalysis } from '$lib/api/rest';
+  import { contractConnections, contractDetail, projectSummary } from '$lib/stores/project-data';
   import { goto } from '$app/navigation';
   import { toggleTerminal } from '$lib/stores/terminal.svelte';
   import { openInIde } from '$lib/utils/ide-links';
@@ -550,7 +550,7 @@
     sourcePanel = null;
     setSearchContext(contractName);
     try {
-      const detail = await getContract(contractName);
+      const detail = await contractDetail(contractName);
       const callgraphData = await getCallGraph(contractName);
       if (!current()) return;
       callgraphRaw = callgraphData;

@@ -13,11 +13,11 @@
   }));
 
   const LABEL: Record<ConnectionState, string> = { connected: 'Connected', connecting: 'Connecting…', disconnected: 'Offline' };
-  const HINTS: Record<Mode, [string, string][]> = {
-    cfg: [['H', 'Pan'], ['V', 'Select'], ['Delete', 'Remove'], ['⌘K', 'Search']],
-    sequences: [['H', 'Pan'], ['V', 'Select'], ['Delete', 'Remove'], ['⌘K', 'Search']],
-    session: [['H', 'Pan'], ['V', 'Select'], ['⌘K', 'Search']],
-    connections: [['Backspace', 'Undo last step'], ['Esc', 'Clear selection'], ['⌘K', 'Search']],
+  const HINTS: Record<Mode, [string[], string][]> = {
+    cfg: [[['H', 'Esc'], 'Pan'], [['V'], 'Select'], [['Delete'], 'Remove'], [['⌘K'], 'Search']],
+    sequences: [[['H', 'Esc'], 'Pan'], [['V'], 'Select'], [['Delete'], 'Remove'], [['⌘K'], 'Search']],
+    session: [[['H', 'Esc'], 'Pan'], [['V'], 'Select'], [['⌘K'], 'Search']],
+    connections: [[['Backspace'], 'Undo last step'], [['Esc'], 'Clear selection'], [['⌘K'], 'Search']],
   };
 </script>
 
@@ -28,7 +28,7 @@
     <span class="sel">{selectionCount} selected</span>
   {/if}
   <span class="hints" aria-label="Keyboard shortcuts">
-    {#each HINTS[mode] as [k, text] (k)}<kbd>{k}</kbd>{text}{/each}
+    {#each HINTS[mode] as [keys, text] (text)}{#each keys as k, i (k)}<kbd class:or={i > 0}>{k}</kbd>{/each}{text}{/each}
   </span>
 </footer>
 
@@ -41,4 +41,5 @@
   .sel { color: var(--color-accent-hover); }
   .hints { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; }
   kbd { font: 12px var(--font-mono); color: var(--color-text); border: 1px solid var(--color-border-subtle); border-radius: 4px; padding: 0 4px; margin-left: 8px; }
+  kbd.or { margin-left: 0; }
 </style>

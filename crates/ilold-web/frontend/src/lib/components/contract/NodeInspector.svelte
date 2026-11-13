@@ -434,34 +434,6 @@
 {/if}
 
 <style>
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 48px 16px;
-    text-align: center;
-  }
-  .empty-icon {
-    font-size: 28px;
-    color: var(--color-text-dim);
-    opacity: 0.6;
-  }
-  .empty-title {
-    font-family: var(--font-mono, monospace);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--color-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .empty-hint {
-    font-size: 11px;
-    color: var(--color-text-dim);
-    max-width: 220px;
-    line-height: 1.5;
-  }
-
   .inspector {
     padding: 8px 10px;
   }

@@ -22,7 +22,11 @@ export function applyLines(next: Record<Line, LineState>): void {
   setQuery({ lines: linesParam(next) });
 }
 
+const KEPT = ['lines', 'dir', 'all'];
+
 export function openMain(contract: string, fn: string | null = null): void {
-  const query = fn ? `?fn=${encodeURIComponent(fn)}` : '';
-  goto(`/contract/${encodeURIComponent(contract)}${query}`);
+  const query = new URLSearchParams([...page.url.searchParams].filter(([k]) => KEPT.includes(k)));
+  if (fn) query.set('fn', fn);
+  const text = query.toString();
+  goto(`/contract/${encodeURIComponent(contract)}${text ? `?${text}` : ''}`);
 }

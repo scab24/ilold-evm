@@ -171,14 +171,17 @@ function (the [`links`](../commands/contract.md#links) rows):
 - the trail above the board lists the opened steps (each one selectable; a
   long trail keeps the first and last step and folds the middle into `+N`).
   **Backspace** removes the last step, **×** closes a box (and the boxes
-  opened further out on its side), **Reset** returns to the start. Only the
+  opened from it), **Reset** returns to the start. Only the
   two boxes used last stay open; older ones fold into strips at the left edge
   (click a strip to open it again). When the board is wider than the canvas,
   the `← N` / `N →` buttons scroll to the boxes out of view.
 - **Callers / Both / Callees** keep one side, the **Lines** legend shows,
   dims or hides each kind of line as on the Map (Unresolved is never hidden).
 - double-click a box (or press Enter on its title) to make it the main
-  contract of the board. Delete removes nothing in this mode.
+  contract of the board; the line filters, the direction and **All
+  functions** stay as they were. Delete removes nothing in this mode.
+- a contract that calls no other contract and that no other contract calls
+  says so on the board, with **Show all its functions** to list them anyway.
 - the whole board (open boxes, trail, selection, direction, filters) lives in
   the URL, so a reload or a link reopens it; it is not saved in scenarios.
 
@@ -187,7 +190,8 @@ on the board). At its foot, **Connections · N → · M ←** counts the other
 deployed contracts this contract calls or reads and the ones that call or
 read it (libraries and the contract itself not counted; its tooltip adds the
 calls and reads behind them); clicking it switches to
-Connections with the contract summary in the Inspector. The Inspector lists
+Connections with the contract summary in the Inspector. Connections always
+opens the right panel on the Inspector. The Inspector lists
 the selected function's calls, callers, reads, readers, library calls, value
 moves and unresolved calls, one row each with a link to the source line (and
 the assignment of the address it calls through), and **Open X** for a
@@ -197,10 +201,11 @@ a function to select it on the board, or to add it to the canvas in CFG and
 Seq) and the contract's **Value flows**.
 
 The legend bar at the bottom of the workbench is the same as on the project
-page: in Connections it filters the lines, in the other modes it explains the
-node colours. The status bar shows the server connection, how many nodes are
-selected and the keys of the current mode (H pan, V select, Delete remove in
-CFG and Seq; Backspace undo and Esc clear in Connections). The embedded
+page: in Connections it filters the lines, in CFG and Seq it explains the
+node colours and in Session the scenario lines (active scenario, fork, other
+scenarios). The status bar shows the server connection, how many nodes are
+selected and the keys of the current mode (H or Esc pan, V select, Delete remove
+in CFG and Seq; Backspace undo and Esc clear in Connections). The embedded
 terminal starts closed: **Terminal** opens it above the legend, its red
 button closes it. Below 1200px wide the function list starts folded; its
 arrow opens it. Panels, section titles, chips and buttons use

@@ -145,7 +145,7 @@ export function build(b: Board, links: Link[], lines: Record<Line, LineState>, f
     const ar = A.type === 'strip' ? '' : l.fromKey;
     const br = Z.type === 'strip' ? '' : l.toKey;
     if (ar) addRow(A, ar);
-    if (br) addRow(Z, br, { amb: target === OUTSIDE });
+    if (br) addRow(Z, br, { amb: target === OUTSIDE || l.ambiguous });
     push(edges, `${A.id}|${ar}>${Z.id}|${br}`, { a: A.id, ar, b: Z.id, br, links: [l] });
   }
   if (b.fn && open.has(keyParts(b.fn).contract)) addRow(nodes.get(`O:${keyParts(b.fn).contract}`)!, b.fn);

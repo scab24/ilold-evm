@@ -2,7 +2,6 @@
   import { SvelteMap } from 'svelte/reactivity';
   import type { Connections, ContractDetail, FunctionSummary } from '$lib/api/rest';
   import { contractConnections, contractDetail } from '$lib/stores/project-data';
-  import { notifyError } from '$lib/components/ui/notifications.svelte';
   import { restricts } from '$lib/utils/access';
   import Tooltip from '$lib/components/chrome/Tooltip.svelte';
   import { edgeStyle, lookOf, LIBRARIES, OUTSIDE } from '$lib/components/project/map-graph';
@@ -18,17 +17,23 @@
   const lines = $derived(currentLines());
   const conns = new SvelteMap<string, Connections>();
   const details = new SvelteMap<string, ContractDetail>();
+  const failed = new SvelteMap<string, string>();
   let scroller = $state<HTMLDivElement | null>(null);
   let width = $state(0);
   let tip = $state<{ x: number; y: number; wire: Wire } | null>(null);
 
   $effect(() => {
     for (const c of board.open) {
-      if (!conns.has(c)) contractConnections(c).then((v) => conns.set(c, v), (e) => notifyError(`load connections of ${c}`, e));
+      if (failed.has(c)) continue;
+      if (!conns.has(c)) contractConnections(c).then((v) => conns.set(c, v), (e) => failed.set(c, e instanceof Error ? e.message : String(e)));
       if (!details.has(c)) contractDetail(c).then((v) => details.set(c, v), () => {});
     }
   });
 
+  const lonely = $derived.by(() => {
+    const c = conns.get(main);
+    return !!c && !c.outgoing.length && !c.incoming.length && !c.unresolved.length;
+  });
   const links = $derived(linksOf(board.open.map((c) => conns.get(c)).filter((c): c is Connections => !!c), libraries));
   const fnInfo = (c: string, m: string): FunctionSummary | undefined => {
     const d = details.get(c);
@@ -196,8 +201,21 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="board" bind:this={scroller} bind:clientWidth={width} onscroll={countHidden}>
-  {#if !scene}
-    <div class="state-msg">Loading connections…</div>
+  {#if failed.has(main) && !conns.has(main)}
+    <div class="empty-state" role="alert">
+      <div class="empty-title">Could not load the connections of {main}</div>
+      <div class="empty-hint err">{failed.get(main)}</div>
+      <button type="button" class="chip" onclick={() => failed.delete(main)}>Retry</button>
+    </div>
+  {:else if !scene}
+    <div class="empty-state"><div class="empty-hint">Loading connections…</div></div>
+  {:else if lonely && !board.all}
+    <div class="empty-state">
+      <div class="empty-icon" aria-hidden="true">◇</div>
+      <div class="empty-title">No connections</div>
+      <div class="empty-hint">{main} calls no other contract and no other contract calls it.</div>
+      <button type="button" class="chip" onclick={() => applyBoard({ ...board, all: true })}>Show all its functions</button>
+    </div>
   {:else}
     {@const G = scene.G}
     <svg width={Math.max(G.W, width)} height={Math.max(G.H, 200)} role="application" aria-label="Connections board">

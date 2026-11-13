@@ -63,6 +63,9 @@
 
   let open = $state(true);
   let activeTab: Tab = $state('timeline');
+  $effect(() => {
+    if (mode === 'connections') untrack(() => (activeTab = 'inspector'));
+  });
 
   let prevSelectedId = $state<string | null>(null);
   $effect(() => {

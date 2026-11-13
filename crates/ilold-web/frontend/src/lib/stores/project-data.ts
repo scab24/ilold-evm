@@ -16,14 +16,21 @@ export const projectConnections: () => Promise<ProjectConnections> = once(getPro
 export const projectDepgraph: () => Promise<ProjectDepGraph> = once(getProjectDepgraph);
 export const valueFlow: () => Promise<ValueFlowPairs> = once(getValueFlow);
 
-function perName<T>(load: (name: string) => Promise<T>): (name: string) => Promise<T> {
-  const loaders = new Map<string, () => Promise<T>>();
-  return (name) => {
-    let loader = loaders.get(name);
-    if (!loader) loaders.set(name, (loader = once(() => load(name))));
-    return loader();
-  };
+interface PerName<T> {
+  (name: string): Promise<T>;
+  peek(name: string): T | undefined;
 }
 
-export const contractConnections: (name: string) => Promise<Connections> = perName(getConnections);
-export const contractDetail: (name: string) => Promise<ContractDetail> = perName(getContract);
+function perName<T>(load: (name: string) => Promise<T>): PerName<T> {
+  const loaders = new Map<string, () => Promise<T>>();
+  const loaded = new Map<string, T>();
+  const get = (name: string) => {
+    let loader = loaders.get(name);
+    if (!loader) loaders.set(name, (loader = once(() => load(name).then((v) => (loaded.set(name, v), v)))));
+    return loader();
+  };
+  return Object.assign(get, { peek: (name: string) => loaded.get(name) });
+}
+
+export const contractConnections: PerName<Connections> = perName(getConnections);
+export const contractDetail: PerName<ContractDetail> = perName(getContract);
