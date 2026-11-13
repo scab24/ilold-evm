@@ -2274,7 +2274,7 @@ const HELP_GROUPS: &[(&str, &[HelpEntry])] = &[
         ("ct",     "contracts [all]",  "List project contracts (`all`: with dependencies)"),
         ("",       "deps [contract]",  "What this contract depends on"),
         ("",       "usedby [contract]","What depends on it (blast radius)"),
-        ("",       "links [contract]", "Calls to and from other contracts, function to function"),
+        ("",       "links [contract | --all]", "Calls to and from other contracts, function to function"),
         ("",       "route <from> <to> [--reads]", "Shortest chains of calls between two contracts"),
         ("",       "value [contract]", "Who pays whom"),
         ("",       "use <contract>",   "Switch active contract (its steps are kept)"),
@@ -2454,7 +2454,12 @@ impl IloldCompleter {
                 ("w" | "who" | "tl" | "timeline", []) => owned(&self.state_vars),
                 ("sl" | "slice", []) => owned(&self.functions),
                 ("sl" | "slice", [_]) => owned(&self.state_vars),
-                ("use" | "deps" | "dep" | "usedby" | "rdeps" | "links" | "value" | "route", []) => owned(&self.contracts),
+                ("links", []) => {
+                    let mut v = owned(&self.contracts);
+                    v.push("--all".into());
+                    v
+                }
+                ("use" | "deps" | "dep" | "usedby" | "rdeps" | "value" | "route", []) => owned(&self.contracts),
                 ("route", [_]) => owned(&self.contracts),
                 ("route", [_, _]) => fixed(&["--reads"]),
                 ("sc" | "scen" | "scenario", []) => fixed(SCENARIO_SUBCOMMANDS),
@@ -2867,6 +2872,11 @@ mod tests {
         }
         assert!(inline_help("q").is_some());
         assert!(inline_help("nope").is_none());
+        let usages: Vec<&str> = HELP_GROUPS.iter().flat_map(|(_, cmds)| cmds.iter()).map(|(_, usage, _)| *usage).collect();
+        for word in ["links", "route", "value"] {
+            let (inline, _) = inline_help(word).unwrap();
+            assert!(usages.contains(&inline), "the short help of {word} reads {inline}");
+        }
         let (usage, _) = inline_help("sc").unwrap();
         assert!(usage.contains("new <name>") && usage.contains("fork <name> [at N]") && usage.contains("delete <name>"), "{usage}");
     }
@@ -2897,6 +2907,7 @@ mod tests {
         assert_eq!(values("sl withdraw bal"), vec!["balances".to_string()]);
         assert_eq!(values("use L"), vec!["LendingPool".to_string()]);
         assert_eq!(values("links V"), vec!["Vault".to_string()]);
+        assert_eq!(values("links --"), vec!["--all".to_string()]);
         assert_eq!(values("value L"), vec!["LendingPool".to_string()]);
         assert_eq!(values("route Vault L"), vec!["LendingPool".to_string()]);
         assert_eq!(values("route Vault LendingPool --"), vec!["--reads".to_string()]);
