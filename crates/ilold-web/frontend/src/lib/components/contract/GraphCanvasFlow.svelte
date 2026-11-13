@@ -52,7 +52,7 @@
 
   let stored = new Map<string, { x: number; y: number }>();
 
-  // a drag only moves the live node, so a stored position that changed was set by the page
+  // only the page changes stored positions
   $effect(() => {
     const storeNodes = getNodes();
     const liveByID = new Map(untrack(() => flowNodes).map(n => [n.id, n]));

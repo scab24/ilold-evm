@@ -21,7 +21,6 @@ export function assetName(fact: { asset_kind: AssetKind; reason?: ValueReason | 
   return fact.reason === 'currency' ? POOL_ASSET : ASSET_NAME[fact.asset_kind];
 }
 
-/** `ERC-20 token`, or the candidates of an undecided asset. */
 export function assetLabel(fact: { asset_kind: AssetKind; asset_candidates: AssetKind[]; token_expr: string | null; reason?: ValueReason | null }): string {
   const kind = fact.asset_kind === 'unknown' && fact.asset_candidates.length ? fact.asset_candidates.map((k) => ASSET_NAME[k]).join(' or ') : assetName(fact);
   return fact.token_expr ? `${kind} ${fact.token_expr}` : kind;

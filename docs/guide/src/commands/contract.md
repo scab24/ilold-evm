@@ -331,9 +331,10 @@ ilold[Curve]> value
 
 `links`, `route` and `value` read the same facts as the web API
 ([`/api/contract/{name}/connections`](../reference/api-endpoints.md#get-apicontractnameconnections),
+[`/api/project/connections`](../reference/api-endpoints.md#get-apiprojectconnections),
 [`/api/project/route`](../reference/api-endpoints.md#get-apiprojectroute),
 [`/api/project/value-flow`](../reference/api-endpoints.md#get-apiprojectvalue-flow))
-as the MCP tools `ilold_connections`, `ilold_route` and `ilold_value_flow`.
+and the MCP tools `ilold_connections`, `ilold_route` and `ilold_value_flow`.
 
 ## use
 
