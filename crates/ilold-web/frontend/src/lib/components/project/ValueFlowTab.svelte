@@ -269,6 +269,7 @@
       <div class="state-msg">No value moves between parties in this project.</div>
     {:else}
       <GraphCanvasFlow
+        tools={false}
         extraNodeTypes={{ box: BoxNode, caption: CaptionNode } as any}
         edgeTypes={{ chip: ChipEdge } as any}
         onnodetap={pickParty}

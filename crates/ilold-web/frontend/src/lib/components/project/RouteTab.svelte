@@ -241,6 +241,7 @@
     {:else}
       {#key `${from}>${to}>${reads}`}
         <GraphCanvasFlow
+          tools={false}
           extraNodeTypes={{ box: BoxNode } as any}
           edgeTypes={{ chip: ChipEdge } as any}
           onnodetap={(n) => {

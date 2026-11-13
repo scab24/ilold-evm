@@ -411,6 +411,7 @@
       <div class="state-msg">No contracts found in this project.</div>
     {:else}
       <GraphCanvasFlow
+        tools={false}
         extraNodeTypes={{ box: BoxNode, region: RegionNode } as any}
         edgeTypes={{ chip: ChipEdge } as any}
         onnodetap={tap}
