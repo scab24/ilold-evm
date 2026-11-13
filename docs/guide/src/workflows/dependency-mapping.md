@@ -138,7 +138,9 @@ layers stays in `analyze --deps`.
   calls. Each hop is drawn function to function; a hop inside a contract that
   the call graph does not record is marked "steps inside not recorded". When
   several routes exist, the boxes list the functions of the chosen route and
-  fold the others into one "more on other routes" row. Hover a hop for its
+  fold the others into one "more on other routes" row. The first view shows the whole
+  route when it is readable at that size, otherwise its first hop (or the
+  start box) at a readable zoom; drag the canvas to follow the rest. Hover a hop for its
   calls; click a box to select it (a box of another route switches to that
   route), click it again or press Enter to open the contract.
 

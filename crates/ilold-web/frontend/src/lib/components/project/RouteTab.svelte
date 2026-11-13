@@ -18,7 +18,8 @@
   import Row from '$lib/components/chrome/Row.svelte';
   import Seg from '$lib/components/chrome/Seg.svelte';
   import LegendBar from '$lib/components/chrome/LegendBar.svelte';
-  import { FIT_PADDING, NEAR_SOURCE, placeChips } from './chips';
+  import { NEAR_SOURCE, READABLE_FIT, placeChips } from './chips';
+  import type { FitViewOptions } from '@xyflow/svelte';
   import { transferKey } from './value-graph';
   import { assetName } from '$lib/utils/value';
 
@@ -41,6 +42,7 @@
   let routes = $state<Routes | null>(null);
   let error = $state<string | null>(null);
   let moved = $state<Map<string, ValueTransfer> | null>(null);
+  let firstFit = $state<FitViewOptions>(READABLE_FIT);
   let canvasEl = $state<HTMLElement | null>(null);
   let tip = $state<{ x: number; y: number; text: string; title: string } | null>(null);
   const hops = new Map<string, { title: string; text: string }>();
@@ -203,6 +205,16 @@
       NEAR_SOURCE,
     );
 
+    const fits = (list: Node<GraphNodeData>[]) => {
+      if (!canvasEl || !list.length) return false;
+      const w = Math.max(...list.map((n) => n.position.x)) - Math.min(...list.map((n) => n.position.x)) + WIDTH;
+      const h = Math.max(...list.map((n) => n.position.y + height(n.id))) - Math.min(...list.map((n) => n.position.y));
+      return Math.min((canvasEl.clientWidth - 56) / w, (canvasEl.clientHeight - 56) / h) >= READABLE_FIT.minZoom;
+    };
+    const firstHop = nodes.filter((n) => n.position.x <= WIDTH + GAP_X && !(n.data as BoxNodeData).dim);
+    firstFit = fits(nodes) ? READABLE_FIT
+      : fits(firstHop) ? { ...READABLE_FIT, nodes: firstHop.map((n) => ({ id: n.id })) }
+      : { ...READABLE_FIT, maxZoom: READABLE_FIT.minZoom, nodes: [{ id: (firstHop[0] ?? nodes[0]).id }] };
     setNodes(nodes);
     setEdges([...edges.entries()].map(([id, e]) => {
       const color = e.value ? VALUE : ROUTE;
@@ -296,7 +308,7 @@
           onedgemouseleave={() => (tip = null)}
           canDeleteNodes={false}
           keepPositions={false}
-          initialFit={{ padding: FIT_PADDING, maxZoom: 1.1 }}
+          initialFit={firstFit}
           minZoom={0.2}
         />
       {/key}
