@@ -87,9 +87,14 @@ contracts, **Fold** to fold it again):
 - **click** a contract to focus on it: Callers / Both / Callees and Depth 1 or 2
   choose the neighbourhood, the panel lists its calls, callers and unresolved
   calls with links to the source. Click it again, or press Enter, to open its
-  functions; Escape clears the focus. Find a contract selects it by name.
-- with nothing selected the panel sums the links of the project and lists the
-  five most connected contracts.
+  functions (Enter on a focused button or link presses that control instead);
+  Escape clears the focus. Find a contract selects the best match of its name,
+  deployable contracts first among equal matches, and zooms to it; it says so
+  when nothing matches. Each deployable contract box shows its entry points,
+  restricted functions and whether it moves value.
+- with nothing selected the panel shows the project totals, each call counted
+  once (the `in all` lines of `links --all`), and the five most connected
+  contracts.
 
 The header tabs switch the project page between **Map**, **Value flow** and
 **Route**; the tab and everything picked in it live in the URL, so a link
@@ -100,11 +105,14 @@ reopens the same view. The reading order by layers stays in
   contracts, and what leaves the project. One arrow per pair and direction
   names its assets; Uniswap v4 `Currency` moves read "ETH or token, set by the
   pool" on amber dashed lanes. The asset buttons filter the arrows, a click on
-  an arrow or a box lists its transfers (with their ids) in the side panel.
+  an arrow or a box lists its transfers (with their ids) in the side panel and
+  zooms to the parties it touches.
 - **Route** shows how one deployed contract reaches another (the `route`
   command): pick From and To, Swap, and Include reads to also follow read
   calls. Each hop is drawn function to function; a hop inside a contract that
-  the call graph does not record is marked "steps inside not recorded".
+  the call graph does not record is marked "steps inside not recorded". When
+  several routes exist, the boxes list the functions of the chosen route and
+  fold the others into one "more on other routes" row.
 
 ## Practical workflow
 
