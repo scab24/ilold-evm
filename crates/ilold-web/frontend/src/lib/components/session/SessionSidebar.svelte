@@ -138,7 +138,7 @@
   {/if}
 
   <button
-    class="absolute left-1 top-2 border cursor-pointer px-[3px] py-1 text-[10px] z-5 text-text-muted transition-colors duration-150 hover:text-accent-hover"
+    class="absolute left-1 top-2 border cursor-pointer px-[3px] py-1 text-[12px] z-5 text-text-muted transition-colors duration-150 hover:text-accent-hover"
     style="
       border-radius: 6px;
       border-color: color-mix(in srgb, var(--color-border) 40%, transparent);

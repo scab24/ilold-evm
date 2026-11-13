@@ -16,10 +16,12 @@
   const steps = $derived([...(board.start ? [board.start] : []), ...board.trail.map((t) => t.to ?? `#${t.opened}`)]);
   const shown = $derived(steps.length > 2 ? [steps[0], steps.slice(1, -1), steps.at(-1)!] : steps);
 
+  function owner(step: string): string {
+    const c = step.startsWith('#') ? '' : contractOf(step);
+    return c === main ? '' : `${c}.`;
+  }
   function label(step: string): string {
-    if (step.startsWith('#')) return step.slice(1);
-    const c = contractOf(step);
-    return c === main ? rowLabel(step, c) : `${c}.${rowLabel(step, c)}`;
+    return step.startsWith('#') ? step.slice(1) : `${owner(step)}${rowLabel(step, contractOf(step))}`;
   }
   function pick(step: string) {
     const c = step.startsWith('#') ? step.slice(1) : contractOf(step);
@@ -37,7 +39,7 @@
       {#if Array.isArray(step)}
         <button type="button" class="chip" title={step.map(label).join(' → ')} aria-label="{step.length} more steps" onclick={() => pick(step.at(-1)!)}>+{step.length}</button>
       {:else}
-        <button type="button" class="chip" class:on={board.fn === step} title="Select {label(step)}" onclick={() => pick(step)}>{label(step)}</button>
+        <button type="button" class="chip" class:on={board.fn === step} title="Select {label(step)}" onclick={() => pick(step)}>{#if !step.startsWith('#')}<span class="owner">{owner(step)}</span>{rowLabel(step, contractOf(step))}{:else}{label(step)}{/if}</button>
       {/if}
     {/each}
   {/if}
@@ -50,5 +52,8 @@
 
 <style>
   .trail { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; flex: 1 1 auto; }
-  .trail .chip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-weight: 500; }
+  .trail .chip { flex: none; max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-weight: 500; }
+  @media (max-width: 1279px) {
+    .owner { display: none; }
+  }
 </style>

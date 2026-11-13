@@ -114,7 +114,7 @@
   >
     <span class="text-[13px] text-text-light font-bold">Session timeline</span>
     <span
-      class="text-[10px] text-text-dim font-mono px-2 py-0.5"
+      class="text-[12px] text-root font-mono px-2 py-0.5"
       style="border-radius: 8px; background: color-mix(in srgb, var(--color-border) 30%, transparent);"
     >{steps.length}</span>
   </div>
@@ -122,7 +122,7 @@
   <!-- Body -->
   <div class="timeline-body flex-1 overflow-y-auto py-1.5" bind:this={scrollContainer}>
     {#if steps.length === 0}
-      <div class="py-8 px-4 text-text-dim text-[11px] text-center leading-relaxed" style="font-style: italic;">
+      <div class="py-8 px-4 text-root text-[12px] text-center leading-relaxed" style="font-style: italic;">
         No steps yet. Click a function in the sidebar or run `c &lt;name&gt;` in the terminal.
       </div>
     {:else}
