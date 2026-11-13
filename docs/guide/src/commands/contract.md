@@ -185,6 +185,10 @@ is listed under every contract that inherits it. Only deployed contracts call
 others on their own: an abstract contract or a library is never listed under
 `called by`, though `links` on it still lists its own calls.
 
+- the first line counts the other deployed contracts it calls or reads
+  (`contracts N → · M ←`, a call with several candidates counting each of
+  them; libraries and the contract itself not counted) and then its calls and
+  reads to and from them, a call with several candidates counted once.
 - **calls** — the calls it makes, grouped by the contract that may answer. A
   call through an interface several contracts implement is one row, listed under
   each of them, with `N possible` and `AMBIGUOUS`. Library calls are listed
@@ -203,6 +207,8 @@ others on their own: an abstract contract or a library is never listed under
 
 ```
 ilold[Curve]> links
+
+  Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←
 
   Curve → calls
     DenA  1 call
@@ -241,8 +247,8 @@ calls (a call with several candidates counted once under each), how many go
 through an interface the target inherits, the value moved and `AMBIGUOUS`; then
 the unresolved calls per interface (`dynamic address` when the call names no
 declaration). The `in all` lines count each row and value transfer once. Each
-deployed contract shows its calls and reads to and from other contracts, its
-entry points (public and restricted functions) and whether it moves value. The
+deployed contract shows the other contracts it calls and that call it, its
+calls and reads to and from them, its entry points (public and restricted functions) and whether it moves value. The
 project map draws the same pairs and totals.
 
 ```
@@ -263,12 +269,12 @@ ilold[Curve]> links --all
     in all 2 calls
 
   Deployed contracts
-    Curve  calls and reads 5 → · 2 ←  3 entry · 0 restricted  moves value
-    DenA  calls and reads 0 → · 1 ←  1 entry · 0 restricted
-    DenB  calls and reads 0 → · 1 ←  1 entry · 0 restricted
-    Hook  calls and reads 0 → · 2 ←  2 entry · 0 restricted  moves value
-    Router  calls and reads 2 → · 0 ←  2 entry · 0 restricted  moves value
-    Token  calls and reads 0 → · 2 ←  3 entry · 0 restricted
+    Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←  3 entry · 0 restricted  moves value
+    DenA  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    DenB  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    Hook  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  2 entry · 0 restricted  moves value
+    Router  contracts 1 → · 0 ←  calls and reads 2 → · 0 ←  2 entry · 0 restricted  moves value
+    Token  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  3 entry · 0 restricted
 ```
 
 ## route

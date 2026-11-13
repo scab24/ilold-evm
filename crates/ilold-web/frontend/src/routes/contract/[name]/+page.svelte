@@ -1417,7 +1417,7 @@
     />
     <div class="wb-main">
       {#if contract}
-        <FunctionSidebar {contract} canvasFuncs={mode === 'connections' ? boardSelected : canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={mode === 'connections' ? () => selectOnBoard(null) : removeFuncFromCanvas} counts={mainConnections ? { out: mainConnections.outgoing_calls, in: mainConnections.incoming_calls } : null} onconnections={showConnections} />
+        <FunctionSidebar {contract} canvasFuncs={mode === 'connections' ? boardSelected : canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={mode === 'connections' ? () => selectOnBoard(null) : removeFuncFromCanvas} counts={mainConnections} onconnections={showConnections} />
       {/if}
 
       <div class="wb-canvas">

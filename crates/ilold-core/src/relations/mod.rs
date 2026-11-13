@@ -8,7 +8,7 @@ mod value;
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -171,6 +171,8 @@ pub struct Connections {
     pub transfers: Vec<ValueTransfer>,
     pub outgoing_calls: usize,
     pub incoming_calls: usize,
+    pub outgoing_contracts: usize,
+    pub incoming_contracts: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -198,6 +200,8 @@ pub struct CallCounts {
     pub contract: String,
     pub outgoing_calls: usize,
     pub incoming_calls: usize,
+    pub outgoing_contracts: usize,
+    pub incoming_contracts: usize,
     pub entry_points: usize,
     pub restricted: usize,
     pub moves_value: bool,
@@ -365,6 +369,8 @@ impl Relations {
         Connections {
             outgoing_calls: made.iter().filter(|c| to_contracts(c)).count(),
             incoming_calls: self.calls_into(contract).filter(|c| to_contracts(c)).count(),
+            outgoing_contracts: self.called_contracts(contract).len(),
+            incoming_contracts: self.calling_contracts(contract).len(),
             contract: contract.to_string(),
             outgoing,
             incoming,
@@ -372,6 +378,15 @@ impl Relations {
             assignments: vias.into_iter().flat_map(|v| self.assignments(v)).cloned().collect(),
             transfers,
         }
+    }
+
+    fn called_contracts(&self, contract: &str) -> BTreeSet<&str> {
+        let calls = self.calls_from(contract).iter().filter(|c| to_contracts(c));
+        calls.flat_map(|c| &c.callees).map(|d| d.contract.as_str()).filter(|c| *c != contract && self.deploys(c)).collect()
+    }
+
+    fn calling_contracts<'a>(&'a self, contract: &'a str) -> BTreeSet<&'a str> {
+        self.calls_into(contract).filter(|c| to_contracts(c)).map(|c| c.in_context.as_str()).collect()
     }
 
     pub fn project_connections(&self, access: &HashMap<String, Vec<(String, AccessLevel)>>) -> ProjectConnections {
@@ -438,6 +453,8 @@ impl Relations {
                     contract: c.clone(),
                     outgoing_calls: self.calls_from(c).iter().filter(|c| to_contracts(c)).count(),
                     incoming_calls: self.calls_into(c).filter(|c| to_contracts(c)).count(),
+                    outgoing_contracts: self.called_contracts(c).len(),
+                    incoming_contracts: self.calling_contracts(c).len(),
                     entry_points: restricted + levels.iter().filter(|(_, a)| a.is_unrestricted()).count(),
                     restricted,
                     moves_value: self.value_pairs.iter().any(|p| p.in_context == *c),

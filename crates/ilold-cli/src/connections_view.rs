@@ -69,8 +69,15 @@ fn groups(out: &mut String, title: String, empty: &str, groups: &[ConnectionGrou
     }
 }
 
+fn counts(contracts: (usize, usize), calls: (usize, usize)) -> String {
+    let contracts = format!("contracts {} → · {} ←", contracts.0, contracts.1);
+    format!("{contracts}  {}", c_muted(&format!("calls and reads {} → · {} ←", calls.0, calls.1)))
+}
+
 pub fn links(c: &Connections) -> String {
     let mut out = String::new();
+    let counted = counts((c.outgoing_contracts, c.incoming_contracts), (c.outgoing_calls, c.incoming_calls));
+    writeln!(out, "\n  {}  {counted}", c_bright(&c.contract)).ok();
     groups(&mut out, format!("{} → calls", c.contract), "calls no other contract", &c.outgoing, c);
     groups(&mut out, format!("{} ← called by", c.contract), "no contract calls it", &c.incoming, c);
     if !c.unresolved.is_empty() {
@@ -217,7 +224,7 @@ pub fn project_links(p: &ProjectConnections) -> String {
     }
     writeln!(out, "\n  {}", c_bright("Deployed contracts")).ok();
     for c in &p.contracts {
-        let mut row = format!("{}  {}", c.contract, c_muted(&format!("calls and reads {} → · {} ←", c.outgoing_calls, c.incoming_calls)));
+        let mut row = format!("{}  {}", c.contract, counts((c.outgoing_contracts, c.incoming_contracts), (c.outgoing_calls, c.incoming_calls)));
         write!(row, "  {}", c_muted(&format!("{} entry · {} restricted", c.entry_points, c.restricted))).ok();
         if c.moves_value {
             write!(row, "  {}", c_warn("moves value")).ok();

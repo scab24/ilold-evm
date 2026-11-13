@@ -4,48 +4,60 @@
       "contract": "Curve",
       "entry_points": 3,
       "incoming_calls": 2,
+      "incoming_contracts": 1,
       "moves_value": true,
       "outgoing_calls": 5,
+      "outgoing_contracts": 4,
       "restricted": 0
     },
     {
       "contract": "DenA",
       "entry_points": 1,
       "incoming_calls": 1,
+      "incoming_contracts": 1,
       "moves_value": false,
       "outgoing_calls": 0,
+      "outgoing_contracts": 0,
       "restricted": 0
     },
     {
       "contract": "DenB",
       "entry_points": 1,
       "incoming_calls": 1,
+      "incoming_contracts": 1,
       "moves_value": false,
       "outgoing_calls": 0,
+      "outgoing_contracts": 0,
       "restricted": 0
     },
     {
       "contract": "Hook",
       "entry_points": 2,
       "incoming_calls": 2,
+      "incoming_contracts": 1,
       "moves_value": true,
       "outgoing_calls": 0,
+      "outgoing_contracts": 0,
       "restricted": 0
     },
     {
       "contract": "Router",
       "entry_points": 2,
       "incoming_calls": 0,
+      "incoming_contracts": 0,
       "moves_value": true,
       "outgoing_calls": 2,
+      "outgoing_contracts": 1,
       "restricted": 0
     },
     {
       "contract": "Token",
       "entry_points": 3,
       "incoming_calls": 2,
+      "incoming_contracts": 1,
       "moves_value": false,
       "outgoing_calls": 0,
+      "outgoing_contracts": 0,
       "restricted": 0
     }
   ],

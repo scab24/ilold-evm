@@ -183,9 +183,10 @@ function (the [`links`](../commands/contract.md#links) rows):
   the URL, so a reload or a link reopens it; it is not saved in scenarios.
 
 The function list on the left selects in every mode (in Connections it selects
-on the board). At its foot, **Connections · N → · M ←** counts the calls and
-reads this contract makes to other contracts and receives from them
-(libraries and the contract itself not counted); clicking it switches to
+on the board). At its foot, **Connections · N → · M ←** counts the other
+deployed contracts this contract calls or reads and the ones that call or
+read it (libraries and the contract itself not counted; its tooltip adds the
+calls and reads behind them); clicking it switches to
 Connections with the contract summary in the Inspector. The Inspector lists
 the selected function's calls, callers, reads, readers, library calls, value
 moves and unresolved calls, one row each with a link to the source line (and

@@ -340,6 +340,8 @@ fn connections_group_the_running_contract_calls_by_the_other_contract() {
     assert_eq!(groups(&vault.incoming), vec![("Router", 2)]);
     assert_eq!((router.outgoing_calls, router.incoming_calls), (4, 0), "an ambiguous call once, library, self and unresolved calls not");
     assert_eq!((vault.outgoing_calls, vault.incoming_calls), (0, 2));
+    assert_eq!((router.outgoing_contracts, router.incoming_contracts), (3, 0), "each possible hook, no library and no self");
+    assert_eq!((vault.outgoing_contracts, vault.incoming_contracts), (0, 1), "two calls from one contract");
     let base = analysis().relations.connections("Base");
     assert_eq!(groups(&base.outgoing), vec![("Base", 1), ("ExtLib", 1), ("Fees", 1), ("HookA", 1), ("HookB", 1), ("Vault", 2)]);
 }
@@ -367,8 +369,9 @@ fn project_connections_add_up_each_pair_of_a_deployed_contract_and_a_contract_an
     let unresolved: Vec<(&str, &str, Vec<&str>)> =
         project.unresolved.iter().map(|u| (u.from.as_str(), u.target.as_str(), u.rows.iter().map(|r| r.function.as_str()).collect())).collect();
     assert_eq!(unresolved, vec![("Router", "IExt", vec!["ExtBase::poke"])]);
-    let counts: Vec<(&str, usize, usize)> = project.contracts.iter().map(|c| (c.contract.as_str(), c.outgoing_calls, c.incoming_calls)).collect();
-    assert_eq!(counts, vec![("HookA", 0, 2), ("HookB", 0, 2), ("Router", 4, 0), ("Vault", 0, 2)]);
+    let counts: Vec<(&str, [usize; 4])> =
+        project.contracts.iter().map(|c| (c.contract.as_str(), [c.outgoing_calls, c.incoming_calls, c.outgoing_contracts, c.incoming_contracts])).collect();
+    assert_eq!(counts, vec![("HookA", [0, 2, 0, 1]), ("HookB", [0, 2, 0, 1]), ("Router", [4, 0, 3, 0]), ("Vault", [0, 2, 0, 1])]);
     let totals = &project.totals;
     assert_eq!(
         [totals.calls, totals.reads, totals.library, totals.via_interface, totals.transfers, totals.unresolved],
@@ -377,7 +380,12 @@ fn project_connections_add_up_each_pair_of_a_deployed_contract_and_a_contract_an
     );
     for c in &project.contracts {
         let one = relations.connections(&c.contract);
-        assert_eq!((one.outgoing_calls, one.incoming_calls), (c.outgoing_calls, c.incoming_calls), "{}", c.contract);
+        assert_eq!(
+            [one.outgoing_calls, one.incoming_calls, one.outgoing_contracts, one.incoming_contracts],
+            [c.outgoing_calls, c.incoming_calls, c.outgoing_contracts, c.incoming_contracts],
+            "{}",
+            c.contract
+        );
     }
 }
 
@@ -574,15 +582,15 @@ fn project_connections_count_each_row_once_and_serve_each_contract_summary() {
             entry["rows"] = rows;
         }
     }
-    let counts = |contract: &str, out: usize, inc: usize, entry: usize, restricted: usize, moves: bool| {
-        serde_json::json!({"contract": contract, "outgoing_calls": out, "incoming_calls": inc, "entry_points": entry, "restricted": restricted, "moves_value": moves})
+    let counts = |contract: &str, [out, inc, out_c, in_c]: [usize; 4], entry: usize, restricted: usize, moves: bool| {
+        serde_json::json!({"contract": contract, "outgoing_calls": out, "incoming_calls": inc, "outgoing_contracts": out_c, "incoming_contracts": in_c, "entry_points": entry, "restricted": restricted, "moves_value": moves})
     };
     let pair = |to: &str, [calls, reads, library, via_interface, transfers]: [usize; 5], rows: serde_json::Value| {
         serde_json::json!({"from": "Payer", "to": to, "calls": calls, "reads": reads, "library": library, "via_interface": via_interface, "transfers": transfers, "ambiguous": false, "rows": rows})
     };
     let expected = serde_json::json!({
         "totals": {"calls": 1, "reads": 1, "library": 1, "via_interface": 2, "transfers": 1, "unresolved": 2},
-        "contracts": [counts("Echo", 0, 0, 2, 0, false), counts("Payer", 2, 0, 1, 0, true), counts("Pool", 0, 2, 3, 1, true)],
+        "contracts": [counts("Echo", [0, 0, 0, 0], 2, 0, false), counts("Payer", [2, 0, 1, 0], 1, 0, true), counts("Pool", [0, 2, 0, 1], 3, 1, true)],
         "pairs": [
             pair("ExtMath", [0, 0, 1, 0, 0], serde_json::json!([["Payer::pay", 22]])),
             pair("Pool", [1, 1, 0, 2, 1], serde_json::json!([["Payer::pay", 20], ["Payer::pay", 21]])),

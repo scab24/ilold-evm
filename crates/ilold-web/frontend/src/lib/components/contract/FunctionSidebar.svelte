@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
-  import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
+  import type { Connections, ContractDetail, FunctionSummary } from '$lib/api/rest';
   import Icon from '$lib/components/chrome/Icon.svelte';
   import { visibilityLabel } from '$lib/utils/visibility';
   import { describeGuard, formatAccess, isAccessGuard, isConditional, restricts } from '$lib/utils/access';
@@ -21,7 +21,7 @@
     mode: Mode;
     onadd: (func: string) => void;
     onremove: (func: string) => void;
-    counts: { out: number; in: number } | null;
+    counts: Pick<Connections, 'outgoing_contracts' | 'incoming_contracts' | 'outgoing_calls' | 'incoming_calls'> | null;
     onconnections: () => void;
   } = $props();
 
@@ -209,8 +209,8 @@
         {/if}
       {/if}
     </div>
-    <button type="button" class="conn" data-testid="connections-line" onclick={onconnections} title={counts ? `${contract.name} makes ${counts.out} calls and reads to other contracts and receives ${counts.in} from them (libraries and itself not counted). Opens Connections` : 'Opens Connections'}>
-      <Icon name="call" /><span>Connections · <b>{counts?.out ?? '…'}</b> → · <b>{counts?.in ?? '…'}</b> ←</span>
+    <button type="button" class="conn" data-testid="connections-line" onclick={onconnections} title={counts ? `Other contracts it calls or reads → ${counts.outgoing_contracts} · that call or read it ← ${counts.incoming_contracts}\nCalls and reads behind them → ${counts.outgoing_calls} · ← ${counts.incoming_calls}\nLibraries and ${contract.name} itself not counted. Opens Connections` : 'Opens Connections'}>
+      <Icon name="call" /><span>Connections · <b>{counts?.outgoing_contracts ?? '…'}</b> → · <b>{counts?.incoming_contracts ?? '…'}</b> ←</span>
     </button>
   {/if}
 </div>

@@ -2321,7 +2321,7 @@ const INLINE_HELP: &[(&[&str], &str, &str)] = &[
     (&["ct", "contracts"],"contracts [all]",                 "List the project contracts; `all` adds dependency contracts (lib/)."),
     (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on, with the ones that may answer its interface calls. Example: deps Vault"),
     (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it or may be called through an interface — the blast radius. Example: usedby IPool"),
-    (&["links"],          "links [contract | --all]",        "Calls the code of the current (or named) contract makes to other contracts, inherited code included, grouped by the contract that may answer, then the calls into it, unresolved calls and where the called addresses are set; --all lists every pair of deployed contract and contract answering it with its calls, reads and library calls. Example: links Vault"),
+    (&["links"],          "links [contract | --all]",        "Calls the code of the current (or named) contract makes to other contracts, inherited code included, grouped by the contract that may answer, then the calls into it, unresolved calls and where the called addresses are set; the first line counts the other deployed contracts it calls or reads and that call or read it (libraries and the contract itself not counted), then the calls and reads; --all lists every pair of deployed contract and contract answering it with its calls, reads and library calls. Example: links Vault"),
     (&["route"],          "route <from> <to> [--reads]",     "Shortest chains of calls from one contract to another, function to function; --reads also follows view calls. Example: route Router Vault"),
     (&["value"],          "value [contract]",                "Who pays whom: value moves per running contract, by the two sides and asset; a side is a contract only where the call resolves to it. With a contract, the moves it runs or is a side of. Example: value Vault"),
     (&["use"],            "use <contract>",                  "Switch the active contract; each contract keeps its own steps. Example: use Staking"),
@@ -2548,6 +2548,8 @@ mod tests {
     #[test]
     fn links_route_and_value_read_the_same_locally_and_attached() {
         let links = "
+  Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←
+
   Curve → calls
     DenA  1 call
       buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
@@ -2574,6 +2576,8 @@ mod tests {
 
 ";
         let hook = "
+  Hook  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←
+
   Hook → calls
     PoolMath  1 call
       fee → PoolMath::half  library  line 40
@@ -2627,15 +2631,17 @@ mod tests {
     in all 2 calls
 
   Deployed contracts
-    Curve  calls and reads 5 → · 2 ←  3 entry · 0 restricted  moves value
-    DenA  calls and reads 0 → · 1 ←  1 entry · 0 restricted
-    DenB  calls and reads 0 → · 1 ←  1 entry · 0 restricted
-    Hook  calls and reads 0 → · 2 ←  2 entry · 0 restricted  moves value
-    Router  calls and reads 2 → · 0 ←  2 entry · 0 restricted  moves value
-    Token  calls and reads 0 → · 2 ←  3 entry · 0 restricted
+    Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←  3 entry · 0 restricted  moves value
+    DenA  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    DenB  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    Hook  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  2 entry · 0 restricted  moves value
+    Router  contracts 1 → · 0 ←  calls and reads 2 → · 0 ←  2 entry · 0 restricted  moves value
+    Token  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  3 entry · 0 restricted
 
 ";
         let library = "
+  Payout  contracts 1 → · 0 ←  calls and reads 1 → · 0 ←
+
   Payout → calls
     Token  1 call
       pay → Token::transfer  line 8  moves erc20 token amount

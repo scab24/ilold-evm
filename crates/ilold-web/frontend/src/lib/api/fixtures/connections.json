@@ -103,6 +103,7 @@
     }
   ],
   "incoming_calls": 2,
+  "incoming_contracts": 1,
   "outgoing": [
     {
       "calls": [
@@ -331,6 +332,7 @@
     }
   ],
   "outgoing_calls": 5,
+  "outgoing_contracts": 4,
   "transfers": [
     {
       "amount_expr": "msg.value",

@@ -102,6 +102,8 @@ export interface Connections {
   transfers: ValueTransfer[];
   outgoing_calls: number;
   incoming_calls: number;
+  outgoing_contracts: number;
+  incoming_contracts: number;
 }
 
 export interface ContractPair {
@@ -126,6 +128,8 @@ export interface CallCounts {
   contract: string;
   outgoing_calls: number;
   incoming_calls: number;
+  outgoing_contracts: number;
+  incoming_contracts: number;
   entry_points: number;
   restricted: number;
   moves_value: boolean;

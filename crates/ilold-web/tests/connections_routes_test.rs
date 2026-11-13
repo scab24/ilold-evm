@@ -51,7 +51,9 @@ const HOOK: &str = r#"{
          "asset_kind": "native", "asset_candidates": [], "operation": "call", "direction": "out", "token_expr": null, "from_expr": null, "to_expr": "manager",
          "amount_expr": "amount", "id_expr": null, "call": "manager.settle", "via_library": null, "tag": "EXTRACTED", "reason": null}],
   "outgoing_calls": 0,
-  "incoming_calls": 2
+  "incoming_calls": 2,
+  "outgoing_contracts": 0,
+  "incoming_contracts": 1
 }"#;
 
 #[tokio::test]
@@ -101,18 +103,18 @@ async fn project_connections_add_up_the_calls_between_each_pair_of_contracts() {
         let [calls, reads, library, via_interface, transfers] = counts;
         json!({"from": from, "to": to, "calls": calls, "reads": reads, "library": library, "via_interface": via_interface, "transfers": transfers, "ambiguous": ambiguous, "rows": rows})
     };
-    let counts = |contract: &str, [outgoing, incoming, entry, restricted]: [u64; 4], moves: bool| {
-        json!({"contract": contract, "outgoing_calls": outgoing, "incoming_calls": incoming, "entry_points": entry, "restricted": restricted, "moves_value": moves})
+    let counts = |contract: &str, [outgoing, incoming, out_c, in_c, entry, restricted]: [u64; 6], moves: bool| {
+        json!({"contract": contract, "outgoing_calls": outgoing, "incoming_calls": incoming, "outgoing_contracts": out_c, "incoming_contracts": in_c, "entry_points": entry, "restricted": restricted, "moves_value": moves})
     };
     let expected = json!({
         "totals": {"calls": 5, "reads": 2, "library": 2, "via_interface": 7, "transfers": 4, "unresolved": 2},
         "contracts": [
-            counts("Curve", [5, 2, 3, 0], true),
-            counts("DenA", [0, 1, 1, 0], false),
-            counts("DenB", [0, 1, 1, 0], false),
-            counts("Hook", [0, 2, 2, 0], true),
-            counts("Router", [2, 0, 2, 0], true),
-            counts("Token", [0, 2, 3, 0], false),
+            counts("Curve", [5, 2, 4, 1, 3, 0], true),
+            counts("DenA", [0, 1, 0, 1, 1, 0], false),
+            counts("DenB", [0, 1, 0, 1, 1, 0], false),
+            counts("Hook", [0, 2, 0, 1, 2, 0], true),
+            counts("Router", [2, 0, 1, 0, 2, 0], true),
+            counts("Token", [0, 2, 0, 1, 3, 0], false),
         ],
         "pairs": [
             pair("Curve", "DenA", [1, 0, 0, 1, 0], true, json!([["Curve::buy", 36]])),

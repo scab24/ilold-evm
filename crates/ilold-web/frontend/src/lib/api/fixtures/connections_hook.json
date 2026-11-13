@@ -77,6 +77,7 @@
     }
   ],
   "incoming_calls": 2,
+  "incoming_contracts": 1,
   "outgoing": [
     {
       "calls": [
@@ -111,6 +112,7 @@
     }
   ],
   "outgoing_calls": 0,
+  "outgoing_contracts": 0,
   "transfers": [
     {
       "amount_expr": "address(this).balance",
