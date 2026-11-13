@@ -163,7 +163,8 @@ function (the [`links`](../commands/contract.md#links) rows):
 - the contract opens with only its functions that call or are called by other
   contracts (**All functions** lists the rest); the contracts it calls are
   folded on its right, its callers on its left, each band labelled
-  ("LaunchCurve calls", "Calls LaunchCurve"); libraries and the interfaces
+  ("LaunchCurve calls", "Callers of LaunchCurve", "KitsuneHook links"
+  when a box has both); libraries and the interfaces
   outside the project fold into one box each.
 - click a function (on the board or in the left list) to select it: its lines
   light up, the others dim. Click a function in a folded box to open that
@@ -173,8 +174,11 @@ function (the [`links`](../commands/contract.md#links) rows):
   **Backspace** removes the last step, **×** closes a box (and the boxes
   opened from it), **Reset** returns to the start. Only the
   two boxes used last stay open; older ones fold into strips at the left edge
-  (click a strip to open it again). When the board is wider than the canvas,
-  the `← N` / `N →` buttons scroll to the boxes out of view.
+  (click a strip to open it again); the lines into a strip meet at one point
+  with the number of links next to it. The lines into one function share one
+  arrow. When the board is wider than the canvas, it opens on whole columns and
+  the `← N` / `N →` buttons and the faded edge show the boxes out of view; a
+  function selected outside the view brings its box back into view.
 - **Callers / Both / Callees** keep one side, the **Lines** legend shows,
   dims or hides each kind of line as on the Map (Unresolved is never hidden).
 - double-click a box (or press Enter on its title) to make it the main
@@ -206,8 +210,10 @@ node colours and in Session the scenario lines (active scenario, fork, other
 scenarios). The status bar shows the server connection, how many nodes are
 selected and the keys of the current mode (H or Esc pan, V select, Delete remove
 in CFG and Seq; Backspace undo and Esc clear in Connections). The embedded
-terminal starts closed: **Terminal** opens it above the legend, its red
-button closes it. Below 1200px wide the function list starts folded; its
+terminal starts closed: **Terminal** opens it at the bottom right of the
+canvas, above the legend; it stays inside the canvas column (also when moved,
+resized or maximized), so it never covers the panels, and its **×** button
+closes it. Below 1200px wide the function list starts folded; its
 arrow opens it. Panels, section titles, chips and buttons use
 the same styles as the project page.
 

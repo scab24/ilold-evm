@@ -150,10 +150,11 @@
       prevPosY = posY;
       prevWidth = panelWidth;
       prevHeight = panelHeight;
-      posX = 16;
-      posY = 16;
-      panelWidth = window.innerWidth - 32;
-      panelHeight = window.innerHeight - 32;
+      const a = area();
+      posX = a.left + 8;
+      posY = a.top + 8;
+      panelWidth = a.right - a.left - 16;
+      panelHeight = a.bottom - a.top - 16;
       maximized = true;
     }
     requestAnimationFrame(() => fitAddon?.fit());
@@ -175,14 +176,36 @@
     terminal?.clear();
   }
 
-  function clampToViewport() {
-    posX = Math.max(0, Math.min(posX, window.innerWidth - panelWidth));
-    posY = Math.max(0, Math.min(posY, window.innerHeight - panelHeight - BOTTOM_BARS));
+  function area(): { left: number; top: number; right: number; bottom: number } {
+    const canvas = document.querySelector('.wb-canvas')?.getBoundingClientRect();
+    return canvas ?? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight - BOTTOM_BARS };
   }
 
+  function clampToViewport() {
+    const a = area();
+    panelWidth = Math.max(Math.min(MIN_W, a.right - a.left - 16), Math.min(panelWidth, a.right - a.left - 16));
+    panelHeight = Math.max(Math.min(MIN_H, a.bottom - a.top - 16), Math.min(panelHeight, a.bottom - a.top - 16));
+    posX = Math.max(a.left + 8, Math.min(posX, a.right - panelWidth - 8));
+    posY = Math.max(a.top + 8, Math.min(posY, a.bottom - panelHeight - 8));
+  }
+
+  let canvasWatch: ResizeObserver | null = null;
+
+  function dock() {
+    const a = area();
+    posX = a.right - panelWidth - 8;
+    posY = a.bottom - panelHeight - 8;
+    clampToViewport();
+  }
+
+  $effect(() => {
+    if (isTerminalVisible()) untrack(() => (maximized ? clampToViewport() : dock()));
+  });
+
   onMount(() => {
-    posX = window.innerWidth - panelWidth - 16;
-    posY = window.innerHeight - panelHeight - BOTTOM_BARS;
+    dock();
+    const canvas = document.querySelector('.wb-canvas');
+    if (canvas) (canvasWatch = new ResizeObserver(() => clampToViewport())).observe(canvas);
 
     requestAnimationFrame(() => { fadeIn = true; });
 
@@ -292,6 +315,7 @@
   }
 
   onDestroy(() => {
+    canvasWatch?.disconnect();
     window.removeEventListener('resize', clampToViewport);
     window.removeEventListener('pagehide', onPageHide);
     window.removeEventListener('pageshow', onPageShow);
@@ -340,13 +364,12 @@
       <div class="flex items-center gap-1.5">
         <!-- Close (red) -->
         <button
-          class="w-3 h-3 rounded-full border-none cursor-pointer transition-all duration-150 hover:brightness-125"
-          style="background: var(--color-danger);"
-          title="Close"
+          class="term-close"
+          title="Close the terminal"
           aria-label="Close terminal"
           onmousedown={(e: MouseEvent) => e.stopPropagation()}
           onclick={() => closePanel()}
-        ></button>
+        >×</button>
         <!-- Maximize (green/success) -->
         <button
           class="w-3 h-3 rounded-full border-none cursor-pointer transition-all duration-150 hover:brightness-125"
@@ -461,3 +484,8 @@
       </svg>
   </div>
 </div>
+
+<style>
+  .term-close { width: 18px; height: 18px; border-radius: 9px; border: none; cursor: pointer; background: var(--color-danger); color: #1a1a1a; font: 700 12px/18px var(--font-sans); padding: 0; text-align: center; }
+  .term-close:hover { filter: brightness(1.2); }
+</style>

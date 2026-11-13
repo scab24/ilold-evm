@@ -466,7 +466,7 @@
 
   .row-paths {
     font-size: 12px;
-    color: var(--color-text-dim);
+    color: var(--color-root);
     padding: 0 5px;
     border-radius: 8px;
     background: color-mix(in srgb, var(--color-border) 35%, transparent);

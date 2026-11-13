@@ -193,14 +193,9 @@ export function assignPorts(nodes: Placed[], wires: Wire[]): void {
     const k = list.length;
     list.forEach((p, i) => {
       p.end.x = side === 'left' ? n.x : n.x + n.w;
-      if (p.end.row && n.rowAt.has(p.end.row)) {
-        const span = Math.min(12, (k - 1) * 4);
-        p.end.y = n.rowAt.get(p.end.row)! - span / 2 + (k > 1 ? (i * span) / (k - 1) : 0);
-      } else {
-        const top = n.y + 12;
-        const bottom = n.y + n.h - 12;
-        p.end.y = top + ((bottom - top) * (i + 1)) / (k + 1);
-      }
+      if (p.end.row && n.rowAt.has(p.end.row)) p.end.y = n.rowAt.get(p.end.row)!;
+      else if (n.ref.type === 'strip') p.end.y = n.y + n.h / 2;
+      else p.end.y = n.y + 12 + ((n.h - 24) * (i + 1)) / (k + 1);
     });
   }
 }
@@ -271,8 +266,8 @@ export function placeLabels(wires: Wire[], nodes: Placed[], textWidth: (s: strin
 }
 
 export function routeLong(wires: Wire[], G: Geometry): void {
-  const cols = new Map<number, { l: number; r: number; rects: [number, number][] }>();
-  const col = (k: number) => cols.get(k) ?? cols.set(k, { l: 1e9, r: -1e9, rects: [] }).get(k)!;
+  const cols = new Map<number, { l: number; r: number; rects: [number, number][]; titled: boolean }>();
+  const col = (k: number) => cols.get(k) ?? cols.set(k, { l: 1e9, r: -1e9, rects: [], titled: false }).get(k)!;
   for (const n of G.nodes) {
     const c = col(n.col);
     c.l = Math.min(c.l, n.x);
@@ -283,7 +278,8 @@ export function routeLong(wires: Wire[], G: Geometry): void {
     const c = col(b.col);
     c.l = Math.min(c.l, b.x);
     c.r = Math.max(c.r, b.x + b.w);
-    c.rects.push([b.y, b.y + b.h]);
+    c.rects.push([b.y, b.y + BAND]);
+    c.titled ||= b.y <= Math.min(...c.rects.map((r) => r[0]));
   }
   const used = new Map<number, number[]>();
   const N = new Map(G.nodes.map((n) => [n.id, n]));
@@ -299,8 +295,9 @@ export function routeLong(wires: Wire[], G: Geometry): void {
       if (!C) continue;
       const want = e.a.y! + (e.b.y! - e.a.y!) * ((k - A.col) / (Z.col - A.col));
       const gaps: [number, number][] = [];
-      let top = -60;
-      for (const [y0, y1] of [...C.rects].sort((p, q) => p[0] - q[0])) {
+      const sorted = [...C.rects].sort((p, q) => p[0] - q[0]);
+      let top = C.titled ? sorted[0][1] : -60;
+      for (const [y0, y1] of sorted) {
         if (y0 - top >= 14) gaps.push([top, y0]);
         top = Math.max(top, y1);
       }
@@ -318,4 +315,29 @@ export function routeLong(wires: Wire[], G: Geometry): void {
     }
     if (wps.length) e.wps = wps;
   }
+}
+
+export function columnSpans(G: Geometry): { col: number; l: number; r: number }[] {
+  const spans = new Map<number, { col: number; l: number; r: number }>();
+  for (const { col, x, w } of [...G.nodes, ...G.bands]) {
+    const s = spans.get(col) ?? spans.set(col, { col, l: x, r: x + w }).get(col)!;
+    s.l = Math.min(s.l, x);
+    s.r = Math.max(s.r, x + w);
+  }
+  return [...spans.values()].sort((a, b) => a.col - b.col);
+}
+
+export function panLeft(G: Geometry, targets: [number, number][], cw: number, current: number): number {
+  const max = Math.max(0, G.W - cw);
+  if (max === 0) return 0;
+  const spans = columnSpans(G);
+  const starts = [0, max, ...spans.flatMap((s) => [s.l - MARGIN, s.r + MARGIN - cw])].map((c) => Math.max(0, c));
+  const cuts = (c: number) => spans.filter((s) => (s.l < c && s.r > c) || (s.l < c + cw && s.r > c + cw)).length;
+  const order = (x: number, y: number) => cuts(x) - cuts(y) || Number(x > max) - Number(y > max) || Math.abs(x - current) - Math.abs(y - current);
+  for (const [a, b] of targets) {
+    const fit = starts.filter((c) => c <= a - 4 && c + cw >= b + 4);
+    if (fit.length) return fit.sort(order)[0];
+  }
+  const [a, b] = targets.at(-1) ?? [0, 0];
+  return Math.max(0, Math.min(max, (a + b) / 2 - cw / 2));
 }

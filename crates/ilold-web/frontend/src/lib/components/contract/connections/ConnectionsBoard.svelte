@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import type { Connections, ContractDetail, FunctionSummary } from '$lib/api/rest';
   import { contractConnections, contractDetail } from '$lib/stores/project-data';
@@ -6,7 +7,7 @@
   import Tooltip from '$lib/components/chrome/Tooltip.svelte';
   import { edgeStyle, lookOf, LIBRARIES, OUTSIDE } from '$lib/components/project/map-graph';
   import { build, edgeBasis, linksOf, rowLabel, type Link } from './board-links';
-  import { arrange, assignPorts, geometry, pathD, placeLabels, routeLong, type Placed, type Wire } from './board-layout';
+  import { arrange, assignPorts, columnSpans, geometry, panLeft, pathD, placeLabels, routeLong, type Placed, type Wire } from './board-layout';
   import { closeBox, contractOf, keyParts, openStep, popStep, touch, type Board } from './board-state';
   import { applyBoard, currentBoard, currentLines, openMain, pan } from './board-view.svelte';
 
@@ -88,7 +89,18 @@
     placeLabels(live.filter((w) => w.on), G.nodes, (s) => textWidth(s));
     const lit = new Set(live.filter((w) => !w.dim && !w.soft).flatMap((w) => [`${w.a.n}|${w.a.row}`, `${w.b.n}|${w.b.row}`]));
     const valueRows = new Set(live.filter((w) => w.src.links.some((l) => l.value)).map((w) => `${w.a.n}|${w.a.row}`));
-    return { G, wires: live, lit, valueRows };
+    const heads = new Map(live.map((w) => [`${w.b.n}|${w.b.side}|${Math.round(w.b.y!)}`, w]));
+    const strip = new Set(G.nodes.filter((n) => n.ref.type === 'strip').map((n) => n.id));
+    const chips = new Map<string, { x: number; y: number; side: string; n: number }>();
+    for (const w of live) {
+      for (const end of [w.a, w.b]) {
+        if (!strip.has(end.n)) continue;
+        const k = `${end.n}|${end.side}`;
+        const c = chips.get(k) ?? chips.set(k, { x: end.x!, y: end.y!, side: end.side!, n: 0 }).get(k)!;
+        c.n += w.src.links.length;
+      }
+    }
+    return { G, wires: live, lit, valueRows, arrowed: new Set(heads.values()), chips: [...chips.values()].filter((c) => c.n > 1) };
   });
 
   function styleOf(w: Wire): { color: string; width: number; dash: string } {
@@ -101,41 +113,45 @@
   const colors = $derived([...new Set((scene?.wires ?? []).map((w) => styleOf(w).color))]);
 
   let panned = '';
+  let room = $state(0);
   $effect(() => {
-    const key = `${board.open.join(',')}|${board.recent.join(',')}|${width}`;
-    if (!scene || !scroller || key === panned) return;
-    panned = key;
+    if (!scene || !scroller) return;
     const G = scene.G;
     const cw = scroller.clientWidth;
+    const key = `${board.open.join(',')}|${board.recent.join(',')}|${width}|${G.W}`;
+    const chosen = board.fn ? G.nodes.find((n) => n.id === `O:${contractOf(board.fn!)}`) : undefined;
+    const view = scroller.scrollLeft;
+    const hidden = !!chosen && (chosen.x < view || chosen.x + chosen.w > view + cw);
+    if (key === panned && !hidden) return;
+    panned = key;
     const open = G.nodes.filter((n) => n.ref.type === 'open');
     const strips = G.nodes.filter((n) => n.ref.type === 'strip');
-    let left = 0;
-    if (G.W > cw && open.length) {
-      const L = Math.min(...open.map((n) => n.x));
-      const R = Math.max(...open.map((n) => n.x + n.w));
-      const newest = open.find((n) => n.ref.c === board.recent.at(-1)) ?? open.at(-1)!;
-      const oc = newest.col + (newest.col < 0 ? -1 : 1);
-      const outer = G.nodes.filter((n) => n.col === oc && n.ref.type !== 'strip');
-      const oR = Math.max(R, ...outer.map((n) => n.x + n.w));
-      const oL = Math.min(L, ...outer.map((n) => n.x));
-      const sL = strips.length ? Math.min(...strips.map((n) => n.x)) : L;
-      const fits = (a: number, b: number) => b - a + 40 <= cw;
-      if (strips.length && fits(sL, R)) left = 0;
-      else if (newest.col >= 0 && fits(L, oR)) left = L - 20;
-      else if (newest.col < 0 && fits(oL, R)) left = R + 20 - cw;
-      else if (fits(L, R)) left = (L + R) / 2 - cw / 2;
-      else left = newest.x + newest.w / 2 - cw / 2;
-    }
-    scroller.scrollTo({ left: Math.max(0, Math.min(left, G.W - cw)), top: 0 });
-    countHidden();
+    const newest = open.find((n) => n.ref.c === board.recent.at(-1)) ?? open.at(-1);
+    const span = (list: { x: number; w: number }[]): [number, number] => [Math.min(...list.map((n) => n.x)), Math.max(...list.map((n) => n.x + n.w))];
+    const outward = newest ? columnSpans(G).find((c) => c.col === newest.col + (newest.col < 0 ? -1 : 1)) : undefined;
+    const keep = [newest, chosen].filter((n): n is Placed => !!n);
+    const targets: [number, number][] = [
+      ...(strips.length ? [span([...strips, ...open])] : []),
+      ...(outward ? [span([...keep, { x: outward.l, w: outward.r - outward.l }])] : []),
+      ...(open.length ? [span([...open, ...keep])] : []),
+      ...(keep.length ? [span(keep)] : []),
+      ...(chosen ? [span([chosen])] : []),
+    ];
+    const left = panLeft(G, targets, cw, view);
+    room = Math.max(0, left + cw - G.W);
+    tick().then(() => {
+      scroller?.scrollTo({ left, top: scroller.scrollTop });
+      countHidden();
+    });
   });
 
   function countHidden() {
     if (!scene || !scroller) return;
     const l = scroller.scrollLeft;
     const r = l + scroller.clientWidth;
-    pan.left = scene.G.nodes.filter((n) => n.x < l - 4).length;
-    pan.right = scene.G.nodes.filter((n) => n.x + n.w > r + 4).length;
+    const pad = (n: Placed) => (n.ref.type === 'open' || n.ref.type === 'strip' ? 0 : 8);
+    pan.left = scene.G.nodes.filter((n) => n.x - pad(n) < l - 1).length;
+    pan.right = scene.G.nodes.filter((n) => n.x + n.w + pad(n) > r + 1).length;
   }
   $effect(() => {
     pan.by = (direction) => scroller?.scrollBy({ left: direction * scroller.clientWidth * 0.6, behavior: 'smooth' });
@@ -180,7 +196,7 @@
   }
   function bandTitle(owner: string, roles: Set<string>): string {
     const r = [...roles];
-    return r.length === 1 && r[0] === 'callee' ? `${owner} calls` : r.length === 1 ? `Calls ${owner}` : `${owner} links`;
+    return r.length === 1 && r[0] === 'callee' ? `${owner} calls` : r.length === 1 ? `Callers of ${owner}` : `${owner} links`;
   }
   function foldName(n: Placed): string {
     if (n.ref.c === LIBRARIES) return 'Libraries';
@@ -218,7 +234,7 @@
     </div>
   {:else}
     {@const G = scene.G}
-    <svg width={Math.max(G.W, width)} height={Math.max(G.H, 200)} role="application" aria-label="Connections board">
+    <svg width={Math.max(G.W + room, width)} height={Math.max(G.H, 200)} role="application" aria-label="Connections board">
       <defs>
         {#each colors as color (color)}
           <marker id={markerId(color)} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1L9,5L0,9z" fill={color} /></marker>
@@ -230,7 +246,7 @@
       {#each scene.wires as w (w.id)}
         {@const s = styleOf(w)}
         <g class="wire" class:soft={w.soft} class:dim={w.dim} role="presentation" onmousemove={(e) => (tip = { x: e.clientX, y: e.clientY, wire: w })} onmouseleave={() => (tip = null)}>
-          <path d={w.d} stroke={w.dim ? '#4a5568' : s.color} stroke-width={s.width} stroke-dasharray={s.dash} fill="none" marker-end="url(#{markerId(s.color)})" />
+          <path d={w.d} stroke={w.dim ? '#4a5568' : s.color} stroke-width={s.width} stroke-dasharray={s.dash} fill="none" marker-end={scene.arrowed.has(w) ? `url(#${markerId(s.color)})` : undefined} />
           <path class="hit" d={w.d} />
         </g>
       {/each}
@@ -246,6 +262,7 @@
         {:else if n.ref.type === 'open'}
           {@const c = n.ref.c}
           <g class="node open" class:main={c === main} role="button" tabindex="0" aria-label={c === main ? `${c}, main contract` : `${c}. Double-click or Enter makes it the main contract`} ondblclick={() => switchMain(c)} onkeydown={(e) => onSvgKey(e, () => switchMain(c))}>
+            <title>{c}</title>
             <rect class="box" x={n.x} y={n.y} width={n.w} height={n.h} rx="8" />
             <text class="big" x={n.x + 14} y={n.y + 25}>{fit(c, n.w - (c === main ? 28 : 56), '600 15px -apple-system, sans-serif')}</text>
             <text class="meta" x={n.x + 14} y={n.y + 47}>{c === main ? 'main contract' : 'double-click to make it main'}</text>
@@ -274,6 +291,7 @@
           {@const name = foldName(n)}
           {@const openable = n.ref.type === 'folded'}
           <g class="node fold" class:out={n.ref.c === OUTSIDE} class:cluster={n.ref.type === 'group'} role="button" tabindex="0" aria-label="{name}, {n.ref.n} links{openable ? '. Enter opens it here' : ''}" onclick={() => clickNode(n)} ondblclick={() => switchMain(n.ref.c)} onkeydown={(e) => onSvgKey(e, () => clickNode(n))}>
+            <title>{name}</title>
             <rect class="box" x={n.x} y={n.y} width={n.w} height={n.h} rx="7" />
             <text class="name" x={n.x + 12} y={n.y + 20}>{fit(name, n.w - 24, NAME_FONT)}</text>
             <text class={n.ref.c === OUTSIDE ? 'amb' : 'meta'} x={n.x + 12} y={n.y + 37}>{n.ref.n} {n.ref.n === 1 ? 'link' : 'links'}</text>
@@ -298,6 +316,10 @@
           {@const s = styleOf(w)}
           <g class="lbl"><rect x={r.x} y={r.y} width={r.w} height={r.h} rx="10" style:stroke={s.color} /><text x={r.x + 8} y={r.y + 14}>{w.label.text}</text></g>
         {/if}
+      {/each}
+      {#each scene.chips as c (`${c.x}|${c.y}|${c.side}`)}
+        {@const cw = String(c.n).length * 7.5 + 12}
+        <g class="pchip" aria-hidden="true"><rect x={c.side === 'left' ? c.x - cw - 12 : c.x + 12} y={c.y - 10} width={cw} height="20" rx="10" /><text x={c.side === 'left' ? c.x - cw / 2 - 12 : c.x + 12 + cw / 2} y={c.y + 4} text-anchor="middle">{c.n}</text></g>
       {/each}
     </svg>
   {/if}
@@ -354,5 +376,7 @@
   .port { fill: var(--root); }
   .port.on { fill: var(--color-accent-hover); }
   .lbl rect { fill: var(--color-surface); }
+  .pchip rect { fill: var(--color-surface); stroke: var(--color-accent-dark); }
+  .pchip text { font: 600 12px var(--font-sans); fill: var(--color-text-light); }
   .lbl text { font: 600 12px var(--font-sans); fill: var(--color-text-light); }
 </style>
