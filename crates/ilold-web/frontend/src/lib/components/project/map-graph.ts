@@ -54,6 +54,13 @@ function weakest(found: (Basis | null)[]): Basis | null {
   return WEAKEST.find((b) => found.includes(b)) ?? found[0] ?? null;
 }
 
+export function packageOf(key: string): string {
+  const parts = key.slice(0, key.lastIndexOf(':')).split('/');
+  const at = parts.findIndex((p) => p === 'lib' || p === 'node_modules');
+  if (at < 0 || at + 1 >= parts.length - 1) return parts.slice(0, -1).join('/') || 'the project root';
+  return parts[at + 1].startsWith('@') ? `${parts[at + 1]}/${parts[at + 2]}` : parts[at + 1];
+}
+
 export function items(contracts: ContractSummary[], connections: ProjectConnections, depgraph: ProjectDepGraph | null): Item[] {
   const listed = new Set(contracts.map((c) => c.name));
   const found: Item[] = [];

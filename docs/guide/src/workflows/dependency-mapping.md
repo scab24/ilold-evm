@@ -73,7 +73,8 @@ via `analyze --deps --contract IPool`.
 `ilold serve <project>` opens on the project page. Its **Map** tab draws the
 contracts by source folder, with interfaces, libraries and the interfaces
 outside the project folded into one box each (click a box to show its
-contracts, **Fold** to fold it again):
+contracts, **Fold** to fold it again). The first view fits the project folders
+at a readable size; drag the canvas to reach the folded boxes:
 
 - one line per pair of contracts adds up the calls between them, function to
   function (the [`links --all`](../commands/contract.md#links) pairs); the chip
@@ -93,8 +94,10 @@ contracts, **Fold** to fold it again):
   variable holding the address and the AMBIGUOUS tag; click it to list its
   calls in the side panel.
 - **click** a contract to focus on it: Callers / Both / Callees and Depth 1 or 2
-  choose the neighbourhood, the panel lists its calls, callers and unresolved
-  calls with links to the source. Click it again, or press Enter, to open its
+  choose the neighbourhood, the panel lists its calls and reads, callers,
+  library calls and unresolved calls with links to the source. Each list
+  counts call sites, the unit of the totals above it, and says "N of M shown"
+  when the legend hides some. Click it again, or press Enter, to open its
   functions (Enter on a focused button or link presses that control instead);
   Escape clears the focus. Find a contract selects the best match of its name
   among the project contracts, then the project libraries and interfaces, then
@@ -104,7 +107,11 @@ contracts, **Fold** to fold it again):
   restricted functions and whether it moves value.
 - with nothing selected the panel shows the project totals, each call counted
   once (the `in all` lines of `links --all`), and the five most connected
-  contracts.
+  contracts. "Value transfers on these calls" counts the moves made by calls a
+  project contract or library answers.
+- two dependency libraries with the same name (two `SafeCast`) show their
+  package (`library from v4-core`) under the name, in the panel and in the
+  call rows.
 
 The header tabs switch the project page between **Map**, **Value flow** and
 **Route**; the tab and everything picked in it live in the URL, so a link
