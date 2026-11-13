@@ -61,3 +61,8 @@ a:hover {
 button {
   font-family: inherit;
 }
+
+.svelte-flow .svelte-flow__attribution,
+.svelte-flow .svelte-flow__edge-label {
+  font-size: 12px;
+}

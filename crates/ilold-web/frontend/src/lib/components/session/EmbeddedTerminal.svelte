@@ -161,7 +161,7 @@
   }
 
   let fontSize = $state(13);
-  const MIN_FONT = 9;
+  const MIN_FONT = 12;
   const MAX_FONT = 22;
 
   function changeFontSize(delta: number) {
@@ -390,13 +390,13 @@
           style="background: {connected ? 'var(--color-success-light)' : 'var(--color-danger-light)'}; box-shadow: 0 0 6px {connected ? 'var(--color-success)' : 'var(--color-danger)'};"
           aria-label={connected ? 'PTY connected' : 'PTY disconnected'}
         ></span>
-        <span class="text-[9px] text-text-dim tracking-wider uppercase">PTY</span>
+        <span class="text-[12px] text-text-dim tracking-wider uppercase">PTY</span>
       </div>
     </div>
 
     <!-- Center: title -->
     <span
-      class="text-[11px] font-semibold tracking-wider uppercase absolute left-1/2 -translate-x-1/2"
+      class="text-[12px] font-semibold tracking-wider uppercase absolute left-1/2 -translate-x-1/2"
       style="color: var(--color-text-muted);"
     >Terminal</span>
 
@@ -434,7 +434,7 @@
       "
     >
       <div class="flex items-center gap-3">
-        <span class="text-[10px] text-text-dim font-mono tracking-wide">
+        <span class="text-[12px] text-text-dim font-mono tracking-wide">
           {termCols}×{termRows}
         </span>
         <span
@@ -447,21 +447,21 @@
         <!-- Font size controls -->
         <div class="flex items-center gap-0.5">
           <button
-            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[11px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
+            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[12px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
             onclick={() => changeFontSize(-1)}
             title="Decrease font size"
             aria-label="Decrease font size"
           >−</button>
-          <span class="text-[10px] text-text-dim font-mono min-w-[24px] text-center">{fontSize}px</span>
+          <span class="text-[12px] text-text-dim font-mono min-w-[24px] text-center">{fontSize}px</span>
           <button
-            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[11px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
+            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[12px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
             onclick={() => changeFontSize(1)}
             title="Increase font size"
             aria-label="Increase font size"
           >+</button>
         </div>
         <button
-          class="bg-transparent border-none text-text-dim hover:text-text-muted cursor-pointer text-[10px] px-1.5 py-0 rounded tracking-wide transition-colors duration-150"
+          class="bg-transparent border-none text-text-dim hover:text-text-muted cursor-pointer text-[12px] px-1.5 py-0 rounded tracking-wide transition-colors duration-150"
           onclick={clearTerminal}
           title="Clear terminal"
         >

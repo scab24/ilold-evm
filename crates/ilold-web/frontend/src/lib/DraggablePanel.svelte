@@ -96,7 +96,7 @@
     "
     onmousedown={onDragStart}
   >
-    <span class="text-[11px] font-semibold text-accent-hover flex-1 overflow-hidden text-ellipsis whitespace-nowrap tracking-wide uppercase">{title}</span>
+    <span class="text-[12px] font-semibold text-accent-hover flex-1 overflow-hidden text-ellipsis whitespace-nowrap tracking-wide uppercase">{title}</span>
     {#if onclose}
       <button
         class="bg-transparent border-none text-text-dim cursor-pointer text-xs py-0.5 px-1.5 transition-colors duration-150 hover:text-text"

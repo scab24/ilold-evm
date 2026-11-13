@@ -32,14 +32,14 @@
 </div>
 
 <style>
-  .clause { padding: 3px 4px; font-size: 11px; }
+  .clause { padding: 3px 4px; font-size: 12px; }
   .clause-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .clause-kind { font-family: 'JetBrains Mono', monospace; color: var(--color-danger-light); }
-  .clause-lines { font-size: 9px; color: var(--color-text-dim); }
-  .swallowed, .reverts { font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 3px; }
+  .clause-lines { font-size: 12px; color: var(--color-text-dim); }
+  .swallowed, .reverts { font-size: 12px; font-weight: 700; padding: 0 4px; border-radius: 3px; }
   .swallowed { color: var(--color-danger-light); background: color-mix(in srgb, var(--color-danger) 25%, transparent); }
   .reverts { color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text-dim) 15%, transparent); }
   .effect { display: flex; align-items: center; gap: 5px; padding: 1px 0 1px 10px; }
-  .effect-kind { font-size: 9px; font-weight: 700; min-width: 26px; color: var(--color-text-muted); }
+  .effect-kind { font-size: 12px; font-weight: 700; min-width: 26px; color: var(--color-text-muted); }
   .effect-text { font-family: 'JetBrains Mono', monospace; color: var(--color-text); }
 </style>

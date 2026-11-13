@@ -29,13 +29,13 @@
 {/each}
 
 <style>
-  .value { padding: 2px 4px 4px; border-left: 2px solid color-mix(in srgb, var(--color-success) 50%, transparent); margin-bottom: 4px; font-size: 11px; }
+  .value { padding: 2px 4px 4px; border-left: 2px solid color-mix(in srgb, var(--color-success) 50%, transparent); margin-bottom: 4px; font-size: 12px; }
   .value.read { border-left-style: dotted; }
   .value-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .value-op { font-family: 'JetBrains Mono', monospace; color: var(--color-success); }
   .value-asset { font-family: 'JetBrains Mono', monospace; }
   .value-row { font-family: 'JetBrains Mono', monospace; padding-left: 6px; }
-  .value-label { display: inline-block; width: 48px; font-size: 9px; color: var(--color-text-dim); }
-  .value-line { font-size: 9px; color: var(--color-text-dim); }
-  .value-ambiguous { font-size: 9px; }
+  .value-label { display: inline-block; width: 56px; font-size: 12px; color: var(--color-text-dim); }
+  .value-line { font-size: 12px; color: var(--color-text-dim); }
+  .value-ambiguous { font-size: 12px; }
 </style>

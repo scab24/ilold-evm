@@ -21,7 +21,7 @@
 
   const STORAGE_KEY = 'ilold.codeViewer.fontSize';
   const DEFAULT_FONT = 13;
-  const MIN_FONT = 10;
+  const MIN_FONT = 12;
   const MAX_FONT = 22;
 
   function readStoredFont(): number {
@@ -229,7 +229,7 @@
     border: 1px solid transparent;
     color: var(--color-text-muted);
     font-family: inherit;
-    font-size: 11px;
+    font-size: 12px;
     padding: 4px 10px;
     border-radius: 6px;
     cursor: pointer;
@@ -267,7 +267,7 @@
     background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   }
   .tool-value {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--color-text-dim);
     min-width: 34px;
     text-align: center;
@@ -320,7 +320,7 @@
     align-items: center;
     gap: 8px;
     padding: 5px 12px;
-    font-size: 10px;
+    font-size: 12px;
     color: var(--color-text-dim);
     font-family: var(--font-mono, monospace);
     font-variant-numeric: tabular-nums;

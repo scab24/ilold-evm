@@ -121,7 +121,7 @@
     return null;
   }
 
-  const SEQ_NODE_W = 220;
+  const SEQ_NODE_W = 260;
   const SEQ_NODE_H = 80;
   const SEQ_SIBLING_GAP = 30; // gap between siblings at the same level
   const SEQ_LEVEL_GAP = 120;  // gap between parent and children rank

@@ -15,7 +15,7 @@
 <style>
   .access-key { display: inline-flex; align-items: center; gap: 3px; margin-right: 4px; }
   .key-text { font-family: 'JetBrains Mono', monospace; color: var(--color-text); }
-  .key-kind { font-size: 9px; padding: 0 4px; border-radius: 6px; background: color-mix(in srgb, var(--color-text-dim) 15%, transparent); color: var(--color-text-muted); }
+  .key-kind { font-size: 12px; padding: 0 4px; border-radius: 6px; background: color-mix(in srgb, var(--color-text-dim) 15%, transparent); color: var(--color-text-muted); }
   .kind-msg_sender { background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
   .kind-parameter { background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent-hover); }
   .kind-state_var, .kind-this, .kind-literal { background: color-mix(in srgb, var(--color-warning) 15%, transparent); color: var(--color-warning); }

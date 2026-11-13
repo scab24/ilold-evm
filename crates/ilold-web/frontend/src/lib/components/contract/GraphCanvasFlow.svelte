@@ -198,7 +198,7 @@
     height: 100%;
   }
   :global(.svelte-flow .svelte-flow__edge-text) {
-    font-size: 11px;
+    font-size: 12px;
     fill: var(--color-accent-hover);
   }
 

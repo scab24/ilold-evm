@@ -22,8 +22,8 @@
 
 <style>
   .try { padding: 2px 4px 4px; border-left: 2px solid color-mix(in srgb, var(--color-warning) 50%, transparent); margin-bottom: 4px; }
-  .try-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+  .try-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
   .try-call { font-family: 'JetBrains Mono', monospace; color: var(--color-warning); }
-  .try-lines { font-size: 9px; color: var(--color-text-dim); }
-  .try-ambiguous { font-size: 9px; }
+  .try-lines { font-size: 12px; color: var(--color-text-dim); }
+  .try-ambiguous { font-size: 12px; }
 </style>

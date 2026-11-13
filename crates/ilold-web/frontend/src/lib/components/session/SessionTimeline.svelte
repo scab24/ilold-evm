@@ -140,14 +140,14 @@
             "
           >
             <button
-              class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none text-text text-[11px] font-mono cursor-pointer text-left transition-colors duration-150 hover:text-accent-hover"
+              class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none text-text text-[12px] font-mono cursor-pointer text-left transition-colors duration-150 hover:text-accent-hover"
               style="border-radius: 8px;"
               onclick={() => toggleNarrative(step.step_index)}
             >
-              <span class="text-text-dim text-[9px] min-w-[16px] text-right">{step.step_index}</span>
+              <span class="text-text-dim text-[12px] min-w-[16px] text-right">{step.step_index}</span>
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{step.function}</span>
               <span class="badge {badge.cls}">{badge.text}</span>
-              <span class="text-text-dim text-[9px] flex-shrink-0">{isExpanded ? '▾' : '▸'}</span>
+              <span class="text-text-dim text-[12px] flex-shrink-0">{isExpanded ? '▾' : '▸'}</span>
             </button>
 
             {#if isExpanded}
@@ -160,11 +160,11 @@
                 "
               >
                 {#if loadingNarrative}
-                  <span class="text-text-dim text-[10px] italic">Loading...</span>
+                  <span class="text-text-dim text-[12px] italic">Loading...</span>
                 {:else if narrativeError}
-                  <span class="text-danger text-[11px]">{narrativeError}</span>
+                  <span class="text-danger text-[12px]">{narrativeError}</span>
                 {:else if narrative}
-                  <div class="narrative text-[11px] leading-relaxed" data-testid="step-narrative">
+                  <div class="narrative text-[12px] leading-relaxed" data-testid="step-narrative">
                     <div class="text-text">
                       <span class="font-mono">{narrative.name}</span>
                       <span class="text-text-muted">· {formatAccess(narrative.access)}</span>
@@ -210,7 +210,7 @@
   {#if steps.length > 0}
     <div class="px-2.5 py-2 flex-shrink-0" style="border-top: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);">
       <button
-        class="w-full py-1.5 border text-text-muted text-[11px] font-mono cursor-pointer transition-colors duration-150 hover:text-text hover:border-accent"
+        class="w-full py-1.5 border text-text-muted text-[12px] font-mono cursor-pointer transition-colors duration-150 hover:text-text hover:border-accent"
         style="
           border-radius: 8px;
           border-color: color-mix(in srgb, var(--color-border) 50%, transparent);
@@ -228,7 +228,7 @@
 
 <style>
   .badge {
-    font-size: 9px;
+    font-size: 12px;
     padding: 2px 6px;
     border-radius: 8px;
     font-family: system-ui, sans-serif;
@@ -258,7 +258,7 @@
 
   .narr-label {
     margin-top: 6px;
-    font-size: 9px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--color-text-dim);
