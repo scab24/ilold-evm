@@ -74,7 +74,8 @@ via `analyze --deps --contract IPool`.
 contracts by source folder, with interfaces, libraries and the interfaces
 outside the project folded into one box each (click a box to show its
 contracts, **Fold** to fold it again). The first view shows the whole map
-when it is readable at that size, otherwise it fits the project folders and
+when it is readable at that size (never below zoom 1, so text keeps 12 px on
+screen), otherwise it fits the project folders and
 any group opened in the URL; drag the canvas to reach the rest:
 
 - one line per pair of contracts adds up the calls between them, function to
@@ -167,14 +168,30 @@ a lasso in select mode.
   called by other contracts (**All functions** lists the rest); each contract
   it calls is a small card on its right, each caller a small card on its left;
   libraries and the interfaces outside the project fold into one card each.
-  The first view fits the board at a readable zoom.
+  A small card says which way it links (`calls LaunchCurve · 4`,
+  `called by LaunchCurve · 6`). Each column is stacked in the order of the
+  functions its cards link to, and the card of targets outside the project
+  sits at the end of its column.
+- the board opens at zoom 1, so its text keeps 12 px on screen: the whole
+  board when it fits, otherwise the main card, clear of the canvas tools.
+  Fit and the zoom buttons stay yours; opening a card or **All functions**
+  frames the board again.
+- every function row counts its calls (`3→ 1←`: three calls out, one in).
+  Lines stay dim until you hover or select a function. Hovering a row lights
+  only its lines and lists them (`→ KitsuneHook.migrate · line 251`).
 - click a function (on the board or in the left list) to select it: its lines
-  light up with their source lines (`line 251 · moves value`), the others dim.
-  Click a small card, or one of its functions, to open that contract in its
-  place, one column further out, with that function selected; the cards under
-  it move down to make room and the view moves to the opened card.
+  light up with their source lines (`:251`) near the arrow; a number with no
+  free spot is left out (the Inspector lists every line). Click a small card,
+  or one of its functions, to open that contract in its place, one column
+  further out, with that function selected; the cards under it move down to
+  make room and the view moves to the opened card.
 - cards are placed once, when they first appear; a card you drag stays where
-  you left it while you select, open, close or filter.
+  you left it while you select, open, close or filter, and a closed card folds
+  back where it was. Leaving the mode clears the board, so the next visit lays
+  it out again. **Layout** (Down or Right, as in Seq) lays the board out again
+  top to bottom or left to right.
+- the legend also names the card marks: entry point, restricted, moves value
+  and outside the project.
 - the trail above the board lists the opened steps (each one selectable; a
   long trail keeps the first and last step and folds the middle into `+N`).
   **Backspace** removes the last step, **×** closes a card (and the cards
@@ -188,8 +205,9 @@ a lasso in select mode.
   contract of the board; the line filters, the direction and **All
   functions** stay as they were. Delete removes nothing in this mode.
 - a contract that calls no other contract and that no other contract calls
-  says so on the canvas, with **Show all its functions** to list them anyway.
-- the whole board (open boxes, trail, selection, direction, filters) lives in
+  says so on the canvas, with **Show all its functions** to list them anyway;
+  the board controls and **Center** stay off until it has cards.
+- the whole board (open boxes, trail, selection, direction, layout, filters) lives in
   the URL, so a reload or a link reopens it; it is not saved in scenarios.
 
 The function list on the left selects in every mode (in Connections it selects
