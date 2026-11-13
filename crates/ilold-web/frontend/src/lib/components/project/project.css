@@ -97,9 +97,16 @@
 @media (max-width: 1279px) {
   .pj .legend .hint { display: none; }
 }
+.pj .legend .basis { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; padding-left: 10px; border-left: 1px solid var(--color-border-subtle); }
+.pj .legend .basis .key { margin-right: 4px; }
+@media (max-width: 1279px) {
+  .pj .legend.lines .tlabel { display: none; }
+  .pj .legend .basis { gap: 5px; }
+  .pj .legend .basis .key { margin-right: 0; }
+}
 @media (max-width: 1199px) {
-  .pj .legend { gap: 6px; padding: 0 12px; }
-  .pj .fchip { padding: 0 7px; }
+  .pj .legend { gap: 5px; padding: 0 12px; }
+  .pj .fchip { padding: 0 6px; }
   .pj .fchip .st { display: none; }
 }
 .pj .fchip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--color-border-subtle); background: none; cursor: pointer; color: var(--color-text); }
@@ -119,7 +126,7 @@
 .pj .chip.amb .pj-icon { color: var(--amber); }
 .pj .chip.on { background: var(--color-tint-accent); border-color: var(--color-accent); }
 .pj .chip.faded { opacity: 0.25; }
-.pj button.chip { line-height: 1.5; }
+.pj button.chip { line-height: normal; }
 .pj span.chip { cursor: default; }
 .pj .tip { position: fixed; z-index: 30; max-width: 440px; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); pointer-events: none; white-space: pre-line; }
 .pj .tip.measuring { visibility: hidden; }

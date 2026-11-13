@@ -73,8 +73,9 @@ via `analyze --deps --contract IPool`.
 `ilold serve <project>` opens on the project page. Its **Map** tab draws the
 contracts by source folder, with interfaces, libraries and the interfaces
 outside the project folded into one box each (click a box to show its
-contracts, **Fold** to fold it again). The first view fits the project folders
-at a readable size; drag the canvas to reach the folded boxes:
+contracts, **Fold** to fold it again). The first view shows the whole map
+when it is readable at that size, otherwise it fits the project folders and
+any group opened in the URL; drag the canvas to reach the rest:
 
 - one line per pair of contracts adds up the calls between them, function to
   function (the [`links --all`](../commands/contract.md#links) pairs); the chip

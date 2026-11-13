@@ -68,8 +68,17 @@
   const pair = $derived(drawn.find((e) => e.id === params.get('pair')) ?? null);
   const pickedPair = $derived(pair?.id ?? null);
   const hood = $derived(selected ? neighbourhood(drawn, endpoint(selected), depth, direction) : null);
-  const folderIds = $derived([...(g?.folders.keys() ?? [])].map((f) => `folder:${f}`));
-  const firstFit = $derived<FitViewOptions>({ ...READABLE_FIT, nodes: (hood ? [...hood.keys()] : folderIds).map((id) => ({ id })) });
+  const folderIds = $derived([...(g?.folders.keys() ?? [])].map((f) => `folder:${f}`).concat([...open].map((f) => `fold:${f}`)));
+  const firstFit = $derived.by((): FitViewOptions => {
+    if (hood) return { ...READABLE_FIT, nodes: [...hood.keys()].map((id) => ({ id })) };
+    return wholeIsReadable() ? READABLE_FIT : { ...READABLE_FIT, nodes: folderIds.map((id) => ({ id })) };
+  });
+  function wholeIsReadable(): boolean {
+    if (!scene || !canvasEl) return false;
+    const right = Math.max(...scene.nodes.map((n) => n.position.x + Number(n.data.width ?? 0)));
+    const bottom = Math.max(...scene.nodes.map((n) => n.position.y + Number(n.data.height ?? 0)));
+    return Math.min((canvasEl.clientWidth - 56) / right, (canvasEl.clientHeight - 56) / bottom) >= READABLE_FIT.minZoom;
+  }
 
   onMount(async () => {
     try {
@@ -490,7 +499,7 @@
           <ul class="list"><li class="li"><button type="button" class="rb" onclick={() => toggleFold('outside', true)}><Icon name="unres" class="amb" /><span class="rb-body"><span class="rt amb">{plural(t.unresolved, 'unresolved call', 'unresolved calls')}</span><span class="rs">to {plural(g?.outside.length ?? 0, 'target', 'targets')} outside the project{open.has('outside') ? '' : ' · show them'}</span></span></button></li></ul>
         {/if}
       {/if}
-      <h2><span class="ht">Most connected</span><span class="n">calls and reads in and out</span></h2>
+      <h2><span class="ht">Most connected</span><span class="n">calls in + out</span></h2>
       <ul class="list">
         {#each top as t (t.contract)}
           <li class="li"><button type="button" class="rb" onclick={() => select(t.contract)}><Icon name="folder" /><span class="rb-body"><span class="rt">{t.contract}</span><span class="rs">{byName.get(t.contract)?.folder ?? ''}</span></span></button><span class="src count">{t.outgoing_calls + t.incoming_calls}</span></li>
@@ -501,7 +510,7 @@
   </aside>
 </div>
 
-<div class="legend">
+<div class="legend lines">
   <span class="tlabel">Lines</span>
   {#each LINES as l (l.id)}
     {@const s = l.id === 'iface' ? null : lineStyle(l.id)}
@@ -510,11 +519,13 @@
       <span class="lbl">{l.label}</span>{#if lines[l.id] !== 'show'}<span class="st">{lines[l.id] === 'dim' ? 'dimmed' : 'hidden'}</span>{/if}
     </button>
   {/each}
-  <span class="tlabel basis-key">Found by</span>
-  {#each BASIS_KEY as [basis, text] (basis)}
-    {@const s = lineStyle('calls', basis)}
-    <span class="key basis-key" title={BASIS_LABEL[basis]}><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{text}</span>
-  {/each}
+  <span class="basis" title="How the call target was found: through the interface it implements, by selector match, or a this call">
+    <span class="tlabel">Found by</span>
+    {#each BASIS_KEY as [basis, text] (basis)}
+      {@const s = lineStyle('calls', basis)}
+      <span class="key"><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{text}</span>
+    {/each}
+  </span>
   <span class="hint">Hover a line for counts · click for functions</span>
 </div>
 

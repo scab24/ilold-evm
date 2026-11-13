@@ -73,6 +73,7 @@
   .box.cluster { border-style: dashed; background: var(--color-surface); }
   .box.out { border: 1.25px dashed var(--amber); background: var(--color-tint-warning); }
   .box.route { background: var(--color-tint-accent); border: 2px solid var(--color-accent); }
+  .box.route.on { border-color: var(--color-accent-hover); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-hover) 35%, transparent); }
   .name { display: flex; align-items: center; gap: 6px; font: 600 13px var(--font-sans); color: var(--color-text-light); white-space: nowrap; }
   .name span { overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; align-items: flex-start; gap: 5px; overflow-wrap: anywhere; }
