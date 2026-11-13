@@ -5,13 +5,15 @@ import type { GraphNodeData } from '$lib/stores/graph.svelte';
 import { edgeStyle, lookOf, LIBRARIES, OUTSIDE, type Line, type LineState } from '../../project/map-graph.ts';
 import { runDagreLayout } from '../../../utils/graph-helpers.ts';
 import { boxHeight, rowCentre } from '../../project/box-size.ts';
+import { NEAR_SOURCE, placeChips, type Anchor, type ChipItem, type Rect } from '../../project/chips.ts';
 import { edgeBasis, type BoardEdge, type BoardNode, type Built } from './board-links.ts';
-import { contractOf, keyParts, type Board } from './board-state.ts';
+import { contractOf, keyParts, type Board, type Layout } from './board-state.ts';
 
-const OPEN_W = 260;
+const OPEN_W = 280;
 const FOLD_W = 220;
 const GAP = 16;
 const NODE_SEP = 28;
+const ROW_PORT_REACH = 14;
 const ACCENT = 'var(--color-accent-hover)';
 const PORTS: BoxPort[] = [
   { id: 'in', side: 'l', type: 'target' },
@@ -25,13 +27,6 @@ export interface Facts {
   entry: boolean;
   restricted: boolean;
   value: boolean;
-}
-
-export interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
 }
 
 interface BoardGraph {
@@ -50,14 +45,35 @@ function foldName(card: Pick<BoardNode, 'c' | 'rows'>): string {
 
 const count = (n: number) => `${n} ${n === 1 ? 'link' : 'links'}`;
 
-export function boardGraph(built: Built, board: Board, lines: Record<Line, LineState>, facts: (c: string, member: string) => Facts | undefined, order: (c: string) => string[]): BoardGraph {
+export interface RowRef {
+  id: string;
+  row: string;
+}
+
+const sumLinks = (list: BoardEdge[]) => list.reduce((s, e) => s + e.links.length, 0);
+
+export function boardGraph(built: Built, board: Board, lines: Record<Line, LineState>, facts: (c: string, member: string) => Facts | undefined, order: (c: string) => string[], hot: RowRef | null = null): BoardGraph {
   const cardById = new Map(built.nodes.map((n) => [n.id, n]));
   const selectedCard = board.fn ? `O:${contractOf(board.fn)}` : null;
   const touches = (id: string, row: string) => id === selectedCard && row === board.fn;
   const onEdge = (e: BoardEdge) => !!board.fn && (touches(e.a, e.ar) || touches(e.b, e.br));
+  const hotEdge = (e: BoardEdge) => !!hot && ((e.a === hot.id && e.ar === hot.row) || (e.b === hot.id && e.br === hot.row));
   const litPorts = new Set(built.edges.filter((e) => !board.fn || onEdge(e)).flatMap((e) => [`${e.a}|${e.ar}`, `${e.b}|${e.br}`]));
   const valuePorts = new Set(built.edges.filter((e) => e.links.some((l) => l.value)).map((e) => `${e.a}|${e.ar}`));
   const rowRank = new Map<string, number>();
+
+  const sidesOf = (n: BoardNode): ['calls' | 'called by', string, number][] => {
+    const sides = new Map<string, ['calls' | 'called by', string, number]>();
+    for (const e of [...built.edges, ...built.dimmed]) {
+      const verb = e.a === n.id ? 'calls' : e.b === n.id ? 'called by' : null;
+      if (!verb) continue;
+      const other = cardById.get(verb === 'calls' ? e.b : e.a)!.c;
+      const side = sides.get(`${verb}|${other}`) ?? [verb, other, 0];
+      side[2] += e.links.length;
+      sides.set(`${verb}|${other}`, side);
+    }
+    return [...sides.values()];
+  };
 
   const card = (n: BoardNode): BoxNodeData => {
     const base = { _type: 'box' as const, ports: PORTS, rowPorts: true };
@@ -75,8 +91,11 @@ export function boardGraph(built: Built, board: Board, lines: Record<Line, LineS
           const f = facts(n.c, keyParts(r.key).member);
           const value = valuePorts.has(`${n.id}|${r.key}`) || !!f?.value;
           const marks = [...(f?.restricted ? (['lock'] as const) : []), ...(value ? (['value'] as const) : [])];
-          const said = [f?.entry ? ', entry point' : '', f?.restricted ? ', restricted' : '', value ? ', moves value' : ''].join('');
-          return { id: r.key, text: r.label, title: r.title, icon: f?.entry ? 'entry' : undefined, marks, on: board.fn === r.key, label: `${n.c}.${r.label}${said}` };
+          const out = sumLinks(built.edges.filter((e) => e.a === n.id && e.ar === r.key));
+          const into = sumLinks(built.edges.filter((e) => e.b === n.id && e.br === r.key));
+          const links = [out ? `${out}→` : '', into ? `${into}←` : ''].filter(Boolean).join(' ');
+          const said = [f?.entry ? ', entry point' : '', f?.restricted ? ', restricted' : '', value ? ', moves value' : '', out ? `, ${out} out` : '', into ? `, ${into} in` : ''].join('');
+          return { id: r.key, text: r.label, title: r.title, icon: f?.entry ? 'entry' : undefined, marks, count: links || undefined, on: board.fn === r.key, label: `${n.c}.${r.label}${said}` };
         });
       const collapsed = n.type === 'collapsed';
       return {
@@ -103,7 +122,7 @@ export function boardGraph(built: Built, board: Board, lines: Record<Line, LineS
       label: name,
       icon: n.c === LIBRARIES ? 'lib' : n.c === OUTSIDE ? 'unres' : undefined,
       variant: n.c === OUTSIDE ? 'out' : n.type === 'group' ? 'cluster' : '',
-      lines: [{ text: count(n.n), tone: n.c === OUTSIDE ? 'amb' : undefined }],
+      lines: sidesOf(n).map(([verb, other, links]) => ({ text: `${verb} ${other} · ${links}`, icon: verb === 'calls' ? 'call' : 'entry', tone: n.c === OUTSIDE ? 'amb' : undefined })),
       rows,
       rowAction: openable,
       headAction: openable ? `${name}, ${count(n.n)}. Opens it here` : undefined,
@@ -125,28 +144,26 @@ export function boardGraph(built: Built, board: Board, lines: Record<Line, LineS
     const [source, sourceRow, target, targetRow] = flip ? [e.b, e.br, e.a, e.ar] : [e.a, e.ar, e.b, e.br];
     const handle = (row: string, side: string) => (row ? `${row}:${side}` : side);
     const on = !dim && onEdge(e);
-    const soft = !dim && !!board.fn && !on;
+    const bright = on || (!dim && hotEdge(e));
     const look = lookOf(e.links, lines);
     const style = edgeStyle({ look, basis: edgeBasis(e) });
-    const color = dim ? 'var(--color-text-dim)' : on && (look === 'calls' || look === 'library' || look === 'reads') ? ACCENT : style.color;
+    const color = dim ? 'var(--color-text-dim)' : bright && (look === 'calls' || look === 'library' || look === 'reads') ? ACCENT : style.color;
     const marker = { type: 'arrowclosed' as MarkerType, color, width: 14, height: 14 };
     const lineNos = [...new Set(e.links.map((l) => l.row.span.start_line))].sort((x, y) => x - y);
-    const value = e.links.some((l) => l.value);
-    const chip = on ? `${lineNos.length > 1 ? 'lines' : 'line'} ${lineNos.join(', ')}${value ? ' · moves value' : ''}` : undefined;
     const sameCol = fromCol === toCol;
+    const chip = on && !sameCol ? lineNos.map((n) => `:${n}`).join(' ') : undefined;
     wires.set(id, e);
     edges.push({
       id,
       type: sameCol ? 'smoothstep' : 'chip',
-      label: sameCol ? chip : undefined,
       source,
       target,
       sourceHandle: handle(sourceRow, 'out'),
       targetHandle: handle(targetRow, sameCol ? 'back' : 'in'),
       markerEnd: flip ? undefined : marker,
       markerStart: flip ? marker : undefined,
-      zIndex: on ? 2 : undefined,
-      style: `stroke: ${color}; stroke-width: ${Math.round((style.width + (on ? 0.6 : 0)) * 10) / 10}; opacity: ${dim ? 0.35 : soft ? 0.45 : 1}${style.dash ? `; stroke-dasharray: ${style.dash}` : ''}`,
+      zIndex: bright ? 2 : undefined,
+      style: `stroke: ${color}; stroke-width: ${Math.round((style.width + (bright ? 0.6 : 0)) * 10) / 10}; opacity: ${bright ? 1 : dim ? 0.25 : 0.4}${style.dash ? `; stroke-dasharray: ${style.dash}` : ''}`,
       data: {
         chip,
         tone: look === 'unresolved' || look === 'ambiguous' ? 'amb' : look === 'value' ? 'val' : '',
@@ -164,6 +181,47 @@ export function shapeOf(graph: BoardGraph): string {
   return JSON.stringify(graph.nodes.map((n) => [n.id, n.data.width, boxHeight(n.data)]));
 }
 
+export function placeLabels(graph: BoardGraph, positionOf: (id: string) => { x: number; y: number } | undefined): Edge[] {
+  const dataById = new Map(graph.nodes.map((n) => [n.id, n.data]));
+  const rectOf = (id: string): Rect | null => {
+    const p = positionOf(id);
+    const data = dataById.get(id);
+    return p && data ? { ...p, w: data.width ?? FOLD_W, h: boxHeight(data) } : null;
+  };
+  const anchor = (id: string, handle: string): Anchor | null => {
+    const r = rectOf(id);
+    if (!r) return null;
+    const cut = handle.lastIndexOf(':');
+    const row = cut < 0 ? '' : handle.slice(0, cut);
+    const port = cut < 0 ? handle : handle.slice(cut + 1);
+    const data = dataById.get(id)!;
+    const index = row ? (data.rows ?? []).findIndex((x) => x.id === row) : -1;
+    const side = port === 'in' ? 'l' : 'r';
+    const reach = index >= 0 ? ROW_PORT_REACH : 0;
+    const y = r.y + (index >= 0 ? rowCentre(data, index) : r.h * (port === 'in' ? 1 / 2 : port === 'out' ? 1 / 3 : 2 / 3));
+    return { x: side === 'l' ? r.x - reach : r.x + r.w + reach, y, side };
+  };
+  const items: ChipItem[] = [];
+  const arrowFirst = new Set<string>();
+  for (const e of graph.edges) {
+    const chip = (e.data as ChipEdgeData | undefined)?.chip;
+    if (!chip) continue;
+    const s = anchor(e.source, e.sourceHandle ?? 'out');
+    const t = anchor(e.target, e.targetHandle ?? 'in');
+    if (!s || !t) continue;
+    if (e.markerStart) arrowFirst.add(e.id);
+    items.push({ id: e.id, s: e.markerStart ? s : t, t: e.markerStart ? t : s, text: chip });
+  }
+  const boxes = graph.nodes.map((n) => rectOf(n.id)).filter((r): r is Rect => !!r);
+  const chosen = placeChips(items, boxes, NEAR_SOURCE);
+  return graph.edges.map((e) => {
+    if (!chosen.has(e.id)) return e;
+    const at = chosen.get(e.id)!;
+    const labelAt = at === null ? null : arrowFirst.has(e.id) ? at : 1 - at;
+    return { ...e, data: { ...(e.data as ChipEdgeData), labelAt } };
+  });
+}
+
 export interface Known extends Rect {
   pinned: boolean;
   at: { x: number; y: number };
@@ -178,21 +236,23 @@ interface Card extends Rect {
 
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w + GAP && b.x < a.x + a.w + GAP && a.y < b.y + b.h + GAP && b.y < a.y + a.h + GAP;
 
-function autoLayout(built: Built, graph: BoardGraph): Map<string, { x: number; y: number }> {
+function autoLayout(built: Built, graph: BoardGraph, layout: Layout): Map<string, { x: number; y: number }> {
   const laid = runDagreLayout(graph.nodes as Node<GraphNodeData>[], graph.layout, {
-    rankDir: 'LR',
+    rankDir: layout,
     nodeSep: NODE_SEP,
-    rankSep: 120,
+    rankSep: layout === 'LR' ? 120 : 90,
     size: (n) => ({ width: (n.data as BoxNodeData).width ?? FOLD_W, height: boxHeight(n.data as BoxNodeData) }),
     minlen: (e) => (e.data?.minlen as number | undefined) ?? 1,
   });
   const at = new Map(laid.map((n) => [n.id, { ...n.position }]));
   const dataById = new Map(graph.nodes.map((n) => [n.id, n.data]));
   const colOf = new Map(built.nodes.map((n) => [n.id, n.col]));
-  const portY = (id: string, row: string) => {
+  const across = layout === 'LR' ? 'y' : 'x';
+  const size = (id: string) => (layout === 'LR' ? boxHeight(dataById.get(id)!) : (dataById.get(id)!.width ?? FOLD_W));
+  const portAt = (id: string, row: string) => {
     const data = dataById.get(id)!;
-    const index = row ? (data.rows ?? []).findIndex((r) => r.id === row) : -1;
-    return at.get(id)!.y + (index < 0 ? boxHeight(data) / 2 : rowCentre(data, index));
+    const index = row && layout === 'LR' ? (data.rows ?? []).findIndex((r) => r.id === row) : -1;
+    return at.get(id)![across] + (index < 0 ? size(id) / 2 : rowCentre(data, index));
   };
   const columns = [...new Set(colOf.values())].filter((c) => c !== 0).sort((x, y) => Math.abs(x) - Math.abs(y));
   for (const col of columns) {
@@ -200,14 +260,14 @@ function autoLayout(built: Built, graph: BoardGraph): Map<string, { x: number; y
     const inner = (id: string) => Math.abs(colOf.get(id)!) < Math.abs(col);
     const weight = (id: string) => {
       if (cardOf(built, id)?.c === OUTSIDE) return Infinity;
-      const ys = [...built.edges, ...built.dimmed].flatMap((e) => (e.a === id && inner(e.b) ? [portY(e.b, e.br)] : e.b === id && inner(e.a) ? [portY(e.a, e.ar)] : []));
-      return ys.length ? ys.reduce((s, y) => s + y, 0) / ys.length : at.get(id)!.y;
+      const ports = [...built.edges, ...built.dimmed].flatMap((e) => (e.a === id && inner(e.b) ? [portAt(e.b, e.br)] : e.b === id && inner(e.a) ? [portAt(e.a, e.ar)] : []));
+      return ports.length ? ports.reduce((s, p) => s + p, 0) / ports.length : at.get(id)![across];
     };
     const weights = new Map(ids.map((id) => [id, weight(id)]));
-    let top = Math.min(...ids.map((id) => at.get(id)!.y));
+    let next = Math.min(...ids.map((id) => at.get(id)![across]));
     for (const id of ids.sort((x, y) => weights.get(x)! - weights.get(y)! || x.localeCompare(y))) {
-      at.get(id)!.y = top;
-      top += boxHeight(dataById.get(id)!) + NODE_SEP;
+      at.get(id)![across] = next;
+      next += size(id) + NODE_SEP;
     }
   }
   return at;
@@ -221,7 +281,7 @@ export function place(built: Built, board: Board, graph: BoardGraph, known: (id:
     const n = cardById.get(id);
     return !n ? null : n.owner ? `O:${n.owner}` : board.parent[n.c] ? `O:${board.parent[n.c]}` : null;
   };
-  const auto = graph.nodes.some((n) => !known(n.id)) ? autoLayout(built, graph) : new Map<string, { x: number; y: number }>();
+  const auto = graph.nodes.some((n) => !known(n.id)) ? autoLayout(built, graph, board.layout) : new Map<string, { x: number; y: number }>();
   const where = new Map<string, Card>();
   const grown: string[] = [];
   for (const n of graph.nodes) {

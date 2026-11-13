@@ -4,7 +4,8 @@ import type { Connections } from '$lib/api/rest';
 import { DEFAULT_LINES } from '../../project/map-graph.ts';
 import { build, linksOf, type Built } from './board-links.ts';
 import { boxHeight } from '../../project/box-size.ts';
-import { boardGraph, place, type Known, type Rect } from './board-graph.ts';
+import { boardGraph, place, type Known } from './board-graph.ts';
+import type { Rect } from '../../project/chips.ts';
 import curve from '../../../api/fixtures/connections.json' with { type: 'json' };
 import hook from '../../../api/fixtures/connections_hook.json' with { type: 'json' };
 import { openStep, readBoard, touch, type Board } from './board-state.ts';
@@ -68,23 +69,23 @@ test('the board graph draws cards with their rows and lines from caller to calle
   assert.deepEqual(data.get('O:Curve'), {
     _type: 'box', ports: PORTS, rowPorts: true, label: 'Curve', variant: 'main', lines: [{ text: 'main contract' }],
     rows: [
-      { id: 'Curve|buy', text: 'buy', title: 'buy', icon: 'entry', marks: ['value'], on: true, label: 'Curve.buy, entry point, moves value' },
-      { id: 'Curve|_graduate', text: '_graduate', title: '_graduate', icon: undefined, marks: ['value'], on: false, label: 'Curve._graduate, moves value' },
-      { id: 'Curve|Payout::pay', text: 'Payout.pay', title: 'Payout::pay', icon: undefined, marks: ['value'], on: false, label: 'Curve.Payout.pay, moves value' },
+      { id: 'Curve|buy', text: 'buy', title: 'buy', icon: 'entry', marks: ['value'], count: '3→ 1←', on: true, label: 'Curve.buy, entry point, moves value, 3 out, 1 in' },
+      { id: 'Curve|_graduate', text: '_graduate', title: '_graduate', icon: undefined, marks: ['value'], count: '1→', on: false, label: 'Curve._graduate, moves value, 1 out' },
+      { id: 'Curve|Payout::pay', text: 'Payout.pay', title: 'Payout::pay', icon: undefined, marks: ['value'], count: '1→', on: false, label: 'Curve.Payout.pay, moves value, 1 out' },
     ],
-    rowAction: true, headAction: 'Curve, main contract', closable: undefined, width: 260,
+    rowAction: true, headAction: 'Curve, main contract', closable: undefined, width: 280,
   });
   assert.deepEqual(data.get('O:Hook'), {
     _type: 'box', ports: PORTS, rowPorts: true, label: 'Hook', variant: 'open', lines: [{ text: '2 links · click to expand' }],
-    rows: [], rowAction: true, headAction: 'Expand Hook', closable: 'Close Hook on the board', width: 260,
+    rows: [], rowAction: true, headAction: 'Expand Hook', closable: 'Close Hook on the board', width: 280,
   });
   assert.deepEqual(data.get('C:DenA@1'), {
-    _type: 'box', ports: PORTS, rowPorts: true, label: 'DenA', icon: undefined, variant: '', lines: [{ text: '1 link', tone: undefined }],
+    _type: 'box', ports: PORTS, rowPorts: true, label: 'DenA', icon: undefined, variant: '', lines: [{ text: 'called by Curve · 1', icon: 'entry', tone: undefined }],
     rows: [{ id: 'DenA|deliver', text: 'deliver', title: 'deliver', tone: 'amb', label: 'DenA deliver. Opens DenA here' }],
     rowAction: true, headAction: 'DenA, 1 link. Opens it here', width: 220,
   });
   assert.deepEqual(data.get('C:#libraries@1'), {
-    _type: 'box', ports: PORTS, rowPorts: true, label: 'Libraries', icon: 'lib', variant: 'cluster', lines: [{ text: '1 link', tone: undefined }],
+    _type: 'box', ports: PORTS, rowPorts: true, label: 'Libraries', icon: 'lib', variant: 'cluster', lines: [{ text: 'called by Curve · 1', icon: 'entry', tone: undefined }],
     rows: [], rowAction: false, headAction: undefined, width: 220,
   });
   assert.deepEqual(data.get('O:Token')!.rows!.map((r) => [r.id, r.on, r.marks]), [['Token|mint', false, []], ['Token|transfer', false, []]]);
@@ -92,12 +93,12 @@ test('the board graph draws cards with their rows and lines from caller to calle
   assert.deepEqual(
     g.edges.map((e) => [e.id, e.source, e.sourceHandle, e.target, e.targetHandle, e.markerEnd ? 'end' : 'start', (e.data as { chip?: string }).chip ?? null]),
     [
-      ['cb:O:Curve|Curve|buy>C:DenA@1|DenA|deliver', 'O:Curve', 'Curve|buy:out', 'C:DenA@1', 'DenA|deliver:in', 'end', 'line 36'],
-      ['cb:O:Curve|Curve|buy>C:DenB@1|DenB|deliver', 'O:Curve', 'Curve|buy:out', 'C:DenB@1', 'DenB|deliver:in', 'end', 'line 36'],
+      ['cb:O:Curve|Curve|buy>C:DenA@1|DenA|deliver', 'O:Curve', 'Curve|buy:out', 'C:DenA@1', 'DenA|deliver:in', 'end', ':36'],
+      ['cb:O:Curve|Curve|buy>C:DenB@1|DenB|deliver', 'O:Curve', 'Curve|buy:out', 'C:DenB@1', 'DenB|deliver:in', 'end', ':36'],
       ['cb:O:Curve|Curve|_graduate>O:Hook|', 'O:Curve', 'Curve|_graduate:out', 'O:Hook', 'in', 'end', null],
-      ['cb:O:Curve|Curve|buy>O:Token|Token|mint', 'O:Curve', 'Curve|buy:out', 'O:Token', 'Token|mint:in', 'end', 'line 35 · moves value'],
+      ['cb:O:Curve|Curve|buy>O:Token|Token|mint', 'O:Curve', 'Curve|buy:out', 'O:Token', 'Token|mint:in', 'end', ':35'],
       ['cb:O:Curve|Curve|Payout::pay>O:Token|Token|transfer', 'O:Curve', 'Curve|Payout::pay:out', 'O:Token', 'Token|transfer:in', 'end', null],
-      ['cb:C:Router@-1|Router|buyWith>O:Curve|Curve|buy', 'C:Router@-1', 'Router|buyWith:out', 'O:Curve', 'Curve|buy:in', 'end', 'line 14 · moves value'],
+      ['cb:C:Router@-1|Router|buyWith>O:Curve|Curve|buy', 'C:Router@-1', 'Router|buyWith:out', 'O:Curve', 'Curve|buy:in', 'end', ':14'],
       ['cd:O:Curve>O:Hook', 'O:Curve', 'out', 'O:Hook', 'in', 'end', null],
       ['cd:O:Curve>C:#libraries@1', 'O:Curve', 'out', 'C:#libraries@1', 'in', 'end', null],
       ['cd:C:Router@-1>O:Curve', 'C:Router@-1', 'out', 'O:Curve', 'in', 'end', null],
@@ -105,8 +106,8 @@ test('the board graph draws cards with their rows and lines from caller to calle
   );
   const style = new Map(g.edges.map((e) => [e.id, e.style]));
   assert.equal(style.get('cb:O:Curve|Curve|buy>O:Token|Token|mint'), 'stroke: #7aba8a; stroke-width: 2.8; opacity: 1');
-  assert.equal(style.get('cb:O:Curve|Curve|Payout::pay>O:Token|Token|transfer'), 'stroke: #7aba8a; stroke-width: 2.2; opacity: 0.45');
-  assert.equal(style.get('cd:O:Curve>O:Hook'), 'stroke: var(--color-text-dim); stroke-width: 1.3; opacity: 0.35');
+  assert.equal(style.get('cb:O:Curve|Curve|Payout::pay>O:Token|Token|transfer'), 'stroke: #7aba8a; stroke-width: 2.2; opacity: 0.4');
+  assert.equal(style.get('cd:O:Curve>O:Hook'), 'stroke: var(--color-text-dim); stroke-width: 1.3; opacity: 0.25');
   assert.deepEqual(g.layout.map((e) => [e.source, e.target, e.data?.minlen]), [
     ['O:Curve', 'C:DenA@1', 1], ['O:Curve', 'C:DenB@1', 1], ['O:Curve', 'O:Hook', 1], ['O:Curve', 'O:Token', 1], ['O:Curve', 'O:Token', 1], ['C:Router@-1', 'O:Curve', 1],
     ['O:Curve', 'O:Hook', 1], ['O:Curve', 'C:#libraries@1', 1], ['C:Router@-1', 'O:Curve', 1],

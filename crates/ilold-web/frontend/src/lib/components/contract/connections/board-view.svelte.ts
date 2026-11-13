@@ -20,7 +20,7 @@ export function applyLines(next: Record<Line, LineState>): void {
   setQuery({ lines: linesParam(next) });
 }
 
-const KEPT = ['lines', 'dir', 'all'];
+const KEPT = ['lines', 'dir', 'all', 'layout'];
 
 export function openMain(contract: string, fn: string | null = null): void {
   const query = new URLSearchParams([...page.url.searchParams].filter(([k]) => KEPT.includes(k)));

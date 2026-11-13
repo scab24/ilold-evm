@@ -651,6 +651,10 @@
     if (name) untrack(() => setSessionContract(name));
   });
 
+  const boardEmpty = $derived.by(() => {
+    const c = mainConnections;
+    return mode === 'connections' && !!contract && !!c && !c.outgoing.length && !c.incoming.length && !c.unresolved.length && !currentBoard(contract.name).all;
+  });
   const boardSelected = $derived.by(() => {
     const fn = contract && mode === 'connections' ? currentBoard(contract.name).fn : null;
     return new Set(fn && contractOf(fn) === contract?.name ? [keyParts(fn).member] : []);
@@ -1418,6 +1422,7 @@
       contract={contract?.name ?? page.params.name ?? ''}
       {mode}
       {seqDirection}
+      {boardEmpty}
       oncenter={() => flowApi?.fitView({ padding: 0.1 })}
       onseqdirection={(dir) => { seqDirection = dir; reorientAllSeqSubtrees(); }}
       onsessionback={handleSessionBack}

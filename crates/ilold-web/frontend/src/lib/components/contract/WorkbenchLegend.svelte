@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   import LegendBar from '$lib/components/chrome/LegendBar.svelte';
+  import Icon, { type IconName } from '$lib/components/chrome/Icon.svelte';
   import { LINES, nextState, type Line } from '$lib/components/project/map-graph';
   import { AMBIGUOUS_COLOR, lineStyle } from '$lib/utils/links';
   import { applyLines, currentLines } from './connections/board-view.svelte';
@@ -12,6 +13,12 @@
   const pills = $derived(
     LINES.filter((l) => BOARD_LINES.includes(l.id)).map((l) => ({ ...l, state: lines[l.id], ...(l.id === 'iface' ? { icon: 'iface' as const } : { line: lineStyle(l.id) }) })),
   );
+  const CARD_MARKS: { icon: IconName; text: string }[] = [
+    { icon: 'entry', text: 'entry point' },
+    { icon: 'lock', text: 'restricted' },
+    { icon: 'value', text: 'moves value' },
+    { icon: 'unres', text: 'outside the project' },
+  ];
   const CFG_KEYS = [
     { color: 'var(--color-accent)', text: 'Function' },
     { color: 'var(--color-accent-dark)', text: 'Entry block' },
@@ -31,7 +38,12 @@
 </script>
 
 {#if mode === 'connections'}
-  <LegendBar label="Lines" wide foundBy {pills} onpill={(id) => applyLines({ ...lines, [id]: nextState(id as Line, lines[id as Line]) })} hint="Click a function to light its lines · Backspace undoes the last step" />
+  <LegendBar label="Lines" wide foundBy {pills} onpill={(id) => applyLines({ ...lines, [id]: nextState(id as Line, lines[id as Line]) })} hint="Click a function to light its lines · Backspace undoes the last step">
+    {#each CARD_MARKS as k (k.text)}
+      <span class="key mark" title={k.text}><Icon name={k.icon} size={13} /><span class="mark-text">{k.text}</span></span>
+    {/each}
+    <span class="key mark-count" title="Calls out of the function and calls into it, counted per call site"><span class="mono">2→ 1←</span>calls out, in</span>
+  </LegendBar>
 {:else if mode === 'session'}
   <LegendBar label="Key" foundBy hint="Each step is one call, left to right · Back removes the last step">
     <span class="key"><span class="dot" style:background="var(--color-accent)"></span>Step</span>
@@ -51,4 +63,8 @@
 <style>
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 5px; }
   .dot.hollow { border: 1px solid var(--root); }
+  .mark { gap: 4px; }
+  @media (max-width: 1599px) {
+    .mark-text, .mark-count { display: none; }
+  }
 </style>

@@ -11,9 +11,9 @@
   import type { BoxNodeData } from '$lib/components/project/BoxNode.svelte';
   import { READABLE_FIT } from '$lib/components/project/chips';
   import { LIBRARIES, OUTSIDE } from '$lib/components/project/map-graph';
-  import { build, linksOf, rowLabel, type BoardEdge, type BoardNode } from './board-links';
+  import { build, linksOf, rowLabel, type BoardEdge, type BoardNode, type Link } from './board-links';
   import { boxHeight } from '$lib/components/project/box-size';
-  import { boardGraph, isBoardEdge, place, shapeOf, type Facts, type Known } from './board-graph';
+  import { boardGraph, isBoardEdge, place, placeLabels, shapeOf, type Facts, type Known, type RowRef } from './board-graph';
   import { closeBox, contractOf, keyParts, openStep, popStep, touch } from './board-state';
   import { applyBoard, currentBoard, currentLines, openMain } from './board-view.svelte';
 
@@ -50,10 +50,12 @@
     return { entry: f.visibility === 'External' || f.visibility === 'Public', restricted, value: !!f.value_transfers?.length };
   }
 
+  let hot = $state<RowRef | null>(null);
+  let rowTip = $state<{ x: number; y: number } | null>(null);
+  const built = $derived(!conns.has(main) || (lonely && !board.all) ? null : build(board, links, lines, keysOf));
   const scene = $derived.by(() => {
-    if (!conns.has(main) || (lonely && !board.all)) return null;
-    const built = build(board, links, lines, keysOf);
-    const graph = boardGraph(built, board, lines, factsOf, keysOf);
+    if (!built) return null;
+    const graph = boardGraph(built, board, lines, factsOf, keysOf, hot);
     for (const n of graph.nodes) {
       const missing = n.id.startsWith('O:') ? detailFailed.get(n.data.label) : undefined;
       if (missing) n.data = { ...n.data, lines: [...(n.data.lines ?? []), { text: `Function details did not load: ${missing}`, tone: 'amb' }] };
@@ -64,6 +66,7 @@
   let shown: string[] | null = null;
   let picked: string | null = null;
   let placedShape: string | null = null;
+  let placedLayout: string | null = null;
   let shownAll = false;
 
   onDestroy(() => {
@@ -82,18 +85,21 @@
         placedShape = null;
         return;
       }
-      const shape = shapeOf(s.graph);
+      const stored = new Map(getNodes().map((n) => [n.id, n.position]));
+      const shape = `${board.layout}|${shapeOf(s.graph)}`;
       if (shape === placedShape) {
         const data = new Map(s.graph.nodes.map((n) => [n.id, n.data]));
         setNodes(getNodes().map((n) => (data.has(n.id) ? { ...n, data: data.get(n.id)! } : n)));
-        setEdges([...otherEdges, ...s.graph.edges]);
+        setEdges([...otherEdges, ...placeLabels(s.graph, (id) => live(id)?.position ?? stored.get(id))]);
         if (board.fn && board.fn !== picked) reveal(`O:${contractOf(board.fn)}`);
         picked = board.fn;
         return;
       }
+      const relaid = placedLayout !== null && placedLayout !== board.layout;
       placedShape = shape;
-      const stored = new Map(getNodes().map((n) => [n.id, n.position]));
+      placedLayout = board.layout;
       const known = (id: string): Known | null => {
+        if (relaid) return null;
         const n = live(id);
         const at = stored.get(id);
         if (!n || !at || (n.data as GraphNodeData)._type !== 'box') return null;
@@ -101,13 +107,16 @@
         const { x, y } = n.position;
         return { x, y, w: n.measured?.width ?? data.width ?? 0, h: n.measured?.height ?? boxHeight(data), pinned: x !== at.x || y !== at.y, at };
       };
-      setNodes([...others, ...(place(s.built, board, s.graph, known) as Node<GraphNodeData>[])]);
-      setEdges([...otherEdges, ...s.graph.edges]);
-      const opened = board.open.filter((c) => !shown?.includes(c));
-      if (!shown || board.all !== shownAll) frame(s.graph.nodes.map((n) => n.id), `O:${main}`, READABLE_FIT.minZoom, shown ? 300 : 0);
+      const placed = place(s.built, board, s.graph, known);
+      const at = new Map(placed.map((n) => [n.id, n.position]));
+      setNodes([...others, ...(placed as Node<GraphNodeData>[])]);
+      setEdges([...otherEdges, ...placeLabels(s.graph, (id) => { const k = known(id); return k?.pinned ? k : at.get(id); })]);
+      const ready = board.open.filter((c) => conns.has(c));
+      const opened = ready.filter((c) => !shown?.includes(c));
+      if (!shown || board.all !== shownAll || relaid) frame(s.graph.nodes.map((n) => n.id), `O:${main}`, READABLE_FIT.minZoom, shown ? 300 : 0);
       else if (opened.length) frame(opened.flatMap((c) => [`O:${c}`, ...(board.parent[c] ? [`O:${board.parent[c]}`] : [])]), `O:${opened.at(-1)}`, READABLE_FIT.minZoom, 300);
       else if (board.fn && board.fn !== picked) reveal(`O:${contractOf(board.fn)}`);
-      shown = board.open;
+      shown = ready;
       shownAll = board.all;
       picked = board.fn;
     });
@@ -156,15 +165,39 @@
     } else if (event.key === 'Escape' && !event.defaultPrevented) clear();
   }
 
+  const target = (l: Link) => (l.to === OUTSIDE ? rowLabel(l.toKey, '') : `${l.to === LIBRARIES ? '' : `${l.to}.`}${rowLabel(l.toKey, l.to)}`);
+  const capped = (list: string[]) => list.slice(0, 6).concat(list.length > 6 ? [`and ${list.length - 6} more`] : []);
+
   function tipLines(w: BoardEdge): string[] {
-    return w.links
-      .slice(0, 6)
-      .map((l) => `${rowLabel(l.fromKey, l.from)} → ${l.to === OUTSIDE ? rowLabel(l.toKey, '') : `${l.to === LIBRARIES ? '' : `${l.to}.`}${rowLabel(l.toKey, l.to)}`} · line ${l.row.span.start_line}${l.value ? ' · moves value' : ''}`)
-      .concat(w.links.length > 6 ? [`and ${w.links.length - 6} more`] : []);
+    return capped(w.links.map((l) => `${rowLabel(l.fromKey, l.from)} → ${target(l)} · line ${l.row.span.start_line}${l.value ? ' · moves value' : ''}`));
+  }
+
+  function rowLines(r: RowRef): string[] {
+    const touching = (built?.edges ?? []).filter((e) => (e.a === r.id && e.ar === r.row) || (e.b === r.id && e.br === r.row));
+    return capped(
+      touching.flatMap((e) =>
+        e.links.map((l) => (e.a === r.id && e.ar === r.row ? `→ ${target(l)} · line ${l.row.span.start_line}` : `← ${l.from}.${rowLabel(l.fromKey, l.from)} · line ${l.row.span.start_line}`)),
+      ),
+    );
+  }
+
+  function onPointer(event: PointerEvent) {
+    const t = event.target instanceof Element ? event.target : null;
+    const hit = t?.closest('.svelte-flow__node [data-row]');
+    const id = hit?.closest('.svelte-flow__node')?.getAttribute('data-id') ?? null;
+    const row = hit?.getAttribute('data-row') ?? null;
+    if (!id || !row) {
+      if (hot) hot = null;
+      rowTip = null;
+      return;
+    }
+    if (hot?.id !== id || hot.row !== row) hot = { id, row };
+    const r = hit!.getBoundingClientRect();
+    rowTip = { x: r.left, y: r.bottom };
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpointerover={onPointer} />
 
 <div class="board-layer" bind:this={layer}>
   {#if failed.has(main) && !conns.has(main)}
@@ -185,7 +218,9 @@
   {/if}
 </div>
 
-{#if tip}
+{#if hot && rowTip && rowLines(hot).length}
+  <Tooltip x={rowTip.x} y={rowTip.y} within={layer}>{#each rowLines(hot) as line, i (i)}{i ? '\n' : ''}{line}{/each}</Tooltip>
+{:else if tip}
   <Tooltip x={tip.x} y={tip.y} within={layer}>{#each tipLines(tip.wire) as line, i (i)}{i ? '\n' : ''}{line}{/each}{#if tip.dim}{'\n'}Dimmed in the legend: set it to shown to see each function{/if}</Tooltip>
 {/if}
 

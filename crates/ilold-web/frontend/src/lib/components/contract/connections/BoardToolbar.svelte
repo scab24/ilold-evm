@@ -4,7 +4,7 @@
   import { applyBoard, currentBoard } from './board-view.svelte';
   import { rowLabel } from './board-links';
 
-  let { main }: { main: string } = $props();
+  let { main, empty }: { main: string; empty: boolean } = $props();
 
   const board = $derived(currentBoard(main));
   const DIRECTIONS: { id: Direction; label: string }[] = [
@@ -31,8 +31,8 @@
 </script>
 
 <div class="trail" role="group" aria-label="Opened steps. Backspace removes the last one" title="Backspace removes the last opened step">
-  {#if !steps.length}
-    <span class="tlabel">Click a function in a folded box to open its contract here</span>
+  {#if !steps.length && !empty}
+    <span class="tlabel hint" title="Click a function in a folded box to open its contract here">Click a function in a folded box to open its contract here</span>
   {:else}
     {#each shown as step, i (i)}
       {#if i}<span class="tlabel" aria-hidden="true">→</span>{/if}
@@ -45,11 +45,12 @@
   {/if}
 </div>
 <button type="button" class="btn" disabled={board.open.length === 1 && !board.fn} title={board.open.length === 1 && !board.fn ? 'Already at the start' : 'Back to the start. Backspace removes only the last step'} onclick={() => applyBoard(reset(board))}>Reset</button>
-<Seg label="Direction" options={DIRECTIONS} value={board.dir} onpick={(dir) => applyBoard({ ...board, dir })} />
-<button type="button" class="btn" aria-pressed={board.all} title="Also list functions with no links to other contracts" onclick={() => applyBoard({ ...board, all: !board.all })}>All functions</button>
+<Seg label="Direction" options={DIRECTIONS.map((d) => ({ ...d, disabled: empty }))} value={board.dir} onpick={(dir) => applyBoard({ ...board, dir })} />
+<button type="button" class="btn" aria-pressed={board.all} disabled={empty} title="Also list functions with no links to other contracts" onclick={() => applyBoard({ ...board, all: !board.all })}>All functions</button>
 
 <style>
   .trail { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; flex: 1 1 auto; }
+  .hint { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .trail .chip { flex: none; max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-weight: 500; }
   @media (max-width: 1279px) {
     .owner { display: none; }

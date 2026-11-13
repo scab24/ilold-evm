@@ -6,7 +6,7 @@ import type { BoxNodeData } from '../../project/BoxNode.svelte';
 import { DEFAULT_LINES } from '../../project/map-graph.ts';
 import { boxHeight } from '../../project/box-size.ts';
 import { build, linksOf, type Link } from './board-links.ts';
-import { boardGraph, place, shapeOf, type Known } from './board-graph.ts';
+import { boardGraph, place, placeLabels, shapeOf, type Known } from './board-graph.ts';
 import curve from '../../../api/fixtures/connections.json' with { type: 'json' };
 import hook from '../../../api/fixtures/connections_hook.json' with { type: 'json' };
 import { closeBox, openStep, readBoard, touch, type Board } from './board-state.ts';
@@ -145,4 +145,34 @@ test('a new board stacks each column in the order of the rows its cards link to'
   const { nodes } = laid(START);
   const x = positions(nodes)['C:DenA@1'].x;
   assert.deepEqual(column(nodes, x), ['C:DenA@1', 'C:DenB@1', 'C:#libraries@1', 'C:Hook@1', 'C:Token@1']);
+});
+
+test('laid down, callers sit above the contract and callees below it', () => {
+  const at = positions(laid({ ...START, layout: 'TB' }).nodes);
+  assert.ok(at['C:Router@-1'].y < at['O:Curve'].y);
+  for (const id of ['C:DenA@1', 'C:DenB@1', 'C:Hook@1', 'C:Token@1', 'C:#libraries@1']) assert.ok(at[id].y > at['O:Curve'].y, id);
+  assert.deepEqual(
+    Object.entries(at).filter(([id]) => id.endsWith('@1')).sort((a, b) => a[1].x - b[1].x).map(([id]) => id),
+    ['C:#libraries@1', 'C:DenA@1', 'C:DenB@1', 'C:Hook@1', 'C:Token@1'],
+  );
+});
+
+test('line numbers label only the selected row lines, near the arrow, and hide when no free spot is left', () => {
+  const board = { ...START, fn: 'Curve|buy' };
+  const { graph } = laid(board);
+  const spread: Record<string, { x: number; y: number }> = {
+    'O:Curve': { x: 0, y: 0 }, 'C:Router@-1': { x: -600, y: 0 },
+    'C:DenA@1': { x: 600, y: 0 }, 'C:DenB@1': { x: 600, y: 120 }, 'C:Token@1': { x: 600, y: 240 }, 'C:Hook@1': { x: 600, y: 360 }, 'C:#libraries@1': { x: 600, y: 480 },
+  };
+  const labels = (at: Record<string, { x: number; y: number }>) =>
+    placeLabels(graph, (id) => at[id]).filter((e) => (e.data as { chip?: string }).chip).map((e) => [e.id, (e.data as { chip?: string }).chip, (e.data as { labelAt?: number | null }).labelAt]);
+  assert.deepEqual(labels(spread), [
+    ['cb:O:Curve|Curve|buy>C:DenA@1|DenA|deliver', ':36', 0.84],
+    ['cb:O:Curve|Curve|buy>C:DenB@1|DenB|deliver', ':36', 0.84],
+    ['cb:O:Curve|Curve|buy>C:Token@1|Token|mint', ':35', 0.84],
+    ['cb:C:Router@-1|Router|buyWith>O:Curve|Curve|buy', ':14', 0.84],
+  ]);
+  const wall = { ...spread, 'C:Hook@1': { x: 330, y: -200 }, 'C:#libraries@1': { x: 330, y: 40 } };
+  const walled = new Map(labels(wall).map(([id, , at]) => [id, at]));
+  assert.equal(walled.get('cb:O:Curve|Curve|buy>C:DenA@1|DenA|deliver'), null, 'hidden, never drawn over a card');
 });

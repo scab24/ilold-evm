@@ -1,4 +1,5 @@
 export type Direction = 'callers' | 'both' | 'callees';
+export type Layout = 'TB' | 'LR';
 
 export interface Step {
   opened: string;
@@ -16,6 +17,7 @@ export interface Board {
   fn: string | null;
   dir: Direction;
   all: boolean;
+  layout: Layout;
 }
 
 export function fnKey(contract: string, member: string): string {
@@ -71,6 +73,7 @@ export function readBoard(main: string, params: URLSearchParams): Board {
     fn: inBoard(fn) ? fn : null,
     dir,
     all: params.get('all') === '1',
+    layout: params.get('layout') === 'TB' ? 'TB' : 'LR',
   };
 }
 
@@ -83,6 +86,7 @@ export function boardQuery(b: Board): Record<string, string | null> {
     recent: b.open.length > 2 ? b.recent.join(',') : null,
     dir: b.dir === 'both' ? null : b.dir,
     all: b.all ? '1' : null,
+    layout: b.layout === 'TB' ? 'TB' : null,
   };
 }
 

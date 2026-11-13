@@ -22,8 +22,10 @@ test('a board survives the URL round trip with qualified ids and overloads', () 
   b = openStep(b, HOOK, 1, `${HOOK}|swap(uint256,address)`, MAIN);
   b = openStep(b, DEN, 2, `${DEN}|swap(uint256)`, HOOK);
   b = openStep(b, TOKEN, -1, null, MAIN);
-  b = { ...b, dir: 'callees', all: true };
+  b = { ...b, dir: 'callees', all: true, layout: 'TB' };
   assert.deepEqual(readBoard(MAIN, query(b)), b);
+  assert.equal(query(b).get('layout'), 'TB');
+  assert.equal(query({ ...b, layout: 'LR' }).get('layout'), null);
   assert.deepEqual(b.parent, { [HOOK]: MAIN, [DEN]: HOOK, [TOKEN]: MAIN });
   assert.deepEqual(b.trail.map((t) => t.to ?? t.opened), [`${HOOK}|swap(uint256,address)`, `${DEN}|swap(uint256)`, TOKEN]);
 });
@@ -37,6 +39,7 @@ test('readBoard drops junk from the URL', () => {
     recent: `Ghost,${HOOK}`,
     dir: 'sideways',
     all: 'yes',
+    layout: 'sideways',
   });
   assert.deepEqual(readBoard(MAIN, params), {
     main: MAIN,
@@ -49,6 +52,7 @@ test('readBoard drops junk from the URL', () => {
     fn: null,
     dir: 'both',
     all: false,
+    layout: 'LR',
   });
 });
 
