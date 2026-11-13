@@ -9,6 +9,7 @@ export interface Board {
   main: string;
   open: string[];
   col: Record<string, number>;
+  parent: Record<string, string>;
   trail: Step[];
   start: string | null;
   recent: string[];
@@ -28,16 +29,22 @@ export function keyParts(key: string): { contract: string; member: string } {
 
 export const contractOf = (key: string) => keyParts(key).contract;
 
+const outward = (from: number, to: number) => Math.abs(to) === Math.abs(from) + 1 && (from === 0 || Math.sign(to) === Math.sign(from));
+
 export function readBoard(main: string, params: URLSearchParams): Board {
   const open = [main];
   const col: Record<string, number> = { [main]: 0 };
+  const parent: Record<string, string> = {};
   for (const entry of (params.get('open') ?? '').split(',')) {
+    const gt = entry.indexOf('>');
     const at = entry.lastIndexOf(':');
-    const c = entry.slice(0, at);
+    const up = entry.slice(0, gt);
+    const c = entry.slice(gt + 1, at);
     const k = Number(entry.slice(at + 1));
-    if (at > 0 && c !== main && !open.includes(c) && Number.isInteger(k) && k !== 0) {
+    if (gt > 0 && at > gt + 1 && open.includes(up) && !open.includes(c) && Number.isInteger(k) && outward(col[up], k)) {
       open.push(c);
       col[c] = k;
+      parent[c] = up;
     }
   }
   const inBoard = (key: string | null) => key !== null && open.includes(contractOf(key));
@@ -57,6 +64,7 @@ export function readBoard(main: string, params: URLSearchParams): Board {
     main,
     open,
     col,
+    parent,
     trail,
     start: trail.length && inBoard(start) ? start : null,
     recent: [...open.filter((c) => !recent.includes(c)), ...recent],
@@ -68,7 +76,7 @@ export function readBoard(main: string, params: URLSearchParams): Board {
 
 export function boardQuery(b: Board): Record<string, string | null> {
   return {
-    open: b.open.filter((c) => c !== b.main).map((c) => `${c}:${b.col[c]}`).join(',') || null,
+    open: b.open.filter((c) => c !== b.main).map((c) => `${b.parent[c]}>${c}:${b.col[c]}`).join(',') || null,
     trail: b.trail.map((t) => t.to ?? t.opened).join('~') || null,
     start: b.start,
     fn: b.fn,
@@ -92,38 +100,48 @@ export function touch(b: Board, c: string): Board {
 }
 
 export function reset(b: Board): Board {
-  return { ...b, open: [b.main], col: { [b.main]: 0 }, trail: [], start: null, recent: [b.main], fn: null };
+  return { ...b, open: [b.main], col: { [b.main]: 0 }, parent: {}, trail: [], start: null, recent: [b.main], fn: null };
 }
 
-export function openStep(b: Board, c: string, col: number, key: string | null): Board {
-  const next = touch(b.open.includes(c) ? b : { ...b, open: [...b.open, c], col: { ...b.col, [c]: col } }, c);
+export function openStep(b: Board, c: string, col: number, key: string | null, from: string): Board {
+  const added = b.open.includes(c) ? b : { ...b, open: [...b.open, c], col: { ...b.col, [c]: col }, parent: { ...b.parent, [c]: from } };
   return {
-    ...next,
+    ...touch(added, c),
     trail: [...b.trail, { opened: c, to: key }],
     start: b.trail.length ? b.start : b.fn,
     fn: key ?? b.fn,
   };
 }
 
+function without(b: Board, gone: Set<string>, trail: Step[]): Board {
+  const open = b.open.filter((o) => !gone.has(o));
+  const keep = <T>(r: Record<string, T>) => Object.fromEntries(Object.entries(r).filter(([o]) => !gone.has(o)));
+  const dropped = b.trail.filter((t) => !trail.includes(t));
+  const stays = b.fn !== null && open.includes(contractOf(b.fn)) && !dropped.some((t) => t.to === b.fn);
+  const fn = stays ? b.fn : ([...trail].reverse().find((t) => t.to)?.to ?? b.start);
+  return {
+    ...b,
+    open,
+    col: keep(b.col),
+    parent: keep(b.parent),
+    trail,
+    start: trail.length ? b.start : null,
+    recent: b.recent.filter((o) => !gone.has(o)),
+    fn: fn && open.includes(contractOf(fn)) ? fn : null,
+  };
+}
+
 export function closeBox(b: Board, c: string): Board {
-  const k = b.col[c];
-  if (c === b.main || k === undefined) return b;
-  const gone = new Set(b.open.filter((o) => o !== b.main && Math.sign(b.col[o]) === Math.sign(k) && Math.abs(b.col[o]) >= Math.abs(k)));
-  const col = Object.fromEntries(Object.entries(b.col).filter(([o]) => !gone.has(o)));
-  const cut = b.trail.findIndex((t) => gone.has(t.opened));
-  const trail = cut >= 0 ? b.trail.slice(0, cut) : b.trail;
-  const fn = b.fn && gone.has(contractOf(b.fn)) ? (trail.length ? (trail.at(-1)!.to ?? null) : b.start) : b.fn;
-  return { ...b, open: b.open.filter((o) => !gone.has(o)), col, recent: b.recent.filter((o) => !gone.has(o)), trail, start: trail.length ? b.start : null, fn };
+  if (c === b.main || !b.open.includes(c)) return b;
+  const gone = new Set([c]);
+  for (const o of b.open) if (gone.has(b.parent[o])) gone.add(o);
+  return without(b, gone, b.trail.filter((t) => !gone.has(t.opened)));
 }
 
 export function popStep(b: Board): Board | null {
   const last = b.trail.at(-1);
   if (!last) return null;
   const trail = b.trail.slice(0, -1);
-  const drop = last.opened !== b.main && !trail.some((t) => t.opened === last.opened);
-  const open = drop ? b.open.filter((o) => o !== last.opened) : b.open;
-  const col = drop ? Object.fromEntries(Object.entries(b.col).filter(([o]) => o !== last.opened)) : b.col;
-  let fn = trail.length ? (trail.at(-1)!.to ?? b.fn) : b.start;
-  if (fn && !open.includes(contractOf(fn))) fn = null;
-  return { ...b, open, col, trail, start: trail.length ? b.start : null, recent: b.recent.filter((o) => open.includes(o)), fn };
+  const kept = last.opened === b.main || trail.some((t) => t.opened === last.opened);
+  return without(b, new Set(kept ? [] : [last.opened]), trail);
 }

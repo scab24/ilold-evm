@@ -143,13 +143,14 @@
   function selectRow(c: string, key: string) {
     applyBoard({ ...touch(board, c), fn: board.fn === key ? null : key });
   }
-  function openFolded(c: string, col: number, row: string | null) {
-    if (c === OUTSIDE || c === LIBRARIES) return;
-    applyBoard(openStep(board, c, col, row && !keyParts(row).member.includes('::') ? row : null));
+  function openFolded(n: Placed, row: string | null) {
+    const { c, col, owner } = n.ref;
+    if (n.ref.type !== 'folded' || !owner) return;
+    applyBoard(openStep(board, c, col, row && !keyParts(row).member.includes('::') ? row : null, owner));
   }
   function clickNode(n: Placed) {
     if (n.ref.type === 'strip') applyBoard(touch(board, n.ref.c));
-    else if (n.ref.type === 'folded') openFolded(n.ref.c, n.ref.col, null);
+    else openFolded(n, null);
   }
   function switchMain(c: string) {
     if (c !== main && c !== OUTSIDE && c !== LIBRARIES) openMain(c);
@@ -260,7 +261,7 @@
             <text class={n.ref.c === OUTSIDE ? 'amb' : 'meta'} x={n.x + 12} y={n.y + 37}>{n.ref.n} {n.ref.n === 1 ? 'link' : 'links'}</text>
           </g>
           {#each n.rows as { cy, row } (row.key)}
-            <g class="row nrow" class:soft={!!board.fn && !scene.lit.has(`${n.id}|${row.key}`)} role="button" tabindex="-1" aria-label="{name} {row.label}{openable ? `. Opens ${n.ref.c} here` : ''}" onclick={() => openable && openFolded(n.ref.c, n.ref.col, row.key)} onkeydown={(e) => onSvgKey(e, () => openable && openFolded(n.ref.c, n.ref.col, row.key))}>
+            <g class="row nrow" class:soft={!!board.fn && !scene.lit.has(`${n.id}|${row.key}`)} role="button" tabindex="-1" aria-label="{name} {row.label}{openable ? `. Opens ${n.ref.c} here` : ''}" onclick={() => openFolded(n, row.key)} onkeydown={(e) => onSvgKey(e, () => openFolded(n, row.key))}>
               <title>{row.title}</title>
               <rect class="rbg" x={n.x + 4} y={cy - n.rh / 2 + 1} width={n.w - 8} height={n.rh - 2} rx="5" />
               <text class="t-nrow" class:amb={row.amb} x={n.x + 12} y={cy + 4}>{fit(row.label, n.w - 24, MONO12)}</text>
