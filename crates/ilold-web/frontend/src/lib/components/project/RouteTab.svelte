@@ -19,6 +19,7 @@
   import Seg from '$lib/components/chrome/Seg.svelte';
   import LegendBar from '$lib/components/chrome/LegendBar.svelte';
   import { NEAR_SOURCE, READABLE_FIT, placeChips } from './chips';
+  import { boxHeight, rowCentre } from './box-size';
   import type { FitViewOptions } from '@xyflow/svelte';
   import { transferKey } from './value-graph';
   import { assetName } from '$lib/utils/value';
@@ -148,7 +149,8 @@
     const shows = (node: string, f: string) => (rowsOf.get(node)?.some((r) => r.id === f) ? f : OTHER_ROUTES);
     const columns = new Map<number, string[]>();
     for (const [id, n] of at) (columns.get(n.column) ?? columns.set(n.column, []).get(n.column)!).push(id);
-    const height = (id: string) => 56 + 26 * (rowsOf.get(id)?.length ?? 0);
+    const stepLines = (column: number) => [{ text: column === 0 ? 'start' : column === depth ? 'end' : `step ${column + 1}` }];
+    const height = (id: string) => boxHeight({ lines: stepLines(at.get(id)!.column), rows: rowsOf.get(id) });
     const stack = (ids: string[]) => ids.reduce((sum, id) => sum + height(id) + 40, -40);
     const tallest = Math.max(...[...columns.values()].map(stack));
     const nodes: Node<GraphNodeData>[] = [];
@@ -166,7 +168,7 @@
           data: {
             _type: 'box',
             label: contract,
-            lines: [{ text: column === 0 ? 'start' : column === depth ? 'end' : `step ${column + 1}` }],
+            lines: stepLines(column),
             rows,
             rowPorts: true,
             variant: n.on ? 'route' : '',
@@ -181,8 +183,8 @@
 
     const rowY = new Map<string, number>();
     for (const n of nodes) {
-      const rows = (n.data as BoxNodeData).rows ?? [];
-      rows.forEach((r, i) => rowY.set(`${n.id}/${r.id}`, n.position.y + 63 + 26 * i));
+      const data = n.data as BoxNodeData;
+      (data.rows ?? []).forEach((r, i) => rowY.set(`${n.id}/${r.id}`, n.position.y + rowCentre(data, i)));
     }
     const text = (e: { lines: number[]; value: boolean; assets: string[] }) => {
       const lines = [...e.lines].sort((x, y) => x - y);

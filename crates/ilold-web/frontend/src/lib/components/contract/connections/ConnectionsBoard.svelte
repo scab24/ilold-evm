@@ -11,7 +11,8 @@
   import { READABLE_FIT } from '$lib/components/project/chips';
   import { LIBRARIES, OUTSIDE } from '$lib/components/project/map-graph';
   import { build, linksOf, rowLabel, type BoardEdge, type BoardNode } from './board-links';
-  import { boardGraph, heightOf, isBoardEdge, place, type Facts, type Known } from './board-graph';
+  import { boxHeight } from '$lib/components/project/box-size';
+  import { boardGraph, isBoardEdge, place, type Facts, type Known } from './board-graph';
   import { closeBox, contractOf, keyParts, openStep, popStep, touch } from './board-state';
   import { applyBoard, currentBoard, currentLines, openMain } from './board-view.svelte';
 
@@ -77,7 +78,7 @@
         if (!n || !at || (n.data as GraphNodeData)._type !== 'box') return null;
         const data = n.data as BoxNodeData;
         const { x, y } = n.position;
-        return { x, y, w: n.measured?.width ?? data.width ?? 0, h: n.measured?.height ?? heightOf(data), pinned: x !== at.x || y !== at.y, at };
+        return { x, y, w: n.measured?.width ?? data.width ?? 0, h: n.measured?.height ?? boxHeight(data), pinned: x !== at.x || y !== at.y, at };
       };
       setNodes([...others, ...(place(s.B, board, s.g, known) as Node<GraphNodeData>[])]);
       setEdges([...otherEdges, ...s.g.edges]);

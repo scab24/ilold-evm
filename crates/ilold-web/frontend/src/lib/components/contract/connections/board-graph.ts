@@ -4,6 +4,7 @@ import type { ChipEdgeData } from '$lib/components/project/ChipEdge.svelte';
 import type { GraphNodeData } from '$lib/stores/graph.svelte';
 import { edgeStyle, lookOf, LIBRARIES, OUTSIDE, type Line, type LineState } from '../../project/map-graph.ts';
 import { runDagreLayout } from '../../../utils/graph-helpers.ts';
+import { boxHeight } from '../../project/box-size.ts';
 import { edgeBasis, type BoardEdge, type BoardNode, type Built } from './board-links.ts';
 import { contractOf, keyParts, type Board } from './board-state.ts';
 
@@ -47,10 +48,6 @@ function foldName(n: Pick<BoardNode, 'c' | 'rows'>): string {
 }
 
 const count = (n: number) => `${n} ${n === 1 ? 'link' : 'links'}`;
-
-export function heightOf(data: BoxNodeData): number {
-  return 36 + 17 * (data.lines?.length ?? 0) + (data.rows?.length ? 6 + 26 * data.rows.length : 0);
-}
 
 export function boardGraph(B: Built, b: Board, lines: Record<Line, LineState>, facts: (c: string, member: string) => Facts | undefined, order: (c: string) => string[]): BoardGraph {
   const byId = new Map(B.nodes.map((n) => [n.id, n]));
@@ -184,7 +181,7 @@ export function place(B: Built, b: Board, g: BoardGraph, known: (id: string) => 
     rankDir: 'LR',
     nodeSep: 28,
     rankSep: 120,
-    size: (n) => ({ width: (n.data as BoxNodeData).width ?? FOLD_W, height: heightOf(n.data as BoxNodeData) }),
+    size: (n) => ({ width: (n.data as BoxNodeData).width ?? FOLD_W, height: boxHeight(n.data as BoxNodeData) }),
     minlen: (e) => (e.data?.minlen as number | undefined) ?? 1,
   });
   const auto = new Map(laid.map((n) => [n.id, n.position]));
@@ -193,7 +190,7 @@ export function place(B: Built, b: Board, g: BoardGraph, known: (id: string) => 
   for (const n of g.nodes) {
     const k = known(n.id);
     if (!k) continue;
-    const h = heightOf(n.data);
+    const h = boxHeight(n.data);
     if (h > k.h + 1) grown.push(n.id);
     where.set(n.id, { x: k.x, y: k.y, w: k.w, h: Math.max(k.h, h), pinned: k.pinned, fixed: k.pinned, moved: false });
   }
@@ -230,7 +227,7 @@ export function place(B: Built, b: Board, g: BoardGraph, known: (id: string) => 
     return p;
   };
   for (const n of g.nodes.filter((x) => !where.has(x.id)).sort((x, y) => depth(x.id) - depth(y.id))) {
-    const r = { ...start(n.id), w: n.data.width ?? FOLD_W, h: heightOf(n.data), pinned: false, fixed: true, moved: true };
+    const r = { ...start(n.id), w: n.data.width ?? FOLD_W, h: boxHeight(n.data), pinned: false, fixed: true, moved: true };
     where.set(n.id, r);
     settle(n.id, r);
   }

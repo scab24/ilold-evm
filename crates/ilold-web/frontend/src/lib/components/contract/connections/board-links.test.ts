@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connections } from '$lib/api/rest';
 import { DEFAULT_LINES } from '../../project/map-graph.ts';
 import { build, linksOf, type Built } from './board-links.ts';
+import { boxHeight } from '../../project/box-size.ts';
 import { boardGraph, place, type Known, type Rect } from './board-graph.ts';
 import curve from '../../../api/fixtures/connections.json' with { type: 'json' };
 import hook from '../../../api/fixtures/connections_hook.json' with { type: 'json' };
@@ -163,7 +164,7 @@ test('an opened box takes the place of its folded card and pushes the undragged 
   const at = new Map(place(B, b, g, known).map((n) => [n.id, n.position]));
   const hook = at.get('O:Hook')!;
   assert.deepEqual(hook, { x: 400, y: 200 });
-  const bottom = hook.y + g.nodes.find((n) => n.id === 'O:Hook')!.data.rows!.length * 26 + 36 + 17 + 6;
+  const bottom = hook.y + boxHeight(g.nodes.find((n) => n.id === 'O:Hook')!.data);
   assert.ok(at.get('C:DenA@1')!.y >= bottom, 'pushed below the opened box');
   assert.deepEqual(at.get('C:Token@1'), token.at, 'a dragged card is never pushed');
 });
@@ -174,6 +175,6 @@ test('a card that grows pushes the undragged cards it now covers down', () => {
   const known = (id: string) => (id === 'O:Curve' ? card(0, 0, 260, 60) : id === 'O:Token' ? card(0, 100, 220, 60) : id === 'C:DenA@1' ? card(400, 0, 220, 60) : null);
   const at = new Map(place(B, selected(), g, known).map((n) => [n.id, n.position]));
   assert.deepEqual(at.get('O:Curve'), { x: 0, y: 0 });
-  assert.ok(at.get('O:Token')!.y >= 36 + 17 + 6 + 26 * curve.data.rows!.length, 'below the grown card');
+  assert.ok(at.get('O:Token')!.y >= boxHeight(curve.data), 'below the grown card');
   assert.deepEqual(at.get('C:DenA@1'), { x: 400, y: 0 }, 'a card beside it stays');
 });
