@@ -70,10 +70,13 @@
   const hood = $derived(selected ? neighbourhood(drawn, endpoint(selected), depth, direction) : null);
   const folderIds = $derived([...(g?.folders.keys() ?? [])].map((f) => `folder:${f}`).concat([...open].map((f) => `fold:${f}`)));
   const firstFit = $derived.by((): FitViewOptions => {
-    const around = hood ? [...hood.keys()] : null;
-    const ids = around ? (readable(around) ? around : [endpoint(selected!)]) : readable(null) ? null : folderIds;
-    return ids ? { ...READABLE_FIT, nodes: ids.map((id) => ({ id })) } : READABLE_FIT;
+    if (hood) return aroundFit([...hood.keys()], endpoint(selected!));
+    return readable(null) ? READABLE_FIT : { ...READABLE_FIT, nodes: folderIds.map((id) => ({ id })) };
   });
+  function aroundFit(ids: string[], centre: string): FitViewOptions {
+    if (readable(ids)) return { ...READABLE_FIT, nodes: ids.map((id) => ({ id })) };
+    return { ...READABLE_FIT, maxZoom: READABLE_FIT.minZoom, nodes: [{ id: centre }] };
+  }
   function readable(ids: string[] | null): boolean {
     if (!scene || !canvasEl) return false;
     const list = ids ? scene.nodes.filter((n) => ids.includes(n.id)) : scene.nodes;
@@ -251,11 +254,8 @@
   });
   $effect(() => setEdges(flowEdges));
 
-  function focusLater(ids: () => string[]) {
-    setTimeout(() => {
-      const found = ids();
-      fit?.({ ...READABLE_FIT, nodes: (found.length ? found : folderIds).map((id) => ({ id })), duration: 250 });
-    }, 200);
+  function focusLater(target: () => FitViewOptions) {
+    setTimeout(() => fit?.({ ...target(), duration: 250 }), 200);
   }
   function members(fold: Fold): string[] {
     if (!g) return [];
@@ -266,7 +266,7 @@
     if (expand) next.add(fold);
     else next.delete(fold);
     setQuery({ expand: [...next].sort().join(',') || null, pair: null });
-    focusLater(() => (expand ? members(fold) : []));
+    focusLater(() => (expand ? { ...READABLE_FIT, nodes: members(fold).map((id) => ({ id })) } : { ...READABLE_FIT, nodes: folderIds.map((id) => ({ id })) }));
   }
   function select(id: string | null) {
     setQuery({ c: id, pair: null });
@@ -309,7 +309,7 @@
     const fold = g.libraries.includes(hit) ? 'libraries' : g.interfaces.includes(hit) ? 'interfaces' : g.outside.includes(hit) ? 'outside' : null;
     const expand = fold && !open.has(fold) ? [...open, fold].sort().join(',') : null;
     setQuery({ c: hit, pair: null, ...(expand ? { expand } : {}) });
-    focusLater(() => (hood && readable([...hood.keys()]) ? [...hood.keys()] : [endpoint(hit)]));
+    focusLater(() => aroundFit(hood ? [...hood.keys()] : [], endpoint(hit)));
   }
   const onKey = selectionKeys(() => ({
     selected: selected !== null || pickedPair !== null,
