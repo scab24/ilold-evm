@@ -4,7 +4,7 @@
   import { MarkerType, type Edge, type Node } from '@xyflow/svelte';
   import { getRoute, getValueFlow, type ContractSummary, type RouteCall, type Routes, type ValueTransfer } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
-  import { splitRef } from '$lib/utils/links';
+  import { RELATION_STYLE, splitRef } from '$lib/utils/links';
   import { openInIde } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
@@ -19,7 +19,7 @@
   let { contracts }: { contracts: ContractSummary[] } = $props();
 
   const ROUTE = 'var(--color-accent-hover)';
-  const VALUE = 'var(--color-success-light)';
+  const VALUE = RELATION_STYLE.value.color;
   const WIDTH = 220;
   const GAP_X = 230;
   const NOT_RECORDED = 'not-recorded';

@@ -5,7 +5,7 @@
   import { getValueFlow, type ValueFlowPairs, type ValueTransfer } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
   import { ASSET_ORDER, POOL_ASSET, POOL_ASSET_LONG, assetName, describeTransfers } from '$lib/utils/value';
-  import { AMBIGUOUS_COLOR, splitRef } from '$lib/utils/links';
+  import { AMBIGUOUS_COLOR, RELATION_STYLE, splitRef } from '$lib/utils/links';
   import { openFunctionLine } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
@@ -17,7 +17,7 @@
   import { READABLE_FIT, placeChips, type Point, type Side } from './chips';
   import { assetCounts, buildFlow, type FlowArrow, type FlowParty } from './value-graph';
 
-  const VALUE = 'var(--color-success-light)';
+  const VALUE = RELATION_STYLE.value.color;
   const AMBER = AMBIGUOUS_COLOR;
   const ACCENT = 'var(--color-accent-hover)';
   const WIDTH = 200;
@@ -180,7 +180,7 @@
         targetHandle: `${a.id}:t`,
         zIndex: on ? 2 : undefined,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
-        style: `stroke: ${color}; stroke-width: ${on ? 2.4 : a.pool ? 1.8 : 2}; opacity: ${lit ? 1 : a.pool ? 0.45 : 0.16}${a.pool ? '; stroke-dasharray: 5 4' : ''}`,
+        style: `stroke: ${color}; stroke-width: ${on ? 2.4 : a.pool ? 1.8 : 2}; opacity: ${lit ? 1 : a.pool ? 0.45 : 0.16}`,
         data: {
           chip: chipText(a),
           icon: a.pool ? 'unres' : 'value',
@@ -315,7 +315,7 @@
 <div class="legend">
   <span class="tlabel">Key</span>
   <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={VALUE} stroke-width="2" /></svg>Money moves this way</span>
-  <span class="key amb"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={AMBER} stroke-width="2" stroke-dasharray="5 4" /></svg>{POOL_ASSET_LONG}</span>
+  <span class="key amb"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={AMBER} stroke-width="2" /></svg>{POOL_ASSET_LONG}</span>
   <span class="key"><Icon name="lib" />Library code it runs</span>
   <span class="hint">Hover an arrow for its transfers, click it to list them</span>
 </div>

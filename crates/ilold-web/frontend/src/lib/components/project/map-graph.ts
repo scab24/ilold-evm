@@ -1,9 +1,9 @@
-import type { ContractCall, ContractSummary, ProjectConnections, ProjectDepGraph } from '$lib/api/rest';
-import { AMBIGUOUS_COLOR } from '$lib/utils/links';
+import type { Basis, ContractCall, ContractSummary, ProjectConnections, ProjectDepGraph } from '$lib/api/rest';
+import { lineStyle, type LineStyle, type Relation } from '$lib/utils/links';
 
 export type Line = 'calls' | 'reads' | 'value' | 'library' | 'inherits' | 'holds' | 'iface' | 'unresolved';
 export type LineState = 'show' | 'dim' | 'hide';
-export type Look = Exclude<Line, 'iface'> | 'ambiguous';
+export type Look = Relation | 'ambiguous';
 
 export const LINES: { id: Line; label: string; tip: string }[] = [
   { id: 'calls', label: 'Calls', tip: 'Calls that can change state, including deploying a contract with new' },
@@ -18,17 +18,6 @@ export const LINES: { id: Line; label: string; tip: string }[] = [
 
 export const DEFAULT_LINES: Record<Line, LineState> = {
   calls: 'show', reads: 'dim', value: 'show', library: 'dim', inherits: 'hide', holds: 'hide', iface: 'show', unresolved: 'show',
-};
-
-export const STYLE: Record<Look, { color: string; width: number; dash: string }> = {
-  calls: { color: 'var(--root)', width: 1.6, dash: '' },
-  reads: { color: 'var(--root)', width: 1.3, dash: '2 4' },
-  library: { color: 'var(--color-text-muted)', width: 1.3, dash: '7 4' },
-  value: { color: 'var(--color-success-light)', width: 2.2, dash: '' },
-  inherits: { color: '#d2a8ff', width: 1.3, dash: '10 4' },
-  holds: { color: '#56d4dd', width: 1.3, dash: '3 3' },
-  ambiguous: { color: AMBIGUOUS_COLOR, width: 2, dash: '' },
-  unresolved: { color: AMBIGUOUS_COLOR, width: 1.8, dash: '5 4' },
 };
 
 const RANK: Record<LineState, number> = { hide: 0, dim: 1, show: 2 };
@@ -46,6 +35,7 @@ export interface Item {
   iface: boolean;
   value: boolean;
   ambiguous: boolean;
+  basis: Basis | null;
   row: ContractCall | null;
 }
 
@@ -56,6 +46,12 @@ export const outsideId = (target: string) => `out:${target}`;
 
 export function shortName(key: string): string {
   return key.slice(key.lastIndexOf(':') + 1);
+}
+
+const WEAKEST: Basis[] = ['selector_match', 'self'];
+
+function weakest(found: (Basis | null)[]): Basis | null {
+  return WEAKEST.find((b) => found.includes(b)) ?? found[0] ?? null;
 }
 
 export function items(contracts: ContractSummary[], connections: ProjectConnections, depgraph: ProjectDepGraph | null): Item[] {
@@ -72,22 +68,23 @@ export function items(contracts: ContractSummary[], connections: ProjectConnecti
         iface: mine.some((d) => d.basis === 'inherits_interface'),
         value: row.transfers.length > 0,
         ambiguous: mine.some((d) => d.tag === 'AMBIGUOUS'),
+        basis: weakest(mine.map((d) => d.basis)),
         row,
       });
     }
   }
   for (const group of connections.unresolved) {
     for (const row of group.rows) {
-      found.push({ from: group.from, to: outsideId(group.target), line: 'unresolved', iface: false, value: row.transfers.length > 0, ambiguous: false, row });
+      found.push({ from: group.from, to: outsideId(group.target), line: 'unresolved', iface: false, value: row.transfers.length > 0, ambiguous: false, basis: null, row });
     }
   }
   for (const c of contracts) {
     for (const base of c.inherit_keys) {
-      if (listed.has(base)) found.push({ from: c.name, to: base, line: 'inherits', iface: false, value: false, ambiguous: false, row: null });
+      if (listed.has(base)) found.push({ from: c.name, to: base, line: 'inherits', iface: false, value: false, ambiguous: false, basis: null, row: null });
     }
   }
   for (const e of depgraph?.edges ?? []) {
-    if (e.data.kinds.includes('holds')) found.push({ from: e.data.source, to: e.data.target, line: 'holds', iface: false, value: false, ambiguous: false, row: null });
+    if (e.data.kinds.includes('holds')) found.push({ from: e.data.source, to: e.data.target, line: 'holds', iface: false, value: false, ambiguous: false, basis: null, row: null });
   }
   return found;
 }
@@ -116,6 +113,7 @@ export interface MapEdge {
   back: number;
   state: number;
   look: Look;
+  basis: Basis | null;
 }
 
 export function edges(all: Item[], endpoint: (id: string) => string, lines: Record<Line, LineState>): MapEdge[] {
@@ -128,7 +126,7 @@ export function edges(all: Item[], endpoint: (id: string) => string, lines: Reco
     if (from === to) continue;
     const [a, b] = from < to ? [from, to] : [to, from];
     const id = `${a}|${b}`;
-    const edge = byPair.get(id) ?? { id, a, b, items: [], forward: 0, back: 0, state: 0, look: 'calls' as Look };
+    const edge = byPair.get(id) ?? { id, a, b, items: [], forward: 0, back: 0, state: 0, look: 'calls' as Look, basis: null };
     edge.items.push(item);
     if (from === a) edge.forward += 1;
     else edge.back += 1;
@@ -136,10 +134,16 @@ export function edges(all: Item[], endpoint: (id: string) => string, lines: Reco
     byPair.set(id, edge);
   }
   for (const edge of byPair.values()) {
-    const looks = edge.items.filter((i) => itemState(i, lines) === edge.state).map((i) => itemLook(i, lines));
+    const strongest = edge.items.filter((i) => itemState(i, lines) === edge.state);
+    const looks = strongest.map((i) => itemLook(i, lines));
     edge.look = PRIORITY.find((l) => looks.includes(l)) ?? 'calls';
+    edge.basis = weakest(strongest.map((i) => i.basis));
   }
   return [...byPair.values()];
+}
+
+export function edgeStyle(edge: MapEdge): LineStyle {
+  return edge.look === 'ambiguous' ? lineStyle('calls', edge.basis, 'AMBIGUOUS') : lineStyle(edge.look, edge.basis);
 }
 
 export function neighbourhood(all: MapEdge[], start: string, depth: number, direction: 'callers' | 'callees' | 'both'): Map<string, number> {

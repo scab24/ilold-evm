@@ -80,8 +80,13 @@ contracts, **Fold** to fold it again):
   counts them, `4 down · 1 up` or `3 → · 1 ←` when they go both ways.
 - the **Lines** legend at the bottom is the only filter: Calls, Reads, Value,
   Library, Inherits, Holds, Via interface and Unresolved each cycle between
-  shown, dimmed and hidden (Unresolved is never hidden). Value lines are green,
-  AMBIGUOUS and unresolved ones amber; an abstract contract has a dashed border.
+  shown, dimmed and hidden (Unresolved is never hidden). A line's colour names
+  the relation (calls light grey, reads cyan, library grey, value green,
+  inherits purple, holds orange, unresolved amber) and its dash how the target
+  was found ("Found by": through the interface solid, selector match dashed,
+  `this` call dotted); AMBIGUOUS calls are amber. The workbench link rows and
+  legend use the same colours and dashes. An abstract contract has a dashed
+  border.
 - **hover** a contract to fade every box it has no drawn line with and animate
   its own lines. **Hover** a line for its counts and call sites, each with how
   the call resolved (via interface, selector match or this call), the state
@@ -109,7 +114,7 @@ reopens the same view. The reading order by layers stays in
 - **Value flow** draws who pays whom, left to right: who pays in, the project
   contracts, and what leaves the project. One arrow per pair and direction
   names its assets; Uniswap v4 `Currency` moves read "ETH or token, set by the
-  pool" on amber dashed lanes. The asset buttons filter the arrows, a click on
+  pool" on amber lanes. The asset buttons filter the arrows, a click on
   an arrow or a box lists its transfers (with their ids) in the side panel and
   zooms to the parties it touches.
 - **Route** shows how one deployed contract reaches another (the `route`

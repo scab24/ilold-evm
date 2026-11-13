@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { AMBIGUOUS_COLOR, BASIS_DASH, BASIS_LABEL, LINK_COLOR, splitRef } from '$lib/utils/links';
-  import type { Basis, PhaseCandidate } from '$lib/api/rest';
+  import { BASIS_LABEL, lineStyle, splitRef } from '$lib/utils/links';
+  import type { LinkBasis, PhaseCandidate } from '$lib/api/rest';
 
   let { mode, phases = [], onfunction }: {
     mode: 'cfg' | 'sequences' | 'session';
     phases?: PhaseCandidate[];
     onfunction?: (ref: string) => void;
   } = $props();
+
+  const LINK_BASES: LinkBasis[] = ['inherits_interface', 'selector_match', 'self'];
+  const ambiguous = lineStyle('calls', null, 'AMBIGUOUS');
 </script>
 
 {#snippet functions(label: string, refs: string[])}
@@ -43,10 +46,11 @@
       <span class="text-text-dim">Click → expand · Shift+click → add branch</span>
     {/if}
     <span class="text-text-dim" data-testid="legend-links">Links:</span>
-    {#each Object.entries(BASIS_DASH) as [basis, dash]}
-      <span><svg class="inline-block align-middle mr-1" width="16" height="6" aria-hidden="true"><line x1="0" y1="3" x2="16" y2="3" stroke={LINK_COLOR} stroke-width="2" stroke-dasharray={dash} /></svg>{BASIS_LABEL[basis as Basis]}</span>
+    {#each LINK_BASES as basis (basis)}
+      {@const s = lineStyle('calls', basis)}
+      <span><svg class="inline-block align-middle mr-1" width="16" height="6" aria-hidden="true"><line x1="0" y1="3" x2="16" y2="3" stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{BASIS_LABEL[basis]}</span>
     {/each}
-    <span><svg class="inline-block align-middle mr-1" width="16" height="6" aria-hidden="true"><line x1="0" y1="3" x2="16" y2="3" stroke={AMBIGUOUS_COLOR} stroke-width="3" /></svg>ambiguous</span>
+    <span><svg class="inline-block align-middle mr-1" width="16" height="6" aria-hidden="true"><line x1="0" y1="3" x2="16" y2="3" stroke={ambiguous.color} stroke-width="3" /></svg>ambiguous</span>
   </div>
   {#if phases.length}
     <div class="flex flex-col gap-0.5 max-h-40 overflow-y-auto" data-testid="legend-phases">

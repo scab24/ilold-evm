@@ -3,9 +3,9 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { MarkerType, type Edge, type FitViewOptions, type Node } from '@xyflow/svelte';
-  import { getProjectConnections, getProjectDepgraph, type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph } from '$lib/api/rest';
+  import { getProjectConnections, getProjectDepgraph, type Basis, type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
-  import { BASIS_LABEL, splitRef } from '$lib/utils/links';
+  import { BASIS_LABEL, lineStyle, splitRef } from '$lib/utils/links';
   import { openInIde } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
   import { score } from '$lib/utils/fuzzy';
@@ -17,8 +17,8 @@
   import Row from './Row.svelte';
   import { FIT_PADDING, READABLE_FIT, placeChips, type Point, type Side } from './chips';
   import {
-    DEFAULT_LINES, INTERFACES, LIBRARIES, LINES, OUTSIDE, STYLE,
-    edges as mapEdges, itemState, items as mapItems, neighbourhood, nextState, shortName,
+    DEFAULT_LINES, INTERFACES, LIBRARIES, LINES, OUTSIDE,
+    edgeStyle, edges as mapEdges, itemState, items as mapItems, neighbourhood, nextState, shortName,
     type Item, type Line, type LineState, type MapEdge,
   } from './map-graph';
   import { endpointOf, groups as mapGroups, layout, type Fold } from './map-layout';
@@ -204,7 +204,7 @@
   const flowEdges = $derived.by((): Edge[] => {
     if (!scene) return [];
     return scene.shown.map((e) => {
-      const style = STYLE[e.look];
+      const style = edgeStyle(e);
       const on = e.id === pickedPair;
       const lit = scene.lit.has(e.id);
       const incident = lit && hovered !== null && (e.a === hovered || e.b === hovered);
@@ -310,6 +310,8 @@
     const e = drawn.find((x) => x.id === edge.id);
     tip = e ? { x: event.clientX, y: event.clientY, edge: e } : null;
   }
+
+  const BASIS_KEY: [Basis, string][] = [['inherits_interface', 'interface'], ['selector_match', 'selector'], ['self', 'this']];
 
   const KIND_WORD: Record<Item['line'], string> = { calls: 'call', reads: 'read', library: 'library call', inherits: 'inherits', holds: 'holds', unresolved: 'target not resolved' };
 
@@ -488,11 +490,16 @@
 <div class="legend">
   <span class="tlabel">Lines</span>
   {#each LINES as l (l.id)}
-    {@const s = STYLE[l.id === 'iface' ? 'calls' : l.id]}
+    {@const s = l.id === 'iface' ? null : lineStyle(l.id)}
     <button type="button" class="fchip" data-s={lines[l.id]} title={l.tip} onclick={() => setLine(l.id)} aria-label="{l.label}: {lines[l.id]}">
-      {#if l.id === 'iface'}<Icon name="iface" />{:else}<svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{/if}
+      {#if !s}<Icon name="iface" />{:else}<svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{/if}
       <span class="lbl">{l.label}</span>{#if lines[l.id] !== 'show'}<span class="st">{lines[l.id] === 'dim' ? 'dimmed' : 'hidden'}</span>{/if}
     </button>
+  {/each}
+  <span class="tlabel basis-key">Found by</span>
+  {#each BASIS_KEY as [basis, text] (basis)}
+    {@const s = lineStyle('calls', basis)}
+    <span class="key basis-key" title={BASIS_LABEL[basis]}><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" style:stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>{text}</span>
   {/each}
   <span class="hint">Hover a line for counts · click for functions</span>
 </div>

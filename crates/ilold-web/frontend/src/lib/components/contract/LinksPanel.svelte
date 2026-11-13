@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import Collapsible from '$lib/Collapsible.svelte';
   import type { ContractLink } from '$lib/api/rest';
-  import { BASIS_DASH, BASIS_LABEL, describeLink, tagColor } from '$lib/utils/links';
+  import { BASIS_LABEL, describeLink, lineStyle } from '$lib/utils/links';
 
   let { name, outgoing, incoming }: { name: string; outgoing: ContractLink[]; incoming: ContractLink[] } = $props();
 
@@ -18,8 +18,9 @@
         <div class="link-empty">none</div>
       {/if}
       {#each side.links as link}
+        {@const s = lineStyle('calls', link.basis, link.tag)}
         <button class="link-row" title={describeLink(link)} onclick={() => open(side.other(link))}>
-          <svg width="18" height="6" aria-hidden="true"><line x1="0" y1="3" x2="18" y2="3" stroke={tagColor(link.tag)} stroke-width="2" stroke-dasharray={BASIS_DASH[link.basis]} /></svg>
+          <svg width="18" height="6" aria-hidden="true"><line x1="0" y1="3" x2="18" y2="3" stroke={s.color} stroke-width="2" stroke-dasharray={s.dash} /></svg>
           <span class="link-name">{side.other(link)}</span>
           <span class="link-basis">{BASIS_LABEL[link.basis]}</span>
           {#if link.tag === 'AMBIGUOUS'}<span class="link-ambiguous">ambiguous</span>{/if}
