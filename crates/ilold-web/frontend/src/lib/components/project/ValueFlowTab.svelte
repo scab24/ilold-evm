@@ -1,20 +1,24 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { MarkerType, type Edge, type FitViewOptions, type Node } from '@xyflow/svelte';
-  import { getValueFlow, type ValueFlowPairs, type ValueTransfer } from '$lib/api/rest';
+  import type { ValueFlowPairs, ValueTransfer } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
+  import { valueFlow } from '$lib/stores/project-data';
   import { ASSET_ORDER, POOL_ASSET, POOL_ASSET_LONG, assetName, describeTransfers } from '$lib/utils/value';
   import { AMBIGUOUS_COLOR, RELATION_STYLE, splitRef } from '$lib/utils/links';
   import { openFunctionLine } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
-  import BoxNode, { type BoxNodeData, type BoxPort } from './BoxNode.svelte';
+  import BoxNode, { type BoxNodeData } from './BoxNode.svelte';
   import CaptionNode from './CaptionNode.svelte';
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
+  import Tooltip from './Tooltip.svelte';
+  import { selectionKeys } from './selection-keys';
   import Row from './Row.svelte';
-  import { READABLE_FIT, placeChips, type Point, type Side } from './chips';
+  import { READABLE_FIT, addPort, anchors, placeChips, sidesBetween, type Port } from './chips';
   import { assetCounts, buildFlow, type FlowArrow, type FlowParty } from './value-graph';
 
   const VALUE = RELATION_STYLE.value.color;
@@ -29,6 +33,7 @@
   let error = $state<string | null>(null);
   let tip = $state<{ x: number; y: number; arrow: FlowArrow } | null>(null);
   let fit: ((options?: FitViewOptions) => Promise<boolean>) | null = null;
+  let canvasEl = $state<HTMLElement | null>(null);
 
   const counts = $derived(data ? assetCounts(data) : new Map<string, number>());
   const asset = $derived.by(() => {
@@ -52,7 +57,7 @@
 
   onMount(async () => {
     try {
-      data = await getValueFlow();
+      data = await valueFlow();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -69,7 +74,7 @@
   function partyLines(p: FlowParty): BoxNodeData['lines'] {
     if (p.kind === 'users') {
       const names = p.expressions.slice(0, 3).join(', ');
-      return [{ text: p.expressions.length > 3 ? `${names}…` : names, tone: 'mono' }];
+      return [{ text: p.expressions.length > 3 ? `${names} +${p.expressions.length - 3}` : names, tone: 'mono' }];
     }
     if (p.kind === 'declared') return [{ text: 'outside the project' }];
     const parts = [p.pays ? `pays out ${p.pays}` : '', p.receives ? `receives ${p.receives}` : ''].filter(Boolean);
@@ -82,8 +87,10 @@
     return Math.max(40 + lines * 18, ports * 13 + 18);
   }
 
-  function draw() {
-    if (!flow) return;
+  const chipText = (a: FlowArrow) => (a.pool ? `${POOL_ASSET} · ${a.transfers.length}` : `${a.assets.join(' + ')}${a.transfers.length > 1 ? ` · ${a.transfers.length}` : ''}`);
+
+  const layout = $derived.by(() => {
+    if (!flow) return null;
     const { parties, arrows } = flow;
     const columns = [...new Set(parties.map((p) => p.column))].sort();
     const colX = new Map(columns.map((c, i) => [c, i * (WIDTH + GAP_X)]));
@@ -114,63 +121,58 @@
         top += (h.get(p.key) ?? 0) + GAP_Y;
       }
     }
+    const rect = (key: string) => ({ ...pos.get(key)!, w: WIDTH, h: h.get(key) ?? 0 });
 
-    const sides = (a: FlowArrow): ['l' | 'r', 'l' | 'r'] => {
+    const ports = new Map<string, Port[]>();
+    for (const a of arrows) {
       const from = partyOf.get(a.from)!;
       const to = partyOf.get(a.to)!;
-      if (from.column === to.column) return ['r', 'r'];
-      return from.column < to.column ? ['r', 'l'] : ['l', 'r'];
-    };
-    const ports = new Map<string, (BoxPort & { order: number })[]>();
-    const add = (key: string, port: BoxPort & { order: number }) => (ports.get(key) ?? ports.set(key, []).get(key)!).push(port);
-    for (const a of arrows) {
-      const [s, t] = sides(a);
-      add(a.from, { id: `${a.id}:s`, side: s, type: 'source', order: pos.get(a.to)!.y });
-      add(a.to, { id: `${a.id}:t`, side: t, type: 'target', order: pos.get(a.from)!.y });
+      const [s, t] = sidesBetween({ column: from.column, y: 0 }, { column: to.column, y: 0 });
+      addPort(ports, a.from, { id: `${a.id}:s`, side: s, type: 'source', order: pos.get(a.to)!.y });
+      addPort(ports, a.to, { id: `${a.id}:t`, side: t, type: 'target', order: pos.get(a.from)!.y });
     }
-    const anchor = new Map<string, Point & { side: Side }>();
-    for (const [key, list] of ports) {
-      list.sort((a, b) => a.order - b.order);
-      const p = pos.get(key)!;
-      for (const side of ['l', 'r'] as const) {
-        const at = list.filter((x) => x.side === side);
-        at.forEach((port, i) => anchor.set(port.id, { x: p.x + (side === 'r' ? WIDTH : 0), y: p.y + ((h.get(key) ?? 0) * (i + 1)) / (at.length + 1), side }));
-      }
-    }
+    const anchor = anchors(ports, rect);
+    const order = [...arrows].sort((a, b) => Number(b.pool) - Number(a.pool) || b.transfers.length - a.transfers.length);
+    const chipAt = placeChips(order.map((a) => ({ id: a.id, s: anchor.get(`${a.id}:s`)!, t: anchor.get(`${a.id}:t`)!, text: chipText(a) })), parties.map((p) => rect(p.key)));
+    return { columns, colX, pos, h, ports, chipAt };
+  });
 
-    const chipText = (a: FlowArrow) => (a.pool ? `${POOL_ASSET} · ${a.transfers.length}` : `${a.assets.join(' + ')}${a.transfers.length > 1 ? ` · ${a.transfers.length}` : ''}`);
-    const boxes = parties.map((p) => ({ ...pos.get(p.key)!, w: WIDTH, h: h.get(p.key) ?? 0 }));
+  const nodes = $derived.by((): Node<GraphNodeData>[] => {
+    if (!flow || !layout) return [];
     const touched = new Set(shown.flatMap((a) => [a.from, a.to]));
     const focus = arrow !== null || party !== null;
-    const order = arrows.filter((a) => !focus || shown.includes(a)).sort((a, b) => Number(b.pool) - Number(a.pool) || b.transfers.length - a.transfers.length);
-    const chipAt = placeChips(order.map((a) => ({ id: a.id, s: anchor.get(`${a.id}:s`)!, t: anchor.get(`${a.id}:t`)!, text: chipText(a) })), boxes);
-
-    const nodes: Node<GraphNodeData>[] = parties.map((p) => ({
+    const list: Node<GraphNodeData>[] = flow.parties.map((p) => ({
       id: p.key,
       type: 'box',
-      position: pos.get(p.key)!,
+      position: layout.pos.get(p.key)!,
       data: {
         _type: 'box',
         label: p.label,
         icon: p.kind === 'declared' ? 'out' : undefined,
         lines: partyLines(p),
-        ports: ports.get(p.key) ?? [],
+        ports: layout.ports.get(p.key) ?? [],
         variant: p.kind === 'users' ? 'cluster' : '',
         width: WIDTH,
-        height: h.get(p.key),
+        height: layout.h.get(p.key),
         on: p.key === selected,
         dim: focus && !touched.has(p.key),
       } satisfies BoxNodeData,
     }));
-    for (const column of columns) {
+    for (const column of layout.columns) {
       const caption = CAPTIONS[column];
-      if (caption) nodes.push({ id: `caption:${column}`, type: 'caption', position: { x: colX.get(column) ?? 0, y: 0 }, selectable: false, data: { _type: 'box', label: caption } });
+      if (caption) list.push({ id: `caption:${column}`, type: 'caption', position: { x: layout.colX.get(column) ?? 0, y: 0 }, selectable: false, data: { _type: 'box', label: caption } });
     }
+    return list;
+  });
 
-    const edges: Edge[] = arrows.map((a) => {
+  const edges = $derived.by((): Edge[] => {
+    if (!flow || !layout) return [];
+    const focus = arrow !== null || party !== null;
+    return flow.arrows.map((a) => {
       const on = a.id === picked;
       const lit = !focus || shown.includes(a);
       const color = on ? ACCENT : a.pool ? AMBER : VALUE;
+      const at = layout.chipAt.get(a.id) ?? null;
       return {
         id: a.id,
         type: 'chip',
@@ -182,20 +184,19 @@
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
         style: `stroke: ${color}; stroke-width: ${on ? 2.4 : a.pool ? 1.8 : 2}; opacity: ${lit ? 1 : a.pool ? 0.45 : 0.16}`,
         data: {
-          chip: chipText(a),
+          chip: !focus || lit ? chipText(a) : undefined,
           icon: a.pool ? 'unres' : 'value',
           tone: a.pool ? 'amb' : 'val',
           on,
-          labelAt: on ? (chipAt.get(a.id) ?? 0.5) : (chipAt.get(a.id) ?? null),
+          labelAt: on ? (at ?? 0.5) : at,
           onpick: pickArrow,
         } satisfies ChipEdgeData,
       };
     });
-    setNodes(nodes);
-    setEdges(edges);
-  }
+  });
 
-  $effect(draw);
+  $effect(() => setNodes(nodes));
+  $effect(() => setEdges(edges));
 
   function pickArrow(id: string) {
     setQuery({ arrow: id === picked ? null : id, sel: null });
@@ -207,6 +208,12 @@
   function setAsset(name: string | null) {
     setQuery({ asset: name, arrow: null });
   }
+  const opens = $derived(party?.kind === 'contract' && !party.label.includes(' or ') ? party.label : null);
+  const onKey = selectionKeys(() => ({
+    selected: party !== null || arrow !== null,
+    clear: () => setQuery({ sel: null, arrow: null }),
+    open: opens ? () => goto(`/contract/${encodeURIComponent(opens!)}`) : null,
+  }));
 
   function onArrowHover(edge: Edge, event: MouseEvent) {
     const a = flow?.arrows.find((x) => x.id === edge.id);
@@ -248,19 +255,21 @@
   }
 </script>
 
-<div class="toolbar">
+<svelte:window onkeydown={onKey} />
+
+<div class="toolbar" role="toolbar" aria-label="Value flow">
   <span class="crumb-here">Value flow</span>
   <span class="tlabel">Asset</span>
   <div class="seg" role="group" aria-label="Asset">
     <button type="button" aria-pressed={asset === null} onclick={() => setAsset(null)}>All {total}</button>
-    {#each ASSET_ORDER.filter((a) => counts.has(a)) as name}
+    {#each ASSET_ORDER.filter((a) => counts.has(a)) as name (name)}
       <button type="button" class:amb={name === POOL_ASSET} aria-pressed={asset === name} onclick={() => setAsset(name)} title={name === POOL_ASSET ? POOL_ASSET_LONG : name}>{name} {counts.get(name)}</button>
     {/each}
   </div>
 </div>
 
 <div class="work">
-  <div class="canvas">
+  <div class="canvas" bind:this={canvasEl}>
     {#if error}
       <div class="state-msg err">{error}</div>
     {:else if !data}
@@ -293,18 +302,20 @@
       <h1>{party.label}</h1>
       <p class="sub">{[party.pays ? `pays out ${party.pays}` : '', party.receives ? `receives ${party.receives}` : ''].filter(Boolean).join(' · ')}</p>
       {#if party.kind === 'users'}<p class="sub mono">{party.expressions.join(', ')}</p>{/if}
+      {#if opens}<div class="actions"><button type="button" class="btn" onclick={() => goto(`/contract/${encodeURIComponent(opens!)}`)}>Open functions <span class="tlabel">Enter</span></button></div>{/if}
     {:else}
       <h1>Value moves</h1>
-      <p class="sub">{flow?.transfers.length ?? 0} transfers in {functions} functions</p>
+      <p class="sub">{flow?.transfers.length ?? 0} value transfers in {functions} functions, calls to targets outside the project included</p>
     {/if}
     {#each groups as [name, lines] (name)}
-      <h2 class:amb={name === POOL_ASSET}><Icon name={name === POOL_ASSET ? 'unres' : 'value'} />{name === POOL_ASSET ? POOL_ASSET_LONG : name}<span class="n">{lines.reduce((n, l) => n + l.contexts.length, 0)}</span></h2>
+      {@const moves = lines.reduce((n, l) => n + l.contexts.length, 0)}
+      <h2 class:amb={name === POOL_ASSET}><Icon name={name === POOL_ASSET ? 'unres' : 'value'} /><span class="ht">{name === POOL_ASSET ? POOL_ASSET_LONG : name}</span><span class="n">{moves} {moves === 1 ? 'transfer' : 'transfers'}</span></h2>
       <ul class="list">
         {#each lines as line (line.key)}
           {@const t = line.transfer}
           <Row icon={t.via_library ? 'lib' : 'value'} tone={name === POOL_ASSET ? 'amb' : 'val'} title="{fnName(t.function)} → {line.to}" line={t.span.start_line} onsource={() => openFunctionLine(t.function, t.span.start_line)}>
             {#snippet meta()}
-              <span class={name === POOL_ASSET ? 'amb' : 'val'}>{verb(t)} {name}</span>{t.amount_expr ? ` · amount ${t.amount_expr}` : ''}{t.via_library ? ` · through ${t.via_library}` : ''}{line.contexts.some((c) => c !== splitRef(t.function).contract) ? ` · runs inside ${line.contexts.join(', ')}` : ''} · <span title="Transfer id">{t.id}</span>
+              <span class={name === POOL_ASSET ? 'amb' : 'val'}>{verb(t)} {name}</span>{t.amount_expr ? ` · amount ${t.amount_expr}` : ''}{t.via_library ? ` · through ${t.via_library}` : ''}{line.contexts.some((c) => c !== splitRef(t.function).contract) ? ` · runs inside ${line.contexts.join(', ')}` : ''}
             {/snippet}
           </Row>
         {/each}
@@ -322,8 +333,8 @@
 </div>
 
 {#if tip}
-  <div class="tip" style="left: {tip.x + 12}px; top: {tip.y + 12}px">
+  <Tooltip x={tip.x} y={tip.y} within={canvasEl}>
     <b>{partyOf.get(tip.arrow.from)?.label} → {partyOf.get(tip.arrow.to)?.label}</b>
     {'\n'}{describeTransfers(tip.arrow.transfers)}
-  </div>
+  </Tooltip>
 {/if}

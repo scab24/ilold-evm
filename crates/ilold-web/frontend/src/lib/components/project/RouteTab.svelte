@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { MarkerType, type Edge, type Node } from '@xyflow/svelte';
-  import { getRoute, getValueFlow, type ContractSummary, type RouteCall, type Routes, type ValueTransfer } from '$lib/api/rest';
+  import { getRoute, type ContractSummary, type RouteCall, type Routes, type ValueTransfer } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
+  import { valueFlow } from '$lib/stores/project-data';
   import { RELATION_STYLE, splitRef } from '$lib/utils/links';
   import { openInIde } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
@@ -11,6 +13,8 @@
   import BoxNode, { type BoxNodeData, type BoxRow } from './BoxNode.svelte';
   import ChipEdge, { type ChipEdgeData } from './ChipEdge.svelte';
   import Icon from './Icon.svelte';
+  import { selectionKeys } from './selection-keys';
+  import Tooltip from './Tooltip.svelte';
   import Row from './Row.svelte';
   import { FIT_PADDING, NEAR_SOURCE, placeChips } from './chips';
   import { transferKey } from './value-graph';
@@ -35,10 +39,13 @@
   let routes = $state<Routes | null>(null);
   let error = $state<string | null>(null);
   let moved = $state<Map<string, ValueTransfer> | null>(null);
+  let canvasEl = $state<HTMLElement | null>(null);
+  let tip = $state<{ x: number; y: number; text: string; title: string } | null>(null);
+  const hops = new Map<string, { title: string; text: string }>();
 
   onMount(async () => {
     try {
-      moved = new Map((await getValueFlow()).transfers.map((t) => [transferKey(t), t]));
+      moved = new Map((await valueFlow()).transfers.map((t) => [transferKey(t), t]));
     } catch {
       moved = new Map();
     }
@@ -62,6 +69,13 @@
     return count === 0 || !Number.isInteger(asked) ? 0 : Math.min(Math.max(asked, 1), count) - 1;
   });
   const route = $derived(routes?.routes[chosen] ?? null);
+  const picked = $derived.by(() => {
+    const sel = page.url.searchParams.get('sel');
+    if (!sel || !route) return null;
+    const on = route.steps.some((s, si) => `${si}:${s.from}` === sel || `${si + 1}:${s.to}` === sel);
+    return on ? sel : null;
+  });
+  const pickedContract = $derived(picked ? picked.slice(picked.indexOf(':') + 1) : null);
 
   function member(ref: string): string {
     return splitRef(ref).member;
@@ -153,6 +167,7 @@
             rowPorts: true,
             variant: n.on ? 'route' : '',
             width: WIDTH,
+            on: id === picked,
             dim: !n.on,
           } satisfies BoxNodeData,
         });
@@ -169,6 +184,11 @@
       const lines = [...e.lines].sort((x, y) => x - y);
       return `${lines.length > 1 ? 'lines' : 'line'} ${lines.join(', ')}${e.value ? ` · sends ${e.assets.join(' + ') || 'value'}` : ''}`;
     };
+    hops.clear();
+    for (const [id, e] of edges) {
+      const [from, to] = [e.source, e.target].map((n) => n.slice(n.indexOf(':') + 1));
+      hops.set(id, { title: `${from}.${e.s} → ${to}.${e.t}`, text: text(e) });
+    }
     const lit = [...edges.entries()].filter(([, e]) => e.on);
     const boxes = nodes.map((n) => ({ x: n.position.x, y: n.position.y, w: WIDTH, h: height(n.id) }));
     const chipAt = placeChips(
@@ -205,29 +225,53 @@
 
   $effect(draw);
 
-  function pick(key: 'from' | 'to', value: string) {
-    setQuery({ [key]: value || null, route: null });
+  function pick(end: 'from' | 'to', value: string) {
+    setQuery({ [end]: value || null, route: null, sel: null });
   }
+  function routeOf(node: string): number {
+    return routes?.routes.findIndex((r) => r.steps.some((s, si) => `${si}:${s.from}` === node || `${si + 1}:${s.to}` === node)) ?? -1;
+  }
+  function tapBox(node: Node<GraphNodeData>) {
+    const i = routeOf(node.id);
+    if (i < 0) return;
+    if (i !== chosen) return setQuery({ route: String(i + 1), sel: node.id });
+    if (node.id === picked) return openContract(pickedContract!);
+    setQuery({ sel: node.id });
+  }
+  function openContract(name: string) {
+    goto(`/contract/${encodeURIComponent(name)}`);
+  }
+  function onHopHover(edge: Edge, event: MouseEvent) {
+    const hop = hops.get(edge.id);
+    tip = hop ? { x: event.clientX, y: event.clientY, ...hop } : null;
+  }
+  const onKey = selectionKeys(() => ({
+    selected: picked !== null,
+    clear: () => setQuery({ sel: null }),
+    open: pickedContract ? () => openContract(pickedContract!) : null,
+  }));
 </script>
 
-<div class="toolbar">
+<svelte:window onkeydown={onKey} />
+
+<div class="toolbar" role="toolbar" aria-label="Route">
   <span class="crumb-here">Route</span>
   <label class="tlabel" for="route-from">From</label>
   <select id="route-from" class="pick" value={from} onchange={(e) => pick('from', e.currentTarget.value)}>
     <option value="">Pick a contract</option>
-    {#each deployable as name}<option value={name} disabled={name === to}>{name}</option>{/each}
+    {#each deployable as name (name)}<option value={name} disabled={name === to}>{name}</option>{/each}
   </select>
   <button type="button" class="btn" onclick={() => setQuery({ from: to || null, to: from || null, route: null })} disabled={!from && !to}><Icon name="swap" />Swap</button>
   <label class="tlabel" for="route-to">To</label>
   <select id="route-to" class="pick" value={to} onchange={(e) => pick('to', e.currentTarget.value)}>
     <option value="">Pick a contract</option>
-    {#each deployable as name}<option value={name} disabled={name === from}>{name}</option>{/each}
+    {#each deployable as name (name)}<option value={name} disabled={name === from}>{name}</option>{/each}
   </select>
   <button type="button" class="btn" aria-pressed={reads} onclick={() => setQuery({ reads: reads ? null : '1', route: null })}>Include reads</button>
 </div>
 
 <div class="work">
-  <div class="canvas">
+  <div class="canvas" bind:this={canvasEl}>
     {#if !from || !to}
       <div class="state-msg">Pick a start and an end contract to see how one reaches the other.</div>
     {:else if same}
@@ -244,12 +288,12 @@
           tools={false}
           extraNodeTypes={{ box: BoxNode } as any}
           edgeTypes={{ chip: ChipEdge } as any}
-          onnodetap={(n) => {
-            const i = routes?.routes.findIndex((r) => r.steps.some((s, si) => `${si}:${s.from}` === n.id || `${si + 1}:${s.to}` === n.id)) ?? -1;
-            if (i >= 0 && i !== chosen) setQuery({ route: String(i + 1) });
-          }}
+          onnodetap={tapBox}
+          onbackgroundtap={() => picked && setQuery({ sel: null })}
+          onedgemouseenter={onHopHover}
+          onedgemouseleave={() => (tip = null)}
           canDeleteNodes={false}
-        keepPositions={false}
+          keepPositions={false}
           initialFit={{ padding: FIT_PADDING, maxZoom: 1.1 }}
           minZoom={0.2}
         />
@@ -260,20 +304,23 @@
     {#if routes && route}
       <h1>{routes.from} → {routes.to}</h1>
       <p class="sub">Route {chosen + 1} of {routes.routes.length} · {route.steps.length} {route.steps.length === 1 ? 'hop' : 'hops'} · following calls{reads ? ' and reads' : ''}</p>
+      {#if pickedContract}
+        <div class="actions"><button type="button" class="btn" onclick={() => openContract(pickedContract!)}>Open {pickedContract} <span class="tlabel">Enter</span></button></div>
+      {/if}
       {#if routes.routes.length > 1}
-        <div class="seg" role="group" aria-label="Route" style="margin-top: 10px; flex-wrap: wrap">
-          {#each routes.routes as _, i}
-            <button type="button" aria-pressed={i === chosen} onclick={() => setQuery({ route: String(i + 1) })}>{i + 1}</button>
+        <div class="seg wrap" role="group" aria-label="Route">
+          {#each routes.routes as _, i (i)}
+            <button type="button" aria-pressed={i === chosen} onclick={() => setQuery({ route: String(i + 1), sel: null })}>{i + 1}</button>
           {/each}
         </div>
       {/if}
       {#if routes.truncated}
         <p class="note amb"><Icon name="unres" /> More routes of this length exist; the first {routes.routes.length} are shown.</p>
       {/if}
-      {#each route.steps as step, si}
-        <h2><Icon name="call" />{si + 1} · {step.from} → {step.to}<span class="n">{step.calls.length}</span></h2>
+      {#each route.steps as step, si (si)}
+        <h2><Icon name="call" /><span class="ht">{si + 1} · {step.from}<wbr /> → {step.to}</span><span class="n">{step.calls.length} {step.calls.length === 1 ? 'call' : 'calls'}</span></h2>
         <ul class="list">
-          {#each step.calls as call}
+          {#each step.calls as call (`${call.call.in_context}|${call.call.function}|${call.call.span.start_line}:${call.call.span.start_col}|${call.callee.function}`)}
             {@const value = valueText(call)}
             <Row icon={call.recorded ? (value ? 'value' : 'call') : 'unres'} tone={call.recorded ? (value ? 'val' : '') : 'amb'} title="{member(call.call.function)} → {step.to}.{member(call.callee.function)}" line={call.call.span.start_line} onsource={call.call.file ? () => openInIde(call.call.file!, call.call.span.start_line) : undefined}>
               {#snippet meta()}
@@ -298,5 +345,11 @@
   <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={ROUTE} stroke-width="2" /></svg>Route, function to function</span>
   <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={VALUE} stroke-width="2" /></svg>Hop that moves value</span>
   <span class="key amb"><Icon name="unres" />Steps inside a contract not recorded</span>
-  <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={ROUTE} stroke-width="2" opacity="0.3" /></svg>Other route (dimmed)</span>
+  {#if (routes?.routes.length ?? 0) > 1}
+    <span class="key"><svg width="22" height="8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4" style:stroke={ROUTE} stroke-width="2" opacity="0.3" /></svg>Other route (dimmed)</span>
+  {/if}
 </div>
+
+{#if tip}
+  <Tooltip x={tip.x} y={tip.y} within={canvasEl}><b>{tip.title}</b>{'\n'}{tip.text}</Tooltip>
+{/if}

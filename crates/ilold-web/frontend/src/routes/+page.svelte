@@ -78,7 +78,7 @@
   </header>
 
   {#if !project}
-    <div class="state-msg" class:err={failed} style="grid-row: 2 / 5">{failed ? 'Failed to connect. Is "ilold serve" running?' : 'Analyzing…'}</div>
+    <div class="state-msg full" class:err={failed}>{failed ? 'Failed to connect. Is "ilold serve" running?' : 'Analyzing…'}</div>
   {:else}
     {#key tab}
       {#if tab === 'value'}

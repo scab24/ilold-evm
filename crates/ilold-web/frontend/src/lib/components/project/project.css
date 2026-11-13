@@ -27,6 +27,8 @@
 
 .pj .toolbar { display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--color-border-subtle); min-width: 0; white-space: nowrap; }
 .pj .crumb { color: var(--color-accent-hover); font-weight: 600; }
+.pj .crumb-btn { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; cursor: pointer; }
+.pj .find-form { margin-left: auto; }
 .pj .crumb-here { color: var(--color-text-light); font-weight: 600; }
 .pj .tlabel { color: var(--root); white-space: nowrap; }
 .pj .seg { display: flex; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: 7px; min-width: 0; overflow: hidden; }
@@ -50,6 +52,7 @@
 .pj .canvas { position: relative; min-width: 0; min-height: 0; }
 .pj .state-msg { padding: 24px; color: var(--root); }
 .pj .state-msg.err { color: var(--color-danger-light); }
+.pj .state-msg.full { grid-row: 2 / 5; }
 
 .pj .insp { border-left: 1px solid var(--color-border-subtle); background: var(--color-surface); overflow: auto; padding: 20px 20px 32px; min-width: 0; }
 @media (max-width: 1199px) {
@@ -57,8 +60,12 @@
 }
 .pj .insp h1 { font-size: 16px; font-weight: 700; color: var(--color-text-light); margin: 0; overflow-wrap: anywhere; }
 .pj .insp .sub { margin: 4px 0 0; color: var(--root); }
-.pj .insp h2 { display: flex; align-items: center; gap: 8px; margin: 26px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-subtle); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-light); }
-.pj .insp h2 .n { margin-left: auto; font-weight: 600; color: var(--root); letter-spacing: 0; }
+.pj .insp h2 { display: flex; align-items: flex-start; gap: 8px; margin: 26px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-subtle); font-size: 13px; font-weight: 700; color: var(--color-text-light); }
+.pj .insp h2 > .pj-icon { flex: none; margin-top: 3px; }
+.pj .insp h2 .ht { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
+.pj .insp h2 .n { flex: none; margin-left: auto; font-weight: 600; color: var(--root); white-space: nowrap; }
+.pj .insp .actions { margin-top: 12px; }
+.pj .seg.wrap { margin-top: 10px; flex-wrap: wrap; }
 .pj .insp h2.amb { color: var(--amber); }
 .pj .insp .note { color: var(--root); margin: 16px 0 0; }
 .pj .insp .note.amb { color: var(--amber); }
@@ -78,6 +85,7 @@
 .pj .rs .amb { color: var(--amber); }
 .pj .src { flex: none; padding: 6px 6px 0 4px; font-family: var(--font-mono); font-size: 12px; color: var(--color-accent); background: none; border: 0; cursor: pointer; }
 .pj .src:hover { color: var(--color-accent-hover); text-decoration: underline; }
+.pj .src.count, .pj .src.count:hover { color: var(--root); text-decoration: none; cursor: default; }
 .pj .stat { display: flex; align-items: center; gap: 10px; padding: 5px 6px; }
 .pj .stat .k { flex: 1; min-width: 0; }
 .pj .stat.val { color: var(--color-success-light); }
@@ -98,6 +106,8 @@
 .pj .fchip[data-s='dim'] { border-style: dashed; color: var(--root); }
 .pj .fchip[data-s='hide'] { color: var(--root); }
 .pj .fchip[data-s='hide'] .lbl { text-decoration: line-through; }
+.pj .fchip[data-s='dim'] > :is(svg, .pj-icon) { opacity: 0.4; }
+.pj .fchip[data-s='hide'] > :is(svg, .pj-icon) { opacity: 0.15; }
 .pj .fchip .st { font-size: 12px; color: var(--root); }
 .pj .key { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; color: var(--color-text); }
 .pj .key.amb { color: var(--amber); }
@@ -109,5 +119,8 @@
 .pj .chip.amb .pj-icon { color: var(--amber); }
 .pj .chip.on { background: var(--color-tint-accent); border-color: var(--color-accent); }
 .pj .chip.faded { opacity: 0.25; }
+.pj button.chip { line-height: 1.5; }
+.pj span.chip { cursor: default; }
 .pj .tip { position: fixed; z-index: 30; max-width: 440px; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); pointer-events: none; white-space: pre-line; }
+.pj .tip.measuring { visibility: hidden; }
 .pj .tip b { color: var(--color-text-light); }

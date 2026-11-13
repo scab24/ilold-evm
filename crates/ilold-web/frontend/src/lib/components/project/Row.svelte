@@ -18,7 +18,7 @@
 <li class="li">
   <span class="rw">
     <Icon name={icon} class={tone} />
-    <span class="rb-body"><span class="rt" {title}>{#each parts as part}{part}<wbr />{/each}</span>{#if meta}<span class="rs">{@render meta()}</span>{/if}</span>
+    <span class="rb-body"><span class="rt">{#each parts as part, i (i)}{part}<wbr />{/each}</span>{#if meta}<span class="rs">{@render meta()}</span>{/if}</span>
   </span>
   {#if onsource}
     <button class="src" type="button" onclick={onsource} title="Open the source at line {line}">:{line}</button>

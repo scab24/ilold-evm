@@ -108,21 +108,29 @@ contracts, **Fold** to fold it again):
 
 The header tabs switch the project page between **Map**, **Value flow** and
 **Route**; the tab and everything picked in it live in the URL, so a link
-reopens the same view. The reading order by layers stays in
-`analyze --deps`.
+reopens the same view, and the browser Back and Forward buttons step through
+the contracts, pairs, arrows and route ends you picked (filters change the URL
+without adding steps). On every tab Escape clears the selection and Enter opens
+the selected contract; tooltips stay inside the canvas. The reading order by
+layers stays in `analyze --deps`.
 
 - **Value flow** draws who pays whom, left to right: who pays in, the project
   contracts, and what leaves the project. One arrow per pair and direction
   names its assets; Uniswap v4 `Currency` moves read "ETH or token, set by the
   pool" on amber lanes. The asset buttons filter the arrows, a click on
-  an arrow or a box lists its transfers (with their ids) in the side panel and
-  zooms to the parties it touches.
+  an arrow or a box lists its transfers in the side panel and zooms to the
+  parties it touches; the "Users and addresses" box names the first three
+  addresses and counts the rest as `+N`. The panel counts every recognised
+  move, so it also includes the transfers made on calls to targets outside
+  the project, which the Map totals leave out.
 - **Route** shows how one deployed contract reaches another (the `route`
   command): pick From and To, Swap, and Include reads to also follow read
   calls. Each hop is drawn function to function; a hop inside a contract that
   the call graph does not record is marked "steps inside not recorded". When
   several routes exist, the boxes list the functions of the chosen route and
-  fold the others into one "more on other routes" row.
+  fold the others into one "more on other routes" row. Hover a hop for its
+  calls; click a box to select it (a box of another route switches to that
+  route), click it again or press Enter to open the contract.
 
 ## Practical workflow
 

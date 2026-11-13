@@ -42,7 +42,7 @@
 
 <div class="box {data.variant ?? ''}" class:on={data.on} class:dim={data.dim || data.faded?.()} style:width={data.width ? `${data.width}px` : undefined} style:min-height={data.height ? `${data.height}px` : undefined}>
   <div class="name">{#if data.icon}<Icon name={data.icon} size={14} />{/if}<span title={data.label}>{data.label}</span></div>
-  {#each data.lines ?? [] as line}
+  {#each data.lines ?? [] as line (line.text)}
     <div class="meta {line.tone ?? ''}">{#if line.icon}<Icon name={line.icon} size={13} />{/if}<span>{line.text}</span></div>
   {/each}
   {#if data.rows?.length}
@@ -51,8 +51,8 @@
         <li class="row {row.tone ?? ''}" title={row.title ?? row.text}>
           {#if row.icon}<Icon name={row.icon} size={13} />{/if}<span>{row.text}</span>
           {#if data.rowPorts}
-            <Handle type="target" id="{row.id}:in" position={Position.Left} style="left: -14px" />
-            <Handle type="source" id="{row.id}:out" position={Position.Right} style="right: -14px; left: auto" />
+            <Handle type="target" id="{row.id}:in" position={Position.Left} class="row-in" />
+            <Handle type="source" id="{row.id}:out" position={Position.Right} class="row-out" />
           {/if}
         </li>
       {/each}
@@ -86,5 +86,7 @@
   .row.amb { font: 12px var(--font-sans); color: var(--amber); }
   .row.dim { color: var(--root); }
   .row :global(.svelte-flow__handle) { opacity: 0; }
+  .row :global(.svelte-flow__handle.row-in) { left: -14px; }
+  .row :global(.svelte-flow__handle.row-out) { right: -14px; left: auto; }
   :global(.svelte-flow__node-box .svelte-flow__handle) { width: 4px; height: 4px; min-width: 0; min-height: 0; border: 0; background: transparent; }
 </style>

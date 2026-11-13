@@ -18,7 +18,7 @@
   import Icon from './Icon.svelte';
   import { bezierPoint, type Side } from './chips';
 
-  let { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, data }: EdgeProps = $props();
+  let { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerStart, markerEnd, data }: EdgeProps = $props();
 
   const d = $derived((data ?? {}) as ChipEdgeData);
   const geometry = $derived(getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition }));
@@ -28,9 +28,13 @@
   );
 </script>
 
-<BaseEdge {id} path={geometry[0]} {style} {markerEnd} interactionWidth={14} />
+<BaseEdge {id} path={geometry[0]} {style} {markerStart} {markerEnd} interactionWidth={14} />
 {#if d.chip && label}
-  <EdgeLabel x={label.x} y={label.y} onclick={() => d.onpick?.(id)}>
-    <span class="chip {d.tone ?? ''}" class:on={d.on} class:faded={d.faded}>{#if d.icon}<Icon name={d.icon} size={13} />{/if}{d.chip}</span>
+  <EdgeLabel x={label.x} y={label.y}>
+    {#if d.onpick}
+      <button type="button" class="chip {d.tone ?? ''}" class:on={d.on} class:faded={d.faded} aria-pressed={d.on ?? false} onclick={() => d.onpick?.(id)}>{#if d.icon}<Icon name={d.icon} size={13} />{/if}{d.chip}</button>
+    {:else}
+      <span class="chip {d.tone ?? ''}" class:faded={d.faded}>{#if d.icon}<Icon name={d.icon} size={13} />{/if}{d.chip}</span>
+    {/if}
   </EdgeLabel>
 {/if}
