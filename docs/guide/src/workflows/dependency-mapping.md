@@ -82,14 +82,19 @@ contracts, **Fold** to fold it again):
   Library, Inherits, Holds, Via interface and Unresolved each cycle between
   shown, dimmed and hidden (Unresolved is never hidden). Value lines are green,
   AMBIGUOUS and unresolved ones amber; an abstract contract has a dashed border.
-- **hover** a line for its counts and call sites; click it to list its calls in
-  the side panel.
+- **hover** a contract to fade every box it has no drawn line with and animate
+  its own lines. **Hover** a line for its counts and call sites, each with how
+  the call resolved (via interface, selector match or this call), the state
+  variable holding the address and the AMBIGUOUS tag; click it to list its
+  calls in the side panel.
 - **click** a contract to focus on it: Callers / Both / Callees and Depth 1 or 2
   choose the neighbourhood, the panel lists its calls, callers and unresolved
   calls with links to the source. Click it again, or press Enter, to open its
   functions (Enter on a focused button or link presses that control instead);
-  Escape clears the focus. Find a contract selects the best match of its name,
-  deployable contracts first among equal matches, and zooms to it; it says so
+  Escape clears the focus. Find a contract selects the best match of its name
+  among the project contracts, then the project libraries and interfaces, then
+  dependencies and targets outside the project (deployable contracts first among equal matches), and zooms
+  to it; it says so
   when nothing matches. Each deployable contract box shows its entry points,
   restricted functions and whether it moves value.
 - with nothing selected the panel shows the project totals, each call counted

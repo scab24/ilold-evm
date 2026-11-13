@@ -5,7 +5,7 @@
   import { MarkerType, type Edge, type FitViewOptions, type Node } from '@xyflow/svelte';
   import { getProjectConnections, getProjectDepgraph, type ContractCall, type ContractSummary, type ProjectConnections, type ProjectDepGraph } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
-  import { splitRef } from '$lib/utils/links';
+  import { BASIS_LABEL, splitRef } from '$lib/utils/links';
   import { openInIde } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
   import { score } from '$lib/utils/fuzzy';
@@ -144,7 +144,6 @@
         });
       }
     }
-    const focus = hood !== null || pickedPair !== null;
     const lit = new Set(
       shown
         .filter((e) => {
@@ -186,10 +185,20 @@
           height: p.h,
           on: p.id === selected,
           dim: hood !== null && !hood.has(p.id),
+          faded: () => near !== null && !near.has(p.id),
         } satisfies BoxNodeData,
       });
     }
-    return { shown, lit, focus, texts, chipAt, nodes };
+    return { shown, lit, texts, chipAt, nodes };
+  });
+
+  const near = $derived.by(() => {
+    if (hovered === null || !scene) return null;
+    const ids = new Set([hovered]);
+    for (const e of scene.shown) {
+      if (scene.lit.has(e.id) && (e.a === hovered || e.b === hovered)) ids.add(e.a).add(e.b);
+    }
+    return ids;
   });
 
   const flowEdges = $derived.by((): Edge[] => {
@@ -198,9 +207,9 @@
       const style = STYLE[e.look];
       const on = e.id === pickedPair;
       const lit = scene.lit.has(e.id);
-      const near = hovered !== null && (e.a === hovered || e.b === hovered);
+      const incident = lit && hovered !== null && (e.a === hovered || e.b === hovered);
       const color = on ? ACCENT : style.color;
-      const opacity = on ? 1 : !lit ? 0.07 : e.state === 1 ? 0.35 : hovered && !near && !scene.focus ? 0.3 : 1;
+      const opacity = on || incident ? 1 : !lit ? 0.07 : hovered !== null ? 0.05 : e.state === 1 ? 0.35 : 1;
       const marker = { type: MarkerType.ArrowClosed, color, width: 14, height: 14 };
       return {
         id: e.id,
@@ -211,12 +220,14 @@
         targetHandle: `${e.id}:b`,
         markerEnd: e.forward ? marker : undefined,
         markerStart: e.back ? marker : undefined,
-        zIndex: on ? 2 : undefined,
-        style: `stroke: ${color}; stroke-width: ${style.width + (on || near ? 1 : 0)}; opacity: ${opacity}${style.dash ? `; stroke-dasharray: ${style.dash}` : ''}`,
+        zIndex: on ? 2 : incident ? 1 : undefined,
+        animated: incident,
+        style: `stroke: ${color}; stroke-width: ${style.width + (on || incident ? 1 : 0)}; opacity: ${opacity}${style.dash ? `; stroke-dasharray: ${style.dash}` : ''}`,
         data: {
           chip: lit ? scene.texts.get(e.id) : undefined,
           tone: e.look === 'unresolved' || e.look === 'ambiguous' ? 'amb' : e.look === 'value' ? 'val' : '',
           on,
+          faded: hovered !== null && !on && !incident,
           labelAt: on ? (scene.chipAt.get(e.id) ?? 0.5) : (scene.chipAt.get(e.id) ?? null),
           onpick: pickPair,
         } satisfies ChipEdgeData,
@@ -266,15 +277,19 @@
     const changed = LINES.filter((l) => next[l.id] !== DEFAULT_LINES[l.id]).map((l) => `${l.id}-${next[l.id]}`);
     setQuery({ lines: changed.join(',') || null, pair: null });
   }
+  function tier(id: string): number {
+    const kind = byName.get(id)?.kind;
+    return kind === undefined ? 2 : kind === 'Library' || kind === 'Interface' ? 1 : 0;
+  }
   function search(event: SubmitEvent) {
     event.preventDefault();
     const q = find.trim();
     missed = null;
     if (!q || !g || !connections) return;
     const ranked = names
-      .map((n) => ({ n, s: score(shortName(n), q) }))
+      .map((n) => ({ n, tier: tier(n), s: score(shortName(n), q) }))
       .filter((r) => r.s >= 0)
-      .sort((a, b) => b.s - a.s || Number(summary.has(b.n)) - Number(summary.has(a.n)) || a.n.localeCompare(b.n));
+      .sort((a, b) => a.tier - b.tier || b.s - a.s || Number(summary.has(b.n)) - Number(summary.has(a.n)) || a.n.localeCompare(b.n));
     const hit = ranked[0]?.n;
     if (!hit) {
       missed = q;
@@ -316,18 +331,20 @@
   }
   function rowMeta(item: Item & { row: ContractCall }): string {
     const parts = [KIND_WORD[item.line]];
+    const basis = item.row.callees.find((d) => d.contract === item.to)?.basis;
     if (item.iface) parts.push('via interface');
-    else if (item.row.callees.some((d) => d.contract === item.to && d.basis === 'selector_match')) parts.push('selector match');
+    else if (basis === 'selector_match' || basis === 'self') parts.push(BASIS_LABEL[basis]);
     if (item.row.via) parts.push(`address in ${member(item.row.via)}`);
     if (item.ambiguous) parts.push(`${item.row.callees.length} possible · AMBIGUOUS`);
     if (item.row.unresolved_reason) parts.push(item.row.unresolved_reason === 'dynamic_address' ? 'the call names no declaration' : `no project contract implements ${shortName(item.to)}`);
     if (item.row.in_try) parts.push('inside try');
     return parts.join(' · ');
   }
+  const hasRow = (i: Item): i is Item & { row: ContractCall } => i.row !== null;
   const ORDER: Item['line'][] = ['calls', 'reads', 'library', 'unresolved'];
   const withRow = (list: Item[]) =>
     list
-      .filter((i): i is Item & { row: ContractCall } => i.row !== null && itemState(i, lines) > 0)
+      .filter((i): i is Item & { row: ContractCall } => hasRow(i) && itemState(i, lines) > 0)
       .sort((x, y) => itemState(y, lines) - itemState(x, lines) || ORDER.indexOf(x.line) - ORDER.indexOf(y.line) || x.to.localeCompare(y.to) || x.row.span.start_line - y.row.span.start_line);
   const outgoing = $derived(selected ? withRow(all.filter((i) => i.from === selected && i.line !== 'unresolved')) : []);
   const incoming = $derived(selected ? withRow(all.filter((i) => i.to === selected)) : []);
@@ -481,14 +498,16 @@
 </div>
 
 {#if tip}
+  {@const called = tip.edge.items.filter(hasRow)}
   <div class="tip" style="left: {tip.x + 12}px; top: {tip.y + 12}px">
     <b>{label(tip.edge.a)} {tip.edge.forward && tip.edge.back ? '⇄' : tip.edge.forward ? '→' : '←'} {label(tip.edge.b)}</b>
     {#each (['calls', 'reads', 'library', 'unresolved', 'inherits', 'holds'] as const).filter((k) => tip!.edge.items.some((i) => i.line === k)) as k}
       {'\n'}{tally(k, tip.edge.items.filter((i) => i.line === k).length)}
     {/each}
-    {#each tip.edge.items.filter((i) => i.row).slice(0, 8) as i}
-      {'\n'}{label(i.from)}.{member(i.row!.function)} · line {i.row!.span.start_line}
+    {#if called.some((i) => i.ambiguous)}{'\n'}{called.filter((i) => i.ambiguous).length} AMBIGUOUS{/if}
+    {#each called.slice(0, 8) as i}
+      {'\n'}{label(i.from)}.{member(i.row.function)} · line {i.row.span.start_line} · {rowMeta(i)}
     {/each}
-    {#if tip.edge.items.filter((i) => i.row).length > 8}{'\n'}… click the line for all{/if}
+    {#if called.length > 8}{'\n'}… click the line for all{/if}
   </div>
 {/if}

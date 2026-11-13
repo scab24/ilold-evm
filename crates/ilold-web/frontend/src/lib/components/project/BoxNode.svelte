@@ -20,6 +20,7 @@
     height?: number;
     on?: boolean;
     dim?: boolean;
+    faded?: () => boolean;
   }
 </script>
 
@@ -39,7 +40,7 @@
   const placed = $derived(new Map([...spread('l'), ...spread('r'), ...spread('t'), ...spread('b')]));
 </script>
 
-<div class="box {data.variant ?? ''}" class:on={data.on} class:dim={data.dim} style:width={data.width ? `${data.width}px` : undefined} style:min-height={data.height ? `${data.height}px` : undefined}>
+<div class="box {data.variant ?? ''}" class:on={data.on} class:dim={data.dim || data.faded?.()} style:width={data.width ? `${data.width}px` : undefined} style:min-height={data.height ? `${data.height}px` : undefined}>
   <div class="name">{#if data.icon}<Icon name={data.icon} size={14} />{/if}<span title={data.label}>{data.label}</span></div>
   {#each data.lines ?? [] as line}
     <div class="meta {line.tone ?? ''}">{#if line.icon}<Icon name={line.icon} size={13} />{/if}<span>{line.text}</span></div>
@@ -63,7 +64,7 @@
 {/each}
 
 <style>
-  .box { position: relative; box-sizing: border-box; min-width: 150px; padding: 8px 12px 9px; border-radius: 6px; background: var(--color-surface-alt); border: 1.25px solid var(--color-text-dim); cursor: pointer; font: 12px/1.45 var(--font-sans); color: var(--root); }
+  .box { position: relative; box-sizing: border-box; min-width: 150px; padding: 8px 12px 9px; border-radius: 6px; background: var(--color-surface-alt); border: 1.25px solid var(--color-text-dim); cursor: pointer; font: 12px/1.45 var(--font-sans); color: var(--root); transition: opacity 0.15s; }
   .box:hover { border-color: var(--color-accent-hover); }
   .box.on { background: var(--color-tint-accent); border: 2px solid var(--color-accent); }
   .box.dim { opacity: 0.3; }

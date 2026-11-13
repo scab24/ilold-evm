@@ -7,6 +7,7 @@
     icon?: IconName;
     tone?: '' | 'val' | 'amb';
     on?: boolean;
+    faded?: boolean;
     labelAt?: number | null;
     onpick?: (id: string) => void;
   }
@@ -30,6 +31,6 @@
 <BaseEdge {id} path={geometry[0]} {style} {markerEnd} interactionWidth={14} />
 {#if d.chip && label}
   <EdgeLabel x={label.x} y={label.y} onclick={() => d.onpick?.(id)}>
-    <span class="chip {d.tone ?? ''}" class:on={d.on}>{#if d.icon}<Icon name={d.icon} size={13} />{/if}{d.chip}</span>
+    <span class="chip {d.tone ?? ''}" class:on={d.on} class:faded={d.faded}>{#if d.icon}<Icon name={d.icon} size={13} />{/if}{d.chip}</span>
   </EdgeLabel>
 {/if}

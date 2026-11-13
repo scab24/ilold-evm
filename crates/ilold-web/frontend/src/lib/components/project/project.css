@@ -107,5 +107,6 @@
 .pj .chip.amb { border-color: var(--amber); color: var(--color-text-light); }
 .pj .chip.amb .pj-icon { color: var(--amber); }
 .pj .chip.on { background: var(--color-tint-accent); border-color: var(--color-accent); }
+.pj .chip.faded { opacity: 0.25; }
 .pj .tip { position: fixed; z-index: 30; max-width: 440px; padding: 6px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); pointer-events: none; white-space: pre-line; }
 .pj .tip b { color: var(--color-text-light); }
