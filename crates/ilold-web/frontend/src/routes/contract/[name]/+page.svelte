@@ -523,7 +523,7 @@
       const visible = () => getNodes().find(n => n.data._type === 'function' && !n.hidden && n.data.funcKey === key);
       if (mode === 'connections') {
         shownMode = 'sequences';
-        removeNodesById(new Set(getNodes().filter((n) => n.data._type === 'box').map((n) => n.id)));
+        clearModeNodes();
         switchMode('sequences');
       }
       if (!visible() && mode !== 'session') addFuncToCanvas(key);
