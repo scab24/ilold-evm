@@ -70,14 +70,19 @@
   const hood = $derived(selected ? neighbourhood(drawn, endpoint(selected), depth, direction) : null);
   const folderIds = $derived([...(g?.folders.keys() ?? [])].map((f) => `folder:${f}`).concat([...open].map((f) => `fold:${f}`)));
   const firstFit = $derived.by((): FitViewOptions => {
-    if (hood) return { ...READABLE_FIT, nodes: [...hood.keys()].map((id) => ({ id })) };
-    return wholeIsReadable() ? READABLE_FIT : { ...READABLE_FIT, nodes: folderIds.map((id) => ({ id })) };
+    const around = hood ? [...hood.keys()] : null;
+    const ids = around ? (readable(around) ? around : [endpoint(selected!)]) : readable(null) ? null : folderIds;
+    return ids ? { ...READABLE_FIT, nodes: ids.map((id) => ({ id })) } : READABLE_FIT;
   });
-  function wholeIsReadable(): boolean {
+  function readable(ids: string[] | null): boolean {
     if (!scene || !canvasEl) return false;
-    const right = Math.max(...scene.nodes.map((n) => n.position.x + Number(n.data.width ?? 0)));
-    const bottom = Math.max(...scene.nodes.map((n) => n.position.y + Number(n.data.height ?? 0)));
-    return Math.min((canvasEl.clientWidth - 56) / right, (canvasEl.clientHeight - 56) / bottom) >= READABLE_FIT.minZoom;
+    const list = ids ? scene.nodes.filter((n) => ids.includes(n.id)) : scene.nodes;
+    if (!list.length) return false;
+    const span = (start: (n: Node<GraphNodeData>) => number, size: (n: Node<GraphNodeData>) => number) =>
+      Math.max(...list.map((n) => start(n) + size(n))) - Math.min(...list.map(start));
+    const w = span((n) => n.position.x, (n) => Number(n.data.width ?? 0));
+    const h = span((n) => n.position.y, (n) => Number(n.data.height ?? 0));
+    return Math.min((canvasEl.clientWidth - 56) / w, (canvasEl.clientHeight - 56) / h) >= READABLE_FIT.minZoom;
   }
 
   onMount(async () => {
@@ -304,7 +309,7 @@
     const fold = g.libraries.includes(hit) ? 'libraries' : g.interfaces.includes(hit) ? 'interfaces' : g.outside.includes(hit) ? 'outside' : null;
     const expand = fold && !open.has(fold) ? [...open, fold].sort().join(',') : null;
     setQuery({ c: hit, pair: null, ...(expand ? { expand } : {}) });
-    focusLater(() => (hood ? [...hood.keys()] : [hit]));
+    focusLater(() => (hood && readable([...hood.keys()]) ? [...hood.keys()] : [endpoint(hit)]));
   }
   const onKey = selectionKeys(() => ({
     selected: selected !== null || pickedPair !== null,
