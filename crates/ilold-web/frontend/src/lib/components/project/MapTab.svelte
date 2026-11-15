@@ -23,7 +23,7 @@
   import { READABLE_FIT, addPort, anchors, placeChips, sidesBetween, type Port } from './chips';
   import {
     INTERFACES, LIBRARIES, LINES, OUTSIDE, linesParam, readLines,
-    edgeStyle, edges as mapEdges, itemState, items as mapItems, neighbourhood, nextState, packageOf, shortName,
+    lookTone, edges as mapEdges, itemState, items as mapItems, neighbourhood, nextState, packageOf, shortName,
     type Item, type Line, type MapEdge,
   } from './map-graph';
   import { endpointOf, groups as mapGroups, layout, type Fold } from './map-layout';
@@ -213,7 +213,7 @@
   const flowEdges = $derived.by((): Edge[] => {
     if (!scene) return [];
     return scene.shown.map((e) => {
-      const style = edgeStyle(e);
+      const style = lineStyle(e.look, e.basis);
       const on = e.id === pickedPair;
       const lit = scene.lit.has(e.id);
       const incident = lit && hovered !== null && (e.a === hovered || e.b === hovered);
@@ -234,7 +234,7 @@
         style: `stroke: ${color}; stroke-width: ${style.width + (on || incident ? 1 : 0)}; opacity: ${opacity}${style.dash ? `; stroke-dasharray: ${style.dash}` : ''}`,
         data: {
           chip: lit ? scene.texts.get(e.id) : undefined,
-          tone: e.look === 'unresolved' || e.look === 'ambiguous' ? 'amb' : e.look === 'value' ? 'val' : '',
+          tone: lookTone(e.look),
           on,
           faded: hovered !== null && !on && !incident,
           labelAt: on ? (scene.chipAt.get(e.id) ?? 0.5) : (scene.chipAt.get(e.id) ?? null),
@@ -383,7 +383,7 @@
     {#each list as item (rowId(item))}
       <Row
         icon={item.line === 'unresolved' ? 'unres' : item.value ? 'value' : item.line === 'reads' ? 'read' : item.line === 'library' ? 'lib' : 'call'}
-        tone={item.line === 'unresolved' || item.ambiguous ? 'amb' : item.value ? 'val' : ''}
+        tone={item.line === 'unresolved' ? 'amb' : item.ambiguous ? 'ambig' : item.value ? 'val' : ''}
         title={rowTitle(item)}
         line={item.row.span.start_line}
         onsource={item.row.file ? () => openInIde(item.row.file!, item.row.span.start_line) : undefined}
@@ -500,7 +500,7 @@
   </aside>
 </div>
 
-<LegendBar label="Lines" wide foundBy pills={LINES.map((l) => ({ ...l, state: lines[l.id], ...(l.id === 'iface' ? { icon: 'iface' as const } : { line: lineStyle(l.id) }) }))} onpill={(id) => setLine(id as Line)} hint="Hover a line for counts · click for functions" />
+<LegendBar label="Lines" wide pills={LINES.map((l) => ({ ...l, state: lines[l.id], ...(l.id === 'iface' ? { icon: 'iface' as const } : { line: lineStyle(l.id) }) }))} onpill={(id) => setLine(id as Line)} hint="Hover a line for counts · click for functions" />
 
 {#if tip}
   {@const called = tip.edge.items.filter(hasRow)}
@@ -510,6 +510,7 @@
       {'\n'}{tally(k, tip.edge.items.filter((i) => i.line === k).length)}
     {/each}
     {#if called.some((i) => i.ambiguous)}{'\n'}{called.filter((i) => i.ambiguous).length} AMBIGUOUS{/if}
+    {#if called.some((i) => i.value)}{'\n'}{plural(called.filter((i) => i.value).length, 'call moves value', 'calls move value')}{/if}
     {#each called.slice(0, 8) as i (rowId(i))}
       {'\n'}{label(i.from)}.{member(i.row.function)} · line {i.row.span.start_line} · {rowMeta(i, false)}
     {/each}

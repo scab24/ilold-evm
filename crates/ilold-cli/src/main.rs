@@ -31,6 +31,7 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
+    /// Print each contract's functions with access and path counts, or the dependency layers with --deps
     Analyze {
         path: PathBuf,
         #[arg(long)]
@@ -45,6 +46,7 @@ enum Commands {
         #[arg(long)]
         include_dependencies: bool,
     },
+    /// Print function and sequence narratives without starting a server
     Context {
         path: PathBuf,
         #[arg(long)]
@@ -56,6 +58,7 @@ enum Commands {
         #[arg(long)]
         list: bool,
     },
+    /// Start the web app and the HTTP API
     Serve {
         path: PathBuf,
         #[arg(long, default_value = "8080")]
@@ -66,6 +69,7 @@ enum Commands {
         #[arg(long, default_value = "3", value_parser = seq_depth)]
         max_seq_depth: usize,
     },
+    /// Start the REPL with the web app alongside
     Explore {
         path: PathBuf,
         #[arg(long, default_value = "0")]
@@ -82,6 +86,7 @@ enum Commands {
         #[arg(long)]
         contract: Option<String>,
     },
+    /// Run the MCP server for AI agents against a running ilold server
     EvmMcp {
         #[arg(long, default_value = "http://127.0.0.1:8080")]
         server_url: String,

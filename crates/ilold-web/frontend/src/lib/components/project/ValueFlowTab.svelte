@@ -6,8 +6,8 @@
   import type { ValueFlowPairs, ValueTransfer } from '$lib/api/rest';
   import { setNodes, setEdges, clearGraph, type GraphNodeData } from '$lib/stores/graph.svelte';
   import { valueFlow } from '$lib/stores/project-data';
-  import { ASSET_ORDER, POOL_ASSET, POOL_ASSET_LONG, assetName, describeTransfers } from '$lib/utils/value';
-  import { AMBIGUOUS_COLOR, RELATION_STYLE, splitRef } from '$lib/utils/links';
+  import { ASSET_ORDER, POOL_ASSET, POOL_ASSET_LONG, amountSuffix, assetName, describeTransfers } from '$lib/utils/value';
+  import { RELATION_STYLE, UNRESOLVED_COLOR, splitRef } from '$lib/utils/links';
   import { openFunctionLine } from '$lib/utils/ide-links';
   import { setQuery } from '$lib/utils/query';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
@@ -24,7 +24,7 @@
   import { assetCounts, buildFlow, type FlowArrow, type FlowParty } from './value-graph';
 
   const VALUE = RELATION_STYLE.value.color;
-  const AMBER = AMBIGUOUS_COLOR;
+  const AMBER = UNRESOLVED_COLOR;
   const ACCENT = 'var(--color-accent-hover)';
   const WIDTH = 200;
   const GAP_X = 130;
@@ -312,7 +312,7 @@
           {@const t = line.transfer}
           <Row icon={t.via_library ? 'lib' : 'value'} tone={name === POOL_ASSET ? 'amb' : 'val'} title="{fnName(t.function)} → {line.to}" line={t.span.start_line} onsource={() => openFunctionLine(t.function, t.span.start_line)}>
             {#snippet meta()}
-              <span class={name === POOL_ASSET ? 'amb' : 'val'}>{verb(t)} {name}</span>{t.amount_expr ? ` · amount ${t.amount_expr}` : ''}{t.via_library ? ` · through ${t.via_library}` : ''}{line.contexts.some((c) => c !== splitRef(t.function).contract) ? ` · runs inside ${line.contexts.join(', ')}` : ''}
+              <span class={name === POOL_ASSET ? 'amb' : 'val'}>{verb(t)} {name}</span>{amountSuffix(t)}{t.via_library ? ` · through ${t.via_library}` : ''}{line.contexts.some((c) => c !== splitRef(t.function).contract) ? ` · runs inside ${line.contexts.join(', ')}` : ''}
             {/snippet}
           </Row>
         {/each}

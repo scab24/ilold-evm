@@ -4,7 +4,7 @@
   import { page } from '$app/state';
   import type { ProjectSummary } from '$lib/api/rest';
   import { projectSummary } from '$lib/stores/project-data';
-  import { AMBIGUOUS_COLOR } from '$lib/utils/links';
+  import { RELATION_STYLE, UNRESOLVED_COLOR } from '$lib/utils/links';
   import { setSearchContext } from '$lib/stores/search.svelte';
   import { setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
@@ -55,7 +55,7 @@
   onDestroy(clearPaletteCommands);
 </script>
 
-<div class="pj" style:--amber={AMBIGUOUS_COLOR}>
+<div class="pj" style:--amber={UNRESOLVED_COLOR} style:--ambiguous={RELATION_STYLE.ambiguous.color}>
   <AppHeader count={project?.contracts.length ?? null} {tab} />
 
   {#if !project}

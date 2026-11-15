@@ -2,8 +2,9 @@ import type { Edge, MarkerType, Node } from '@xyflow/svelte';
 import type { BoxNodeData, BoxPort, BoxRow } from '$lib/components/project/BoxNode.svelte';
 import type { ChipEdgeData } from '$lib/components/project/ChipEdge.svelte';
 import type { GraphNodeData } from '$lib/stores/graph.svelte';
-import { edgeStyle, lookOf, LIBRARIES, OUTSIDE, type Line, type LineState } from '../../project/map-graph.ts';
+import { lookOf, lookTone, LIBRARIES, OUTSIDE, type Line, type LineState } from '../../project/map-graph.ts';
 import { runDagreLayout } from '../../../utils/graph-helpers.ts';
+import { lineStyle } from '../../../utils/links.ts';
 import { boxHeight, rowCentre } from '../../project/box-size.ts';
 import { NEAR_SOURCE, placeChips, type Anchor, type ChipItem, type Rect } from '../../project/chips.ts';
 import { edgeBasis, type BoardEdge, type BoardNode, type Built } from './board-links.ts';
@@ -116,7 +117,7 @@ export function boardGraph(built: Built, board: Board, lines: Record<Line, LineS
       Math.min(...built.edges.filter((e) => (e.a === n.id && e.ar === key) || (e.b === n.id && e.br === key)).map((e) => rowRank.get(e.a === n.id ? `${e.b}|${e.br}` : `${e.a}|${e.ar}`) ?? 1e3));
     const rows: BoxRow[] = [...n.rows.values()]
       .sort((x, y) => otherRank(x.key) - otherRank(y.key) || x.label.localeCompare(y.label))
-      .map((r) => ({ id: r.key, text: r.label, title: r.title, tone: r.amb ? 'amb' : litPorts.has(`${n.id}|${r.key}`) ? undefined : 'dim', label: `${name} ${r.label}${openable ? `. Opens ${n.c} here` : ''}` }));
+      .map((r) => ({ id: r.key, text: r.label, title: r.title, tone: r.tone ?? (litPorts.has(`${n.id}|${r.key}`) ? undefined : 'dim'), label: `${name} ${r.label}${openable ? `. Opens ${n.c} here` : ''}` }));
     return {
       ...base,
       label: name,
@@ -146,7 +147,7 @@ export function boardGraph(built: Built, board: Board, lines: Record<Line, LineS
     const on = !dim && onEdge(e);
     const bright = on || (!dim && hotEdge(e));
     const look = lookOf(e.links, lines);
-    const style = edgeStyle({ look, basis: edgeBasis(e) });
+    const style = lineStyle(look, edgeBasis(e));
     const color = dim ? 'var(--color-text-dim)' : bright && (look === 'calls' || look === 'library' || look === 'reads') ? ACCENT : style.color;
     const marker = { type: 'arrowclosed' as MarkerType, color, width: 14, height: 14 };
     const lineNos = [...new Set(e.links.map((l) => l.row.span.start_line))].sort((x, y) => x - y);
@@ -166,7 +167,7 @@ export function boardGraph(built: Built, board: Board, lines: Record<Line, LineS
       style: `stroke: ${color}; stroke-width: ${Math.round((style.width + (bright ? 0.6 : 0)) * 10) / 10}; opacity: ${bright ? 1 : dim ? 0.25 : 0.4}${style.dash ? `; stroke-dasharray: ${style.dash}` : ''}`,
       data: {
         chip,
-        tone: look === 'unresolved' || look === 'ambiguous' ? 'amb' : look === 'value' ? 'val' : '',
+        tone: lookTone(look),
         on,
       } satisfies ChipEdgeData,
     });

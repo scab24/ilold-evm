@@ -2667,6 +2667,26 @@ mod tests {
     }
 
     #[test]
+    fn links_name_each_receiver_of_a_shared_implementation() {
+        let links = "
+  Caller  contracts 2 → · 0 ←  calls and reads 1 → · 0 ←
+
+  Caller → calls
+    A  1 call
+      go → 2 possible: A (Impl::f), B (Impl::f)  line 18  AMBIGUOUS
+    B  1 call
+      go → 2 possible: A (Impl::f), B (Impl::f)  line 18  AMBIGUOUS
+
+  Caller ← called by
+    no contract calls it
+
+";
+        let [(local, attached)] = &local_and_attached("../../tests/fixtures/solc/shared_impl", &["links Caller"])[..] else { unreachable!() };
+        assert_eq!(local, attached);
+        assert_eq!(local.as_deref(), Ok(links));
+    }
+
+    #[test]
     fn send_command_surfaces_server_error_text() {
         let (rt, _state, url) = server();
         let client = reqwest::Client::new();

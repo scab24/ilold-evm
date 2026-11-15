@@ -19,19 +19,19 @@
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
-  let { label, pills = [], onpill, hint, wide = false, foundBy = false, children }: {
+  let { label, pills = [], onpill, hint, wide = false, children }: {
     label: string;
     pills?: LegendPill[];
     onpill?: (id: string) => void;
     hint?: string;
     wide?: boolean;
-    foundBy?: boolean;
     children?: Snippet;
   } = $props();
 
   const BASIS_KEY: [Basis, string][] = [['inherits_interface', 'interface'], ['selector_match', 'selector'], ['self', 'this']];
 
   const WORD: Record<PillState, string> = { show: 'shown', dim: 'dimmed', hide: 'hidden' };
+  const foundBy = $derived(pills.some((p) => p.line));
 </script>
 
 {#snippet swatch(line: LineStyle)}

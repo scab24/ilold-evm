@@ -23,6 +23,7 @@
         "call_count": 0,
         "id": "e2",
         "kind": "CatchClause { kind: \"Error\" }",
+        "kind_label": "Error",
         "source": "b0",
         "target": "b4"
       }
@@ -41,6 +42,7 @@
         "call_count": 0,
         "id": "e4",
         "kind": "CatchClause { kind: \"Panic\" }",
+        "kind_label": "Panic",
         "source": "b0",
         "target": "b5"
       }
@@ -59,6 +61,7 @@
         "call_count": 0,
         "id": "e6",
         "kind": "CatchClause { kind: \"default\" }",
+        "kind_label": "default",
         "source": "b0",
         "target": "b6"
       }
@@ -125,7 +128,7 @@
         "contract": "TryCatch",
         "id": "b1",
         "is_external": false,
-        "label": "·",
+        "label": "(empty)",
         "node_type": "Normal"
       }
     },

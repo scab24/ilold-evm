@@ -22,7 +22,7 @@
   import { boxHeight, rowCentre } from './box-size';
   import type { FitViewOptions } from '@xyflow/svelte';
   import { transferKey } from './value-graph';
-  import { assetName } from '$lib/utils/value';
+  import { amountSuffix, assetName } from '$lib/utils/value';
 
   let { contracts }: { contracts: ContractSummary[] } = $props();
 
@@ -91,7 +91,7 @@
   function valueText(call: RouteCall): string {
     const ts = transfersOf(call);
     if (!ts.length) return call.call.transfers.length ? 'moves value' : '';
-    return ts.map((t) => `sends ${assetName(t)}${t.amount_expr ? ` · amount ${t.amount_expr}` : ''}`).join(' · ');
+    return ts.map((t) => `sends ${assetName(t)}${amountSuffix(t)}`).join(' · ');
   }
 
   function draw() {

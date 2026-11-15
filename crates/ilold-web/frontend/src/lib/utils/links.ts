@@ -1,8 +1,8 @@
-import type { Basis, RelationTag } from '$lib/api/rest';
+import type { Basis } from '$lib/api/rest';
 
-export type Relation = 'calls' | 'reads' | 'library' | 'value' | 'inherits' | 'holds' | 'unresolved';
+export type Relation = 'calls' | 'reads' | 'library' | 'value' | 'inherits' | 'holds' | 'ambiguous' | 'unresolved';
 
-export const AMBIGUOUS_COLOR = '#f0b72f';
+export const UNRESOLVED_COLOR = '#f0b72f';
 
 export const RELATION_STYLE: Record<Relation, { color: string; width: number }> = {
   calls: { color: '#c8d0dc', width: 1.6 },
@@ -11,7 +11,8 @@ export const RELATION_STYLE: Record<Relation, { color: string; width: number }> 
   value: { color: '#7aba8a', width: 2.2 },
   inherits: { color: '#d2a8ff', width: 1.3 },
   holds: { color: '#d4956b', width: 1.3 },
-  unresolved: { color: AMBIGUOUS_COLOR, width: 1.8 },
+  ambiguous: { color: '#f778ba', width: 1.8 },
+  unresolved: { color: UNRESOLVED_COLOR, width: 1.8 },
 };
 
 export const BASIS_DASH: Record<Basis, string> = {
@@ -30,9 +31,8 @@ export const BASIS_LABEL: Record<Basis, string> = {
 
 export interface LineStyle { color: string; width: number; dash: string }
 
-export function lineStyle(relation: Relation, basis: Basis | null = null, tag: RelationTag | null = null): LineStyle {
-  const { color, width } = RELATION_STYLE[relation];
-  return { color: tag === 'AMBIGUOUS' ? AMBIGUOUS_COLOR : color, width, dash: basis ? BASIS_DASH[basis] : '' };
+export function lineStyle(relation: Relation, basis: Basis | null = null): LineStyle {
+  return { ...RELATION_STYLE[relation], dash: basis ? BASIS_DASH[basis] : '' };
 }
 
 export function splitRef(ref: string): { contract: string; member: string } {

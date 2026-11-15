@@ -2,22 +2,30 @@
 
 ## Installation
 
-Clone the repository and build from source:
+ilold needs Rust (`cargo`) and Node.js (`node`, `npm`). One script builds and installs it:
 
 ```
-git clone https://github.com/scab24/ilold.git
-cd ilold
+git clone https://github.com/scab24/ilold-evm.git && cd ilold-evm && ./install.sh
+```
+
+`install.sh` installs `ilold` into `~/.cargo/bin`, replacing any earlier version, and stops with the missing tool's name when Rust or Node.js is absent. To update, run `git pull && ./install.sh`.
+
+To build by hand, build the web app first: the Rust build embeds it and fails, naming the commands to run, when `crates/ilold-web/frontend/build/index.html` is missing.
+
+```
+npm --prefix crates/ilold-web/frontend ci
+npm --prefix crates/ilold-web/frontend run build
 cargo build --release
 ```
 
-The binary is at `target/release/ilold`.
+The binary is at `target/release/ilold` and serves the web app without the source checkout. `cargo build` does not replace an `ilold` already on your PATH; run `./target/release/ilold` to test a checkout. After changing the web app, build it again before building Rust.
 
 ## Running
 
 Point ilold at a Foundry project — a directory containing a `foundry.toml`:
 
 ```
-cargo run -- explore tests/fixtures/staking
+ilold explore tests/fixtures/staking
 ```
 
 ilold compiles the project with solc, builds the model and CFGs, and drops you into the REPL:
@@ -33,7 +41,21 @@ ilold[Staking]>
 ```
 
 The port is assigned automatically unless you pass `--port`. The server listens on
-127.0.0.1 unless you pass `--host <addr>`.
+127.0.0.1 unless you pass `--host <addr>`; `--host 0.0.0.0` exposes the API and the
+embedded terminal to the network. Requests from other web pages and unknown host
+names are refused ([Security](./reference/api-endpoints.md#security)).
+
+Enter `browser` to open the web app. Closing the REPL stops its server.
+`ilold explore --attach <url>` connects a REPL to a server that is already running,
+such as one started with `ilold serve`, instead of starting a second one.
+`--contract <name>` starts on a given contract; an unknown name exits with status 1
+and suggests the closest names (`Did you mean: Vault?`).
+
+Exit codes for every subcommand: `0` success, `1` error (unknown contract, not a
+Foundry project, compile or server failure), `2` invalid command-line usage. `graph`
+adds `3` and `4` ([Graph Export](./reference/graph-export.md)).
+
+To read this guide locally, run `mdbook serve docs/guide --open`.
 
 ## First Session
 

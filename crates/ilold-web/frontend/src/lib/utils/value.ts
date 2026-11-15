@@ -26,9 +26,13 @@ export function assetLabel(fact: { asset_kind: AssetKind; asset_candidates: Asse
   return fact.token_expr ? `${kind} ${fact.token_expr}` : kind;
 }
 
-export function describeTransfer(t: ValueTransfer): string {
+export function amountSuffix(t: Pick<ValueTransfer, 'amount_expr' | 'id_expr'>): string {
   const amount = [t.amount_expr, t.id_expr ? `#${t.id_expr}` : null].filter(Boolean).join(' ');
-  return `${t.operation} ${assetLabel(t)}: ${t.from_expr ?? SELF} → ${t.to_expr ?? '∅'}${amount ? ` (${amount})` : ''}`;
+  return amount ? ` (${amount})` : '';
+}
+
+export function describeTransfer(t: ValueTransfer): string {
+  return `${t.operation} ${assetLabel(t)}: ${t.from_expr ?? SELF} → ${t.to_expr ?? '∅'}${amountSuffix(t)}`;
 }
 
 export function describeRead(r: BalanceRead): string {

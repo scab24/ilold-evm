@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use ilold_core::relations::{
-    AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, Party, ProjectConnections, RouteCall, Routes, Tag, ValueFlowPairs, UNKNOWN_TARGET,
+    AssetKind, ConnectionGroup, Connections, ContractCall, ContractCallKind, DispatchCandidate, Party, ProjectConnections, RouteCall, Routes, Tag, ValueFlowPairs, UNKNOWN_TARGET,
     ValueReason, ValueTransfer,
 };
 
@@ -24,11 +24,15 @@ fn asset(kind: AssetKind, reason: Option<ValueReason>, token: Option<&str>) -> S
 }
 
 fn call_row(call: &ContractCall, contract: &str, transfers: &[ValueTransfer]) -> String {
-    let callees: Vec<&str> = call.callees.iter().map(|d| d.function.as_str()).collect();
-    let target = match callees.as_slice() {
+    let target = match call.callees.as_slice() {
         [] => call.target.clone().unwrap_or_else(|| UNKNOWN_TARGET.into()),
-        [one] => one.to_string(),
-        many => format!("{} possible: {}", many.len(), many.join(", ")),
+        [one] => one.function.clone(),
+        many => {
+            let named = |d: &DispatchCandidate| {
+                if local(&d.function, &d.contract) == d.function { format!("{} ({})", d.contract, d.function) } else { d.function.clone() }
+            };
+            format!("{} possible: {}", many.len(), many.iter().map(named).collect::<Vec<_>>().join(", "))
+        }
     };
     let mut row = format!("{} → {target}", local(&call.function, contract));
     if call.kind != ContractCallKind::Call {
