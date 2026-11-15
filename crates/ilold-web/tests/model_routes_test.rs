@@ -1,5 +1,3 @@
-//! Contract identity on the API. Fixture: tests/fixtures/solc/model/project.
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 

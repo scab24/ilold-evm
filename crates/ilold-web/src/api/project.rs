@@ -35,7 +35,6 @@ pub struct ProjectSummary {
 
 #[derive(Serialize)]
 pub struct ContractSummary {
-    /// The bare name unless it is ambiguous.
     pub name: String,
     pub display_name: String,
     pub qualified_id: String,
@@ -149,7 +148,6 @@ pub struct MapStateVar {
     pub is_constant: bool,
 }
 
-/// A call between functions, or with kind `ContractLink` and no functions, a contract link.
 #[derive(Serialize)]
 pub struct MapRelationship {
     pub from_contract: String,
@@ -224,7 +222,7 @@ pub async fn get_project_map(
                 let dst_node = &cg[dst];
                 let edge = &cg[edge_idx];
 
-                // the graph also holds inherited bodies; keep this contract's own calls
+                // the graph also holds inherited bodies
                 if src_node.contract != contract.key() {
                     continue;
                 }

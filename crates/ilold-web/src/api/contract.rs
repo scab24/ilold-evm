@@ -27,7 +27,6 @@ use crate::state::AppState;
 
 #[derive(Serialize)]
 pub struct ContractDetail {
-    /// The contract key: the bare name when unique, otherwise the qualified id.
     pub name: String,
     pub display_name: String,
     pub qualified_id: String,
@@ -42,14 +41,12 @@ pub struct ContractDetail {
     pub outgoing_links: Vec<ContractLink>,
     pub incoming_links: Vec<ContractLink>,
     pub value_flows: Vec<ValueFlow>,
-    /// Variables that gate which of its entry points can run; none unless it is a deployable project contract.
     pub phase_candidates: Vec<PhaseCandidate>,
 }
 
 #[derive(Serialize)]
 pub struct FunctionSummary {
     pub name: String,
-    /// The bare name when it selects the function on this contract, otherwise the signature.
     pub key: String,
     pub signature: String,
     pub kind: String,
@@ -59,13 +56,10 @@ pub struct FunctionSummary {
     pub path_count: usize,
     pub happy_paths: usize,
     pub revert_paths: usize,
-    /// Counts cover only the paths found.
     pub paths_truncated: bool,
     pub modifiers: Vec<String>,
     pub access: AccessLevel,
-    /// As this contract runs the function.
     pub guards: Vec<GuardFact>,
-    /// The reads and writes of its own code and modifiers, with their keys.
     pub accesses: Vec<StorageAccess>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub try_catches: Vec<TryCatchFact>,
@@ -88,11 +82,9 @@ pub struct StateVarSummary {
     pub visibility: String,
     pub is_constant: bool,
     pub is_immutable: bool,
-    /// The kinds of key the functions the contract runs index it with.
     pub key_kinds: Vec<KeyKind>,
 }
 
-/// A key, a qualified id or an unambiguous bare name; an ambiguous name is a 409 with candidates.
 pub(crate) fn route_contract<'a>(state: &'a AppState, name: &str) -> Result<&'a ContractDef, ApiError> {
     state.project.lookup_contract(name).map_err(|e| ApiError::from(match &e {
         ContractLookupError::NotFound => (StatusCode::NOT_FOUND, e.message(name)).into_response(),
@@ -167,7 +159,6 @@ pub async fn get_contract(
         .collect();
     let behaviors = state.sequence_analyses.get(contract.key()).map(|s| s.functions.as_slice()).unwrap_or_default();
     let (outgoing_links, incoming_links) = state.relations.context_links(contract.key());
-    // storage order, most base contract first
     let inherited_state_vars = state.project
         .accessible_state_vars(contract)
         .into_iter()
@@ -199,7 +190,6 @@ pub async fn get_contract(
 pub struct CytoscapeGraph {
     pub nodes: Vec<CytoscapeNode>,
     pub edges: Vec<CytoscapeEdge>,
-    /// CFGs: the try statements, naming the blocks of their branches.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub try_catches: Vec<TryCatchFact>,
 }
@@ -213,7 +203,6 @@ pub struct CytoscapeNode {
 pub struct CytoscapeNodeData {
     pub id: String,
     pub label: String,
-    /// Call-graph nodes of functions the contract runs: the key its function routes take.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     pub node_type: String,
@@ -225,7 +214,6 @@ pub struct CytoscapeNodeData {
     pub span: Option<SourceSpan>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
-    /// CFG blocks: the reads and writes they make, with their keys.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub accesses: Vec<StorageAccess>,
 }
@@ -244,20 +232,16 @@ pub struct CytoscapeEdgeData {
     pub call_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind_label: Option<String>,
-    /// Declaration named in the source when virtual dispatch picked another implementation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_target: Option<String>,
-    /// External calls to a contract: what may answer them, the same for every call site.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatch_candidates: Option<Vec<DispatchCandidate>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unresolved_reason: Option<UnresolvedReason>,
-    /// Where the state variables holding the called address are set, over every call site.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assigned_at: Option<Vec<AssignmentSite>>,
 }
 
-/// What may answer a call-graph edge to `target`, for calls to a contract only.
 pub(crate) fn edge_dispatch(state: &AppState, context: &ContractDef, kind: CallKind, target: &CallNode) -> Option<Dispatch> {
     if !matches!(kind, CallKind::External | CallKind::ExternalSelf) {
         return None;
@@ -348,7 +332,6 @@ pub async fn get_callgraph(
 }
 
 
-/// A bare name when unambiguous, or a full signature; an ambiguous name is a 409 with candidates.
 fn route_function<'a>(
     state: &'a AppState,
     contract_name: &str,
@@ -478,7 +461,7 @@ pub struct PageQuery {
 }
 
 impl PageQuery {
-    // larger limits are clamped; the response's `page` reports the one applied
+    // the response's `page` reports the clamped limit
     fn window(&self) -> (usize, usize) {
         (self.offset.unwrap_or(0), self.limit.unwrap_or(DEFAULT_PAGE_LIMIT).min(MAX_PAGE_LIMIT))
     }

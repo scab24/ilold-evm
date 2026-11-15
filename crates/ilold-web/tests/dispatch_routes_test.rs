@@ -1,4 +1,3 @@
-//! Contract links and dispatch candidates on the API. Fixture: tests/fixtures/solc/dispatch.
 use std::path::PathBuf;
 
 use serde_json::{json, Value};

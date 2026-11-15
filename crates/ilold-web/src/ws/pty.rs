@@ -87,7 +87,7 @@ async fn handle_pty_session(
     bridge_pty(socket, cmd).await;
 }
 
-/// Kills and reaps the child however the bridge ends, including when its task is dropped.
+/// Kills and reaps the child however the bridge ends, task drop included.
 struct ChildGuard(Option<Box<dyn Child + Send + Sync>>);
 
 impl ChildGuard {
@@ -111,7 +111,6 @@ fn kill_and_wait(mut child: Box<dyn Child + Send + Sync>) {
     let _ = child.wait();
 }
 
-/// The child never outlives the socket: a close frame, a dropped connection or a receive error ends it.
 pub async fn bridge_pty(mut socket: WebSocket, cmd: CommandBuilder) {
     let pty_system = NativePtySystem::default();
     let pair = match pty_system.openpty(PtySize {
@@ -161,7 +160,7 @@ pub async fn bridge_pty(mut socket: WebSocket, cmd: CommandBuilder) {
         }
     };
 
-    // PTY master is not Send; its IO runs on blocking threads
+    // the PTY master is not Send
     let (stdout_tx, mut stdout_rx) = mpsc::channel::<Vec<u8>>(64);
     tokio::task::spawn_blocking(move || {
         let mut reader = reader;

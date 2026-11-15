@@ -15,7 +15,6 @@ pub struct SearchQuery {
 pub struct SearchResult {
     pub contract: String,
     pub function: String,
-    /// Addresses the function on `contract` in the function routes, overloads included.
     pub key: String,
     pub path_id: usize,
     pub terminal: String,

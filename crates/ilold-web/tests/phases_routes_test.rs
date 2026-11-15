@@ -1,4 +1,3 @@
-//! Phase candidates on the contract route. Fixture: tests/fixtures/solc/phases.
 use std::path::PathBuf;
 
 use serde_json::{json, Value};

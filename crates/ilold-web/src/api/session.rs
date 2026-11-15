@@ -49,7 +49,6 @@ fn build_analysis_data<'a>(
     })
 }
 
-/// Without an explicit name, the contract of the most recent `/api/cmd`.
 fn resolve_contract(state: &AppState, explicit: Option<&str>) -> Result<String, ApiError> {
     match explicit.map(str::trim).filter(|name| !name.is_empty()) {
         Some(name) => Ok(route_contract(state, name)?.key().to_string()),
@@ -63,7 +62,6 @@ pub struct ContractQuery {
     pub contract: Option<String>,
 }
 
-/// Does not change ownership; a contract with no store yet reads as an empty one.
 fn read_store<R>(
     state: &AppState,
     explicit: Option<&str>,
@@ -99,7 +97,7 @@ pub struct Highlighted {
     pub function: String,
 }
 
-// a POST, so other sites cannot select functions on open canvases
+// POST keeps other sites from selecting functions on open canvases
 pub async fn post_highlight(
     State(state): State<Arc<AppState>>,
     Json(request): Json<HighlightRequest>,
@@ -110,7 +108,7 @@ pub async fn post_highlight(
             let data = build_analysis_data(&state, &contract)?;
             let (_, function) = data.project.resolve_function(data.contract, &query)
                 .ok_or((StatusCode::NOT_FOUND, format!("function '{query}' not found in {contract}")))?;
-            // canvases and steps name an overload by its key, not by the query that selected it
+            // canvases and steps name an overload by its key
             (data.contract.key().to_string(), data.project.route_key(data.contract, function))
         }
         (None, Some(index)) => read_store(&state, request.contract.as_deref(), |store| {
@@ -372,7 +370,6 @@ pub async fn get_function_detail(
         .map_err(|e| (StatusCode::NOT_FOUND, e).into())
 }
 
-/// The path pages hold every path.
 pub const MAX_NARRATIVE_PATHS: usize = 100;
 
 #[derive(Deserialize)]

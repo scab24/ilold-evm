@@ -59,7 +59,6 @@ fn build_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-/// The directory itself, or a file's parent; never empty, even for `.`.
 pub fn contract_path_for(path: &Path) -> PathBuf {
     let absolute = std::fs::canonicalize(path)
         .or_else(|_| std::path::absolute(path))
@@ -73,7 +72,7 @@ pub fn contract_path_for(path: &Path) -> PathBuf {
     }
 }
 
-/// The URL a client on this machine uses; unspecified binds are reached through loopback.
+/// unspecified binds are reached through loopback
 pub fn local_url(addr: SocketAddr) -> String {
     let ip = match addr.ip() {
         IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),

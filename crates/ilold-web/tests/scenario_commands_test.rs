@@ -1,10 +1,3 @@
-//! Integration tests for scenario lifecycle commands (Phase S2 / Task 2.12).
-//!
-//! Each test starts a fresh server on port 0 (parallel-safe) and POSTs
-//! commands through `/api/cmd`, asserting on the JSON response body. The
-//! helper `cmd()` keeps each test body focused on the scenario semantics
-//! rather than HTTP plumbing.
-
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -71,7 +64,6 @@ fn call(func: &str) -> serde_json::Value {
     serde_json::json!({ "Call": { "func": func } })
 }
 
-/// Extract the ScenarioList items from a CommandResult JSON body.
 fn list_items(r: &serde_json::Value) -> &Vec<serde_json::Value> {
     r.get("ScenarioList")
         .and_then(|v| v.get("items"))
@@ -199,8 +191,6 @@ async fn scenario_fork_emits_branch_created_journal_entry() {
     cmd(&client, port, "Staking", scenario_fork("alt1")).await;
     cmd(&client, port, "Staking", scenario_switch("alt1")).await;
 
-    // SaveSession returns the serialized session; the journal.entries array
-    // is the source of truth for BranchCreated.
     let r = cmd(
         &client,
         port,
@@ -216,7 +206,6 @@ async fn scenario_fork_emits_branch_created_journal_entry() {
 
     let saved: serde_json::Value =
         serde_json::from_str(json_str).expect("SaveSession payload was not JSON");
-    // Save format is v2 — journal lives under scenarios.<active>.journal.
     let active = saved
         .get("active")
         .and_then(|v| v.as_str())
@@ -244,7 +233,6 @@ async fn scenario_fork_emits_branch_created_journal_entry() {
 async fn scenario_delete_refuses_when_active() {
     let (client, port) = start().await;
 
-    // `main` is active by default — deletion must fail.
     let r = cmd(&client, port, "Staking", scenario_delete("main")).await;
     let msg = r
         .get("Error")
@@ -257,13 +245,6 @@ async fn scenario_delete_refuses_when_active() {
     );
 }
 
-/// The "only remaining" branch of `execute_scenario` is defensive — it is
-/// unreachable via HTTP because, when only one scenario exists, it is by
-/// definition the active one and the "active" check fires first. We still
-/// verify that calling delete on the sole `main` scenario surfaces the
-/// active-guard error (not a panic or a "does not exist" error). The internal
-/// `ScenarioStore::remove` path for the only-remaining case is exercised by
-/// unit tests in the core crate.
 #[tokio::test]
 async fn scenario_delete_only_remaining_is_guarded_by_active_check() {
     let (client, port) = start().await;
@@ -337,13 +318,10 @@ async fn scenario_name_validation_rejects_invalid() {
     }
 }
 
-// ── Phase S7: fork-at-step-N ────────────────────────────────────────────────
-
 #[tokio::test]
 async fn scenario_fork_at_step_truncates_to_n() {
     let (client, port) = start().await;
 
-    // Build main with 3 steps, then fork at step 2.
     cmd(&client, port, "Staking", call("deposit")).await;
     cmd(&client, port, "Staking", call("deposit")).await;
     cmd(&client, port, "Staking", call("withdraw")).await;
@@ -413,7 +391,6 @@ async fn scenario_fork_at_step_greater_than_length_errors() {
         "unexpected error: {msg}"
     );
 
-    // Verify no scenario was created on failure.
     let r = cmd(&client, port, "Staking", scenario_list()).await;
     let items = list_items(&r);
     assert_eq!(items.len(), 1, "failed fork must not create a scenario");
@@ -423,8 +400,6 @@ async fn scenario_fork_at_step_greater_than_length_errors() {
 async fn scenario_name_reserved_main_cannot_be_recreated() {
     let (client, port) = start().await;
 
-    // `main` is auto-seeded on startup, so `scenario new main` collides on
-    // the duplicate check.
     let r = cmd(&client, port, "Staking", scenario_new("main")).await;
     let msg = r
         .get("Error")
@@ -436,8 +411,6 @@ async fn scenario_name_reserved_main_cannot_be_recreated() {
         "unexpected error message: {msg}"
     );
 }
-
-// ── Phase S11: save/load v2 ─────────────────────────────────────────────────
 
 fn save_session() -> serde_json::Value {
     serde_json::json!("SaveSession")
@@ -493,18 +466,14 @@ async fn save_produces_v2_json_with_all_scenarios_and_active() {
 async fn load_v2_json_restores_all_scenarios_active_and_order() {
     let (client, port) = start().await;
 
-    // Build state, save, then mutate the live store so we can verify load
-    // restores the captured snapshot (not the post-save state).
     cmd(&client, port, "Staking", call("deposit")).await;
     cmd(&client, port, "Staking", scenario_fork_at("alt1", 1)).await;
     let saved = cmd(&client, port, "Staking", save_session()).await;
     let json = saved["SessionSaved"]["json"].as_str().unwrap().to_string();
 
-    // Mutate post-save: add a step and a new scenario that should disappear.
     cmd(&client, port, "Staking", call("withdraw")).await;
     cmd(&client, port, "Staking", scenario_new("ghost")).await;
 
-    // Load → must replace the entire store with the saved snapshot.
     cmd(&client, port, "Staking", load_session(&json)).await;
 
     let r = cmd(&client, port, "Staking", scenario_list()).await;
@@ -540,8 +509,6 @@ async fn load_v2_json_restores_all_scenarios_active_and_order() {
 async fn load_v1_json_wraps_as_single_main_scenario() {
     let (client, port) = start().await;
 
-    // A v1 file is a bare ExplorationSession JSON. Build one programmatically
-    // by saving a single-scenario state, then unwrapping the v2 envelope.
     cmd(&client, port, "Staking", call("deposit")).await;
     let saved = cmd(&client, port, "Staking", save_session()).await;
     let v2_json = saved["SessionSaved"]["json"].as_str().unwrap();
@@ -549,7 +516,6 @@ async fn load_v1_json_wraps_as_single_main_scenario() {
     let bare = v2["scenarios"]["main"].clone();
     let v1_json = serde_json::to_string(&bare).unwrap();
 
-    // Replace the store with something different first to prove load resets it.
     cmd(&client, port, "Staking", scenario_new("alt1")).await;
     cmd(&client, port, "Staking", load_session(&v1_json)).await;
 
@@ -570,17 +536,14 @@ async fn load_v1_json_wraps_as_single_main_scenario() {
 async fn load_replaces_existing_store_destructively() {
     let (client, port) = start().await;
 
-    // Save an empty fresh store.
     let saved = cmd(&client, port, "Staking", save_session()).await;
     let json = saved["SessionSaved"]["json"].as_str().unwrap().to_string();
 
-    // Build a rich state after saving.
     cmd(&client, port, "Staking", call("deposit")).await;
     cmd(&client, port, "Staking", call("withdraw")).await;
     cmd(&client, port, "Staking", scenario_new("alt1")).await;
     cmd(&client, port, "Staking", scenario_new("alt2")).await;
 
-    // Load the empty snapshot — must wipe everything except `main` (empty).
     cmd(&client, port, "Staking", load_session(&json)).await;
 
     let r = cmd(&client, port, "Staking", scenario_list()).await;

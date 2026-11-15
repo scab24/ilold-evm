@@ -1,8 +1,3 @@
-//! Integration tests for `GET /api/contract/:contract/:func/source`.
-//!
-//! Scaffolding mirrors `scenario_commands_test.rs` — starts a server on
-//! port 0 (parallel-safe) against a fixture, then issues GET requests.
-
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -40,8 +35,6 @@ async fn get_function_source_returns_source_for_deposit() {
         source.contains("function deposit"),
         "expected signature line, got:\n{source}"
     );
-    // Full-body guarantee: deposit writes to balances + transfers + emits.
-    // If the span only captured the header we would miss these.
     assert!(
         source.contains("balances[msg.sender]"),
         "expected deposit body, got:\n{source}"
@@ -50,11 +43,9 @@ async fn get_function_source_returns_source_for_deposit() {
         source.contains("emit Staked"),
         "expected deposit emit statement, got:\n{source}"
     );
-    // Span must cover multiple lines.
     let start_line = body.pointer("/span/start_line").and_then(|v| v.as_u64()).unwrap();
     let end_line = body.pointer("/span/end_line").and_then(|v| v.as_u64()).unwrap();
     assert!(end_line > start_line, "full-body span must span >1 lines, got: {start_line}..{end_line}");
-    // File path must be absolute (CLI passes absolute paths) and end in .sol.
     let file_path = body.get("file_path").and_then(|v| v.as_str()).unwrap();
     assert!(file_path.ends_with("staking.sol"), "unexpected file_path: {file_path}");
 }
@@ -80,9 +71,6 @@ async fn get_function_source_returns_404_for_missing_function() {
 
 #[tokio::test]
 async fn get_function_source_resolves_inherited_function() {
-    // `Governor is TimelockController`; `schedule` is declared in the parent.
-    // `resolve_function` must walk the inheritance chain so that asking for
-    // Governor/schedule returns the parent's FunctionDef (with its span).
     let (client, port) = start_with("governor").await;
 
     let res = client

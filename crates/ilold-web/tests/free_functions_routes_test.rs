@@ -1,5 +1,3 @@
-//! Free-function containers are hidden from listings but resolvable. Fixture: solc/state_flow.
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
