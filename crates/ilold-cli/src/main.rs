@@ -78,7 +78,7 @@ enum Commands {
         /// URL of a running ilold server to attach to
         #[arg(long)]
         attach: Option<String>,
-        /// Contract to start on, by default the most derived deployable contract outside tests, scripts and mocks
+        /// Contract to open first (default: most derived deployable contract outside tests, scripts and mocks)
         #[arg(long)]
         contract: Option<String>,
     },
