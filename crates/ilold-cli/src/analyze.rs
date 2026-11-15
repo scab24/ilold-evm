@@ -40,7 +40,6 @@ pub(crate) fn select_contracts<'a>(
     Ok(selected)
 }
 
-/// Unknown names suggest close contract keys; an ambiguous name lists the qualified ids.
 fn resolve_contract<'a>(project: &'a Project, name: &str) -> Result<&'a ContractDef> {
     match project.lookup_contract(name) {
         Ok(contract) => Ok(contract),
@@ -177,7 +176,6 @@ pub fn contract_not_found<'a>(name: &str, available: impl Iterator<Item = &'a st
     }
 }
 
-/// Equal ignoring case, containing each other, or within a small edit distance.
 pub fn close_matches<'a>(name: &str, candidates: &[&'a str]) -> Vec<&'a str> {
     let needle = name.to_lowercase();
     let limit = (needle.chars().count() / 3).max(1);

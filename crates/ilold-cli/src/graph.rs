@@ -7,7 +7,6 @@ use anyhow::{Context, Result};
 use ilold_core::analysis::AnalysisParams;
 use ilold_core::export::{export_graph, Build, Status};
 
-/// The exit code: 0 complete, 3 complete with warnings, 4 no facts; errors exit 1 without writing `out`.
 pub fn run(path: &Path, out: &Path) -> Result<i32> {
     let root = crate::foundry_root(path)?;
     let build = Build {
@@ -23,7 +22,6 @@ pub fn run(path: &Path, out: &Path) -> Result<i32> {
     })
 }
 
-// a reader never sees a partial file: it is renamed into place only once complete
 fn write_atomically(out: &Path, bytes: &[u8]) -> Result<()> {
     let name = out.file_name().context("the output path names no file")?.to_string_lossy();
     let temp = out.with_file_name(format!(".{name}.{}.tmp", std::process::id()));

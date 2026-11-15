@@ -1,4 +1,3 @@
-//! One fixture through the export, the web API and the MCP tools: each fact must read the same everywhere.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,7 +11,6 @@ fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/solc").join(name).canonicalize().unwrap()
 }
 
-/// The export's records, envelope first.
 fn export(project: &Path) -> Vec<Value> {
     // tests run in parallel and the clock may only count microseconds
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -81,7 +79,7 @@ async fn contracts_are_the_same_in_every_surface() {
     assert_eq!(web, mcp);
 }
 
-/// A contract link as every surface shows it: endpoints, basis, tag, address variables and call positions.
+/// Endpoints, basis, tag, address variables and call positions.
 type Link = (String, String, String, String, Vec<String>, BTreeSet<(u64, u64)>);
 
 fn text(value: &Value) -> String {
@@ -94,7 +92,7 @@ fn web_link(link: &Value) -> Link {
     (text(&link["from_contract"]), text(&link["to_contract"]), text(&link["basis"]), text(&link["tag"]), vars, calls)
 }
 
-/// The map rows of kind `ContractLink` carry the link without its calls; their count stands for them.
+/// `ContractLink` rows carry a call count in place of call positions.
 fn map_links(map: &Value) -> BTreeSet<(String, String, String, String, Vec<String>, u64)> {
     map["relationships"]
         .as_array()
@@ -117,7 +115,6 @@ fn without_calls(links: &BTreeSet<Link>) -> BTreeSet<(String, String, String, St
 }
 
 impl Surfaces {
-    /// Export ids of contracts and members to the names the web API uses.
     fn names(&self) -> std::collections::BTreeMap<String, String> {
         self.records.iter().filter(|r| r["kind"] == "contract").map(|c| (text(&c["id"]), text(&c["name"]))).collect()
     }
@@ -157,7 +154,7 @@ async fn contract_links_are_the_same_in_every_surface() {
     }
 }
 
-/// Per call of `contract`, keyed by caller and static target names: the candidates as (contract, basis, tag), or the reason.
+/// Per (caller, static target), the (contract, basis, tag) candidates or the reason.
 type Candidates = std::collections::BTreeMap<(String, String), (BTreeSet<(String, String, String)>, Option<String>)>;
 
 fn callgraph_candidates(graph: &Value) -> Candidates {
@@ -178,7 +175,6 @@ fn callgraph_candidates(graph: &Value) -> Candidates {
 async fn dispatch_candidates_are_the_same_in_every_surface() {
     let s = Surfaces::of("dispatch").await;
     let names = s.names();
-    // `evm:<file>:<Contract>.<name>(<types>)` as the call graph names it, `<Contract>::<name>`
     let member = |id: &str| {
         let (contract, rest) = id.rsplit_once(':').unwrap().1.split_once('.').unwrap();
         format!("{contract}::{}", rest.split('(').next().unwrap())
@@ -199,9 +195,9 @@ async fn dispatch_candidates_are_the_same_in_every_surface() {
     assert_eq!(mcp, exported, "ilold_callgraph");
 }
 
-/// `(text, kind, <Contract>.<member>)` of each index level; parameters name their function or modifier.
+/// `(text, kind, <Contract>.<member>)` of each index level.
 type Keys = Vec<(String, String, Option<String>)>;
-/// A direct access site: function, read or write, path without keys, line and keys.
+/// Function, read or write, path without keys, line and keys.
 type KeySite = (String, String, String, u64, Keys);
 
 fn keys(keys: &Value, reference: impl Fn(&str) -> String) -> Keys {
@@ -228,7 +224,6 @@ fn api_sites(function: &str, accesses: &Value) -> BTreeSet<KeySite> {
 #[tokio::test]
 async fn mapping_keys_are_the_same_in_every_surface() {
     let s = Surfaces::of("keys").await;
-    // `evm:<file>:<Contract>.<name>(<types>)` as `<Contract>.<name>`
     let member = |id: &str| id.rsplit_once(':').unwrap().1.split('(').next().unwrap().to_string();
     let function = |id: &str| member(id).split_once('.').unwrap().1.to_string();
     let accesses = || s.records("reads").chain(s.records("writes"));
@@ -281,12 +276,11 @@ async fn mapping_keys_are_the_same_in_every_surface() {
     }
 }
 
-/// A catch clause as every surface shows it: kind, first line, empty, written paths, call texts, events and whether it reverts.
+/// Kind, first line, empty, written paths, call texts, events and whether it reverts.
 type Clause = (String, u64, bool, Vec<String>, Vec<String>, Vec<String>, bool);
-/// A try statement: function, line, guarded call text and clauses.
+/// Function, line, guarded call text and clauses.
 type Try = (String, u64, String, Vec<Clause>);
 
-/// `fields` name the text of a write, a call and an event: the export says path and event, the API text.
 fn clauses(fact: &Value, fields: [&str; 3]) -> Vec<Clause> {
     fact["catch_clauses"]
         .as_array()
@@ -338,21 +332,19 @@ async fn try_catches_are_the_same_in_every_surface() {
     assert_eq!(narrative, exported, "ilold_function_analysis");
 }
 
-/// A value transfer as every surface shows it: function, line, asset, operation, token, from, to, amount, id, library function, tag.
+/// Function, line, asset, operation, token, from, to, amount, id, library function, tag.
 type Transfer = (String, u64, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String);
-/// A balance read: function, line, asset, token, owner, id, library function, tag.
+/// Function, line, asset, token, owner, id, library function, tag.
 type Read = (String, u64, String, Option<String>, Option<String>, Option<String>, Option<String>, String);
 
 fn opt(value: &Value) -> Option<String> {
     value.as_str().map(str::to_string)
 }
 
-/// The facts a surface lists under one field, none when it leaves the field out.
 fn listed(facts: Option<&Value>) -> impl Iterator<Item = &Value> {
     facts.and_then(Value::as_array).into_iter().flatten()
 }
 
-/// `library` turns the surface's library reference into `<library>::<function>`.
 fn transfers<'a>(function: &str, facts: impl Iterator<Item = &'a Value>, library: &dyn Fn(&Value) -> Option<String>) -> BTreeSet<Transfer> {
     let fields = |t: &Value| [&t["token_expr"], &t["from_expr"], &t["to_expr"], &t["amount_expr"], &t["id_expr"]].map(opt);
     facts
@@ -425,7 +417,6 @@ fn api_phase(p: &Value) -> Phase {
 #[tokio::test]
 async fn phase_candidates_are_the_same_in_every_surface() {
     let s = Surfaces::of("phases").await;
-    // `evm:<file>:Sale.buy()` is `Sale::buy` on the api, where an unoverloaded key is the name
     let api_ref = |id: &Value| text(id).rsplit_once(':').unwrap().1.split('(').next().unwrap().replacen('.', "::", 1);
     let exported: BTreeSet<Phase> = s
         .records("phase_candidate")

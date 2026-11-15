@@ -14,7 +14,7 @@ mod fmt;
 mod graph;
 mod interactive;
 
-/// Commands whose output does not depend on the sequence depth share the analysis cached at this one.
+/// Depth-independent commands share the analysis cached at this depth.
 const SHARED_SEQ_DEPTH: usize = 3;
 
 #[derive(Parser)]
@@ -153,7 +153,7 @@ fn seq_depth(raw: &str) -> Result<usize, String> {
     }
 }
 
-/// Canonical, so `.` and other relative inputs never yield an empty path.
+/// Canonicalized so `.` yields a non-empty path.
 pub fn foundry_root(path: &Path) -> Result<PathBuf> {
     let Ok(start) = path.canonicalize() else {
         anyhow::bail!("Path does not exist: {}", path.display());

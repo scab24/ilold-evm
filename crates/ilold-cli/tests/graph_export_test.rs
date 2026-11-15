@@ -1,4 +1,3 @@
-//! `ilold graph --json`: exit codes, determinism, git-root-relative ids and one sample of every record kind.
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -46,7 +45,6 @@ fn records(out: &Path) -> Vec<Value> {
         .collect()
 }
 
-/// Runs the export into a scratch directory and returns its records.
 fn export(project: &Path, name: &str, code: i32) -> Vec<Value> {
     let dir = scratch(name);
     let out = dir.join("graph.jsonl");
@@ -345,7 +343,6 @@ fn output_is_byte_identical_across_runs_and_cold_or_warm_caches() {
     let outputs: Vec<Vec<u8>> = (0..3)
         .map(|run| {
             let out = dir.join(format!("run-{run}.jsonl"));
-            // the third run uses a cold cache of its own
             let cache = if run == 2 { dir.join("fresh-cache") } else { cache.clone() };
             let output = graph(&fixture("export/kinds"), &out, &cache);
             assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
@@ -446,7 +443,7 @@ fn output_does_not_depend_on_where_the_project_lives() {
         [("complete", true, 0, vec![]), ("failing", false, 4, vec![warning("lib/dep"), warning("lib/gone")])]
     {
         let copies = [dir.join(case).join("first/repo"), dir.join(case).join("second/deeper/elsewhere")];
-        // the second copy is reached through a symlink, so the given path is not the canonical one
+        // the symlink makes the given path differ from the canonical one
         let given = [copies[0].clone(), dir.join(case).join("link")];
         fs::create_dir_all(&copies[1]).unwrap();
         std::os::unix::fs::symlink(&copies[1], &given[1]).unwrap();
@@ -485,7 +482,6 @@ fn output_does_not_depend_on_where_the_project_lives() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A git repository at `repo` with everything in it committed; returns HEAD.
 fn commit_all(repo: &Path) -> String {
     let git = |args: &[&str]| {
         // fixed dates keep HEAD identical for identical content
@@ -587,7 +583,7 @@ fn exit_4_on_a_compile_error_inside_the_sources_still_writes_the_inventory() {
     }
 }
 
-/// Every fixture's export as schema 1.0 wrote it: exit code, record count, then sha256 of the sorted ids and of the sorted records.
+/// (fixture, exit code, record count, sha256 of sorted ids, sha256 of sorted records) as schema 1.0 wrote them.
 const V1_0_EXPORTS: &[(&str, i32, usize, &str, &str)] = &[
     ("tests/fixtures/erc20", 0, 47, "c7e8c077ae99b3a1d125c6b319735235a3e11edc18dafb20ca581caf5025c7d2", "dc3d2fb7a0b32e0b9ccfa097179d7eb0e35998386d250213a9952ed59c80be8b"),
     ("tests/fixtures/foundry_config", 0, 6, "63ba4cc3c6aeea2266cbc1ed41955550558e30c6fdbefd0bad160d58cad5503a", "0e2476236a2dac7e03154ff366671654cba5b6482d1eb2ed3b3ce7518f36a5d2"),

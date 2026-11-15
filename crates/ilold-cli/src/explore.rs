@@ -227,7 +227,7 @@ fn repl_loop(
     };
 
     loop {
-        // other clients share the server session: refresh it before every prompt
+        // other clients share the server session
         if let Some(snapshot) = sync_session(&handle, &client, &base_url, &contract) {
             steps = snapshot.steps;
             scenario_name = snapshot.active;
@@ -315,7 +315,6 @@ impl ContractNames {
     }
 }
 
-/// Overloads of a shared name are listed by signature without spaces.
 fn function_names(functions: &[(String, String)]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (name, signature) in functions.iter().filter(|(n, _)| !n.is_empty()) {
@@ -649,7 +648,6 @@ fn handle_input(
             match send_command(handle, client, base_url, &body) {
                 Ok(result) => {
                     print_result(&result, steps);
-                    // an Error keeps the local view
                     if matches!(result, CommandResult::Cleared) {
                         steps.clear();
                         return InputResult::UpdatePrompt;
@@ -1051,7 +1049,6 @@ struct SessionSnapshot {
     scenarios: Vec<String>,
 }
 
-/// Read without changing which contract the server considers current.
 fn sync_session(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
@@ -1082,7 +1079,7 @@ fn send_command(
     serde_json::from_value(value).map_err(|e| format!("Parse failed: {e}"))
 }
 
-// the answer is already shown; selecting it on open canvases is best effort
+// selecting the answer on open canvases is best effort
 fn highlight(handle: &tokio::runtime::Handle, client: &reqwest::Client, base_url: &str, target: serde_json::Value) {
     handle.block_on(json_body(client.post(format!("{base_url}/api/session/highlight")).json(&target))).ok();
 }
@@ -1223,7 +1220,6 @@ struct TraceArgs {
 }
 
 impl TraceArgs {
-    /// Flags that change what the trace contains, not just how it is shown.
     fn has_render_flags(&self) -> bool {
         self.depth.is_some() || self.reverts || !self.expand.is_empty()
     }
@@ -1320,7 +1316,7 @@ fn unknown_name(kind: &str, name: &str, contract: &str, known: &[String]) -> Str
     }
 }
 
-/// An empty name list means the contract's names are unknown, so nothing is rejected.
+/// An empty name list means the contract's names are unknown.
 fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
     if let Some(extra) = extra_args(name) {
         return Err(format!("Expected one state variable; unexpected: '{extra}'"));
@@ -1333,7 +1329,6 @@ fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<
     }
 }
 
-/// A bare name also matches its overloads; the server picks the first.
 fn check_function(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
     let query = compact(name);
     let known = names.functions.iter()
@@ -1420,7 +1415,7 @@ fn read_prompt(label: &str) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
-/// Reads through crossterm: keys typed right after the command may already sit in its queue, out of reach of stdin.
+/// Keys typed right after the command may already sit in crossterm's queue, out of reach of stdin.
 fn read_answer() -> Option<String> {
     use std::io::Write;
     let mut out = std::io::stdout();
@@ -1432,7 +1427,6 @@ fn read_answer() -> Option<String> {
     answer
 }
 
-/// Enter accepts the line; Esc, Ctrl-C, Ctrl-D and read errors cancel.
 fn collect_answer(
     events: impl Iterator<Item = std::io::Result<crossterm::event::Event>>,
     echo: &mut impl std::io::Write,
@@ -2242,10 +2236,8 @@ fn print_sequence_narrative(val: &serde_json::Value) {
     println!();
 }
 
-// (shortcut, usage, description)
 type HelpEntry = (&'static str, &'static str, &'static str);
 
-/// Every entry has inline help (`cmd?`).
 const HELP_GROUPS: &[(&str, &[HelpEntry])] = &[
     ("Session", &[
         ("c",      "call <func>",      "Add function to sequence"),
@@ -2717,7 +2709,6 @@ mod tests {
             sync_session(rt.handle(), &client, &url, "Vault"),
             Some(SessionSnapshot { active: "main".into(), steps: vec!["depositVia".to_string()], scenarios: vec!["main".into()] }),
         );
-        // syncing is a read: it does not take the session over
         assert_eq!(state.scenarios.read().unwrap().current_contract(), "LendingPool");
     }
 
