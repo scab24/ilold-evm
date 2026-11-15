@@ -278,7 +278,7 @@ pub async fn dispatch(
     }
 }
 
-// the analysis is the answer; selecting the function on open canvases is best effort
+// selecting the function on open canvases is best effort
 async fn highlight<T, E>(client: &IloldClient, contract: &str, function: &str, read: &Result<T, E>) {
     if read.is_ok() {
         client.post("/api/session/highlight", json!({ "contract": contract, "function": function })).await.ok();

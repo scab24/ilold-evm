@@ -308,7 +308,7 @@ async fn trace_forwards_expand_step_ids() {
 #[tokio::test]
 async fn contract_ids_and_names_are_url_encoded() {
     let server = MockServer::start();
-    // paths are matched as sent; the server decodes them
+    // the server decodes paths, so the mock matches them as sent
     let id = "src/a b/T&U.sol:T";
     let timeline = server.mock(|w, t| {
         w.method(GET).path("/api/session/timeline/total").query_param("contract", id);
