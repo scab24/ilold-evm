@@ -72,7 +72,7 @@ pub fn contract_path_for(path: &Path) -> PathBuf {
     }
 }
 
-/// unspecified binds are reached through loopback
+/// Unspecified binds are reached through loopback.
 pub fn local_url(addr: SocketAddr) -> String {
     let ip = match addr.ip() {
         IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
