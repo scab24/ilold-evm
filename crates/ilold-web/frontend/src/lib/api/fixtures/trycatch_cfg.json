@@ -125,7 +125,7 @@
         "contract": "TryCatch",
         "id": "b1",
         "is_external": false,
-        "label": "·",
+        "label": "(empty)",
         "node_type": "Normal"
       }
     },

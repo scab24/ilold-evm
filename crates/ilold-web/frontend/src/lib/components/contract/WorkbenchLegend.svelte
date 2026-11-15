@@ -3,7 +3,7 @@
   import LegendBar from '$lib/components/chrome/LegendBar.svelte';
   import Icon, { type IconName } from '$lib/components/chrome/Icon.svelte';
   import { LINES, nextState, type Line } from '$lib/components/project/map-graph';
-  import { AMBIGUOUS_COLOR, lineStyle } from '$lib/utils/links';
+  import { lineStyle } from '$lib/utils/links';
   import { applyLines, currentLines } from './connections/board-view.svelte';
 
   let { mode }: { mode: Mode } = $props();
@@ -56,7 +56,6 @@
     {#each mode === 'cfg' ? CFG_KEYS : SEQ_KEYS as k (k.text)}
       <span class="key"><span class="dot" style:background={k.color || 'transparent'} class:hollow={!k.color}></span>{k.text}</span>
     {/each}
-    <span class="key amb"><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" stroke={AMBIGUOUS_COLOR} stroke-width="3" /></svg>ambiguous link</span>
   </LegendBar>
 {/if}
 

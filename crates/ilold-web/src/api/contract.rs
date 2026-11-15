@@ -665,7 +665,7 @@ fn make_block_label(block: &BasicBlock, stmts: &[String]) -> String {
         BlockKind::LoopCondition => "⟳ Loop".into(),
         BlockKind::Normal => {
             if stmts.is_empty() {
-                "·".into()
+                "(empty)".into()
             } else {
                 let first = truncate_label(&stmts[0], 24);
                 if stmts.len() == 1 {

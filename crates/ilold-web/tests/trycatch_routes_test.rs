@@ -40,6 +40,19 @@ async fn the_cfg_returns_each_try_with_the_blocks_of_its_branches() {
 }
 
 #[tokio::test]
+async fn an_empty_block_is_labelled_empty() {
+    let (client, base) = start().await;
+    let cfg = get(&client, format!("{base}/contract/TryCatch/swallow/cfg")).await;
+    let fact = &cfg["try_catches"][0];
+    let label = |id: &Value| {
+        let id = format!("b{id}");
+        cfg["nodes"].as_array().unwrap().iter().find(|n| n["data"]["id"] == id.as_str()).map(|n| n["data"]["label"].clone())
+    };
+    assert_eq!(label(&fact["success_block"]), Some(Value::from("(empty)")), "{cfg}");
+    assert_eq!(label(&fact["catch_clauses"][0]["block"]), Some(Value::from("(empty)")), "{cfg}");
+}
+
+#[tokio::test]
 async fn function_summaries_carry_their_try_statements() {
     let (client, base) = start().await;
     let contract = get(&client, format!("{base}/contract/TryCatch")).await;
