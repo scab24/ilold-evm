@@ -230,7 +230,6 @@
     border-radius: 8px;
     font-family: system-ui, sans-serif;
     flex-shrink: 0;
-    text-transform: lowercase;
   }
 
   .badge-public {
