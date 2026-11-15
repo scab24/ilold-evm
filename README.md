@@ -1,117 +1,197 @@
-# ilold
+<p align="center">
+  <img src="images/Ilold.jpg" alt="ilold" width="160">
+</p>
 
-An interactive tool for auditing Solidity smart contracts. It compiles the contracts with solc, maps how they relate to each other, and exposes execution paths through a REPL and a web canvas.
+<p align="center">
+  <b>Interactive auditing for Solidity.</b><br>
+  See who calls what, who can run it, where value moves and how state changes.<br>
+  Use it from a web app, a REPL or an AI agent.
+</p>
 
-![ilold](images/Ilold.jpg)
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#what-you-can-do-with-ilold">What you can do</a> ·
+  <a href="#a-tour">Tour</a> ·
+  <a href="#ai-agents-mcp">MCP</a> ·
+  <a href="#graph-export">Graph export</a> ·
+  <a href="docs/guide/src/SUMMARY.md">Docs</a>
+</p>
 
-## What it does
+<p align="center">
+  <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
+  <img alt="Rust" src="https://img.shields.io/badge/built%20with-Rust-orange">
+  <img alt="MCP" src="https://img.shields.io/badge/AI%20agents-MCP-8a2be2">
+</p>
 
-ilold compiles the contracts with solc and builds a model of the whole project. The model is explored from a REPL, with the web canvas open alongside. Call sequences are built step by step; the tool reports how state changes across them, traces a function's execution, slices a variable's data flow, and maps how contracts depend on each other. Findings are recorded during the session and exported as a markdown report.
+<p align="center">
+  <a href="images/project-map.png"><img src="images/project-map.png" alt="Project map of Aave v4" width="100%"></a><br>
+  <sub>Project map of Aave v4, contracts grouped by folder.</sub>
+</p>
 
-Because it reads the solc AST, ilold knows the real target of a cross-contract call. A call through `IPool pool; pool.supply()` is attributed to `IPool.supply`. The dependency graph is built from that.
+## What you can do with ilold
 
-## Quick start
+| Task | Web | REPL | MCP |
+|---|---|---|---|
+| Map a protocol and what its contracts depend on | Project › Map | `contracts all`, `deps Vault`, `usedby Vault` | `ilold_project_map`, `ilold_contract_dependencies` |
+| Follow the calls between contracts | Connections, Project › Route | `links Vault`, `route Vault LendingPool` | `ilold_connections`, `ilold_route` |
+| Find who can call a function and which guards protect it | Sidebar, Inspector | `functions`, `info deposit` | `ilold_entry_points`, `ilold_function_analysis` |
+| See who pays whom, and in which asset | Project › Value flow | `value` | `ilold_value_flow` |
+| Walk the paths of a function and see which ones revert | CFG | `trace deposit`, `info deposit` | `ilold_cfg`, `ilold_function_paths` |
+| Find the functions that read or write a variable, by mapping key | Inspector | `who balances` | `ilold_who_touches` |
+| Build call sequences and fork them into scenarios | Seq, Session | `call deposit`, `scenario fork attack` | `ilold_sequences`, `ilold_session_call` |
+| Follow a variable across the steps of a sequence | Session › Timeline | `timeline totalStaked` | `ilold_timeline` |
+| Slice where a value comes from and where it goes | | `slice deposit totalStaked` | `ilold_slice` |
+| Record findings and notes, then export a report | | `finding`, `note`, `export` | `ilold_record_finding`, `ilold_note`, `ilold_export` |
 
-```
-git clone https://github.com/scab24/ilold.git
-cd ilold
-npm --prefix crates/ilold-web/frontend ci
-npm --prefix crates/ilold-web/frontend run build
-cargo build --release
-```
+The web app, the REPL and the MCP tools read the same model.
 
-The binary is at `target/release/ilold` with six subcommands: `analyze`, `context`, `serve`, `explore`, `evm-mcp` (the [MCP server](docs/guide/src/reference/mcp.md) for LLM agents), and `graph` (a deterministic [JSON Lines export](docs/guide/src/reference/graph-export.md) of the code map). `--max-seq-depth` (on `analyze`, `serve` and `explore`) takes 1 to 8, the depths the server serves. The frontend build is required **before** Rust builds and is embedded in the binary; `build.rs` does not download or generate frontend dependencies. A missing `frontend/build/index.html` fails the Rust build with the commands to fix it. Rebuild the frontend before rebuilding Rust after UI changes. The built binary serves the UI without the source checkout. A previously installed `ilold` on PATH is not replaced by `cargo build`: run `./target/release/ilold` to test this checkout.
+Calls are resolved from the solc AST. In `IPool pool; pool.supply()`, the call goes to `IPool.supply` and to the contracts that implement it.
 
-## The dependency graph
+## Install
 
-ilold maps how a protocol fits together with three relationships:
-
-- `inherits`: a contract extends another.
-- `calls`: a function calls into another contract, resolved to the real target.
-- `holds`: a contract has a state variable of another contract's type.
-
-Cycles are grouped and contracts are sorted into reading order, so foundational contracts come first. The graph is the home view of the canvas. Color encodes the subsystem and line color the relationship. Hovering a contract highlights its relationships, and the toggles filter by relation or kind.
-
-![ilold dependency graph](images/depgraph.png)
-
-In the REPL, `deps <contract>` lists what a contract depends on and `usedby <contract>` lists what depends on it. The same map is available as a one-shot CLI command:
-
-```
-./target/release/ilold analyze tests/fixtures/solc/cross --deps
-```
-
-`analyze --contract <name>` limits the output to one contract. An unknown name exits with status 1 and names the closest contracts (`Did you mean: Vault?`) or lists the available ones. Exit codes for every subcommand: `0` success, `1` error (unknown contract, not a Foundry project, compile or server failure), `2` invalid command-line usage. `graph` adds `3` (complete, but tests or scripts failed to compile) and `4` (a compile error inside the sources: only the file inventory is written).
-
-## Exploring a contract
-
-```
-./target/release/ilold explore tests/fixtures/staking
-```
-
-```
-ilold[Staking]> c deposit
-ilold[Staking → deposit]> s
-ilold[Staking → deposit]> who totalStaked
-ilold[Staking → deposit]> sl deposit totalStaked
-ilold[Staking → deposit]> tr deposit
+```bash
+git clone https://github.com/scab24/ilold-evm.git && cd ilold-evm && ./install.sh
 ```
 
-Explore prints a local URL; enter `browser` to open it, or visit it manually. CLI, API, and canvas share one origin and the configured `--port` (default: dynamic). `serve` and `explore` listen on 127.0.0.1; `--host <addr>` changes it, and `--host 0.0.0.0` exposes the API and the embedded terminal to the network. Requests from other web pages (a foreign `Origin` or a cross-site `Sec-Fetch-Site`) and host names other than `localhost`, loopback, the `--host` address or, for `0.0.0.0`, the machine's interface addresses are refused with 403; for the Vite dev server, set `ILOLD_DEV_ORIGIN=http://localhost:5173` (see the [API reference](docs/guide/src/reference/api-endpoints.md#security)). Closing the REPL stops its embedded backend; `explore --attach <url>` connects to an existing backend and does not start a second one. `--contract <name>` starts the REPL on a given contract; without it, explore, the attached REPL, and the server all start on the same default (the most derived deployable contract, ties broken by name; tests, scripts, mocks and harnesses only when nothing else exists). Each contract keeps its own scenarios and steps, so `use` and the canvas can switch contracts without losing work. The canvas shows the same model: the call graph, the control flow of a function, and the session being built.
+`install.sh` checks for Rust and Node.js, builds the web app and installs `ilold` into `~/.cargo/bin`. To update, run `git pull && ./install.sh`.
 
-![ilold canvas](images/diagram_solidity.png)
+```bash
+ilold explore path/to/foundry-project
+```
 
-## Commands at a glance
+Enter `browser` to open the web app. [Getting Started](docs/guide/src/getting-started.md) covers building by hand, ports, network access, `--attach` and exit codes.
 
-| Group | Commands |
-| --- | --- |
-| Session | `call`, `back`, `clear`, `state`, `sequence`, `step`, `session` |
-| Analysis | `who` (reads/writes of a variable), `info` (function detail), `trace` (execution tree), `timeline` (mutations across steps), `slice` (data flow) |
-| Contract | `functions`, `vars`, `contracts`, `deps`, `usedby`, `links` (calls to and from other contracts), `route` (how one contract reaches another), `value` (who pays whom), `use` |
-| Findings | `finding`, `note`, `scenario`, `status`, `findings`, `export` |
-| Workspace | `save`, `load`, `browser`, `quit` |
+## A tour
 
-Appending `?` to any command prints its usage. Tab completes commands, functions, state variables, contracts and scenario names; `Ctrl+C` clears the line and `Ctrl+D` or `q` exits. Sessions can be named, forked into scenarios (`scenario new|list|switch|fork|delete <name>`), and saved or loaded across runs under `~/.ilold/sessions/` (plain names only). A finding or note recorded before any step is kept as session-level and labelled so in the report.
+### 1. The protocol
 
-## Trace and slice
+<table>
+<tr>
+<td width="50%"><a href="images/connections-board.png"><img src="images/connections-board.png" alt="Connections" width="440"></a><br><b>Connections</b><br><sub>Who a contract calls and who calls it, function by function. Open a neighbour in place to follow a call across contracts.</sub></td>
+<td width="50%"><a href="images/value-flow.png"><img src="images/value-flow.png" alt="Value flow" width="440"></a><br><b>Value flow</b><br><sub>Where ETH and tokens enter the project, move between its contracts and leave it, by asset.</sub></td>
+</tr>
+</table>
 
-`trace` shows the execution tree of a function with modifier bodies inlined, and requires, state writes, and external calls marked. External calls are resolved to their real target. `slice` shows the backward and forward data flow of a variable in a function.
+### 2. Inside a function
 
-![ilold trace output](images/tr_menu.png)
+<table>
+<tr>
+<td width="60%"><a href="images/cfg.png"><img src="images/cfg.png" alt="Control flow" width="540"></a></td>
+<td width="40%">
+<b>CFG</b><br>
+The paths a function can take, the conditions each one needs and where it reverts. Modifiers are inlined. Selecting a path lists its conditions and what it runs.
+<br><br>
+<b>Inspector</b><br>
+Guards, storage reads and writes with their mapping keys, value transfers and try/catch clauses.
+</td>
+</tr>
+</table>
+
+### 3. Call sequences
+
+Two modes for calls that follow each other.
+
+<table>
+<tr>
+<td width="40%"><a href="images/sequences.png"><img src="images/sequences.png" alt="Seq" width="100%"></a><br><b>Seq mode</b><br><sub>What can run next. Expand a function into the calls that can follow it. A dashed line marks a next call that uses state the previous one writes.</sub></td>
+<td width="60%"><a href="images/session.png"><img src="images/session.png" alt="Session" width="100%"></a><br><b>Session mode</b><br><sub>A sequence you build. Add calls one by one, fork it into scenarios at any step and see what each step changes.</sub></td>
+</tr>
+</table>
+
+### 4. Terminal
+
+The REPL reads the same model and runs inside the web app.
+
+<table>
+<tr>
+<td width="55%"><a href="images/repl-trace-interactive.png"><img src="images/repl-trace-interactive.png" alt="Interactive trace" width="500"></a><br><sub><code>trace borrow -i</code> opens the execution tree full screen.</sub></td>
+<td width="45%">
+<b>Trace viewer keys</b>
+<ul>
+<li>Arrows or <code>h</code> <code>j</code> <code>k</code> <code>l</code> move and expand</li>
+<li><code>g</code> and <code>G</code> jump to the start or end</li>
+<li><code>?</code> shows the keys</li>
+<li><code>q</code> quits</li>
+</ul>
+<b>REPL help</b>
+<ul>
+<li><code>?</code> lists the commands in the groups Session, Analysis, Contract, Findings and Workspace</li>
+<li>A command followed by <code>?</code> shows its help</li>
+<li>Tab completes commands and names</li>
+</ul>
+</td>
+</tr>
+</table>
+
+## AI agents (MCP)
+
+`ilold evm-mcp` gives an AI agent 30 tools over a running `ilold serve`. The tools cover orientation, structure, function analysis, data flow, sequences, and sessions with findings. The open web app shows what the agent inspects.
+
+```bash
+ilold serve path/to/foundry-project --port 8080
+claude mcp add ilold-evm --transport stdio -- \
+  ilold evm-mcp --server-url http://127.0.0.1:8080
+```
+
+The second command registers the server in Claude Code. [MCP](docs/guide/src/reference/mcp.md) lists the tools and a recommended audit flow.
+
+## Graph export
+
+`ilold graph --json map.jsonl <project>` writes the code map as JSON Lines.
+
+| Records | Content |
+|---|---|
+| Line 1, envelope | ilold version, target commit, file inventory, record counts |
+| Nodes | Contracts, functions, state variables, events, errors, modifiers |
+| Edges, last | Inheritance, calls with their possible targets, storage reads and writes with mapping keys, guards, reverts, emits, try/catch, value transfers, balance reads, contract links, phase candidates |
+
+Feed it to other tools, diff two commits or query it with `jq`. This lists the guards that restrict access.
+
+```bash
+jq -c 'select(.kind == "guards" and .restricts) | {function, condition_text}' map.jsonl
+```
+
+The schema is in [Graph Export](docs/guide/src/reference/graph-export.md).
+
+## Six modes
+
+| Mode | What it does |
+|---|---|
+| `ilold explore <project>` | REPL with the web app alongside |
+| `ilold serve <project>` | Web app and HTTP API |
+| `ilold evm-mcp` | MCP server for AI agents, see [above](#ai-agents-mcp) |
+| `ilold graph --json out.jsonl <project>` | Deterministic JSON Lines export of the code map |
+| `ilold analyze <project>` | Functions of each contract with access and path counts. `--deps` prints dependency layers |
+| `ilold context <project>` | Function and sequence narratives without a server |
+
+## Limits
+
+ilold analyses source code statically.
+
+- A call it cannot resolve stays in the model with its reason. The reasons are no implementation in the project, an interface from outside the project, or an address computed at run time.
+- `links` and Connections show one hop at a time. `route` chains several hops.
+- `trace` stops at external calls.
+
+See [Known Limitations](docs/guide/src/reference/limitations.md).
 
 ## Documentation
 
-The documentation sources are in [`docs/guide/`](docs/guide/src/SUMMARY.md). To build and read them locally:
-
-```
-mdbook serve docs/guide --open
-```
-
-Key pages:
-
-- [Introduction](docs/guide/src/introduction.md)
-- [Getting Started](docs/guide/src/getting-started.md)
-- [Contract Commands](docs/guide/src/commands/contract.md)
-- [Mapping a Codebase](docs/guide/src/workflows/dependency-mapping.md)
-- [HTTP API](docs/guide/src/reference/api-endpoints.md)
-- [Graph Export](docs/guide/src/reference/graph-export.md)
-- [Known Limitations](docs/guide/src/reference/limitations.md)
+The guide is in [`docs/guide/`](docs/guide/src/SUMMARY.md). Run `mdbook serve docs/guide --open` to build it locally. Start with [Getting Started](docs/guide/src/getting-started.md), [Mapping a Codebase](docs/guide/src/workflows/dependency-mapping.md), [HTTP API](docs/guide/src/reference/api-endpoints.md) and [MCP](docs/guide/src/reference/mcp.md).
 
 ## Project layout
 
 ```
 crates/
-  ilold-cli    Interactive shell (explore) and the analyze/context CLI
-  ilold-core   Solidity engine: solc frontend, model, CFG, path tree,
-               call graph, dependency graph, slicer
-  ilold-web    REST and WebSocket server with the Svelte canvas frontend
-tests/
-  fixtures/    Solidity fixtures, including solc/cross for cross-contract tests
-scripts/       Verification scripts
-docs/guide/    mdbook documentation
+  ilold-core     Solidity engine: solc frontend, model, CFG, paths, cross-contract calls, value, export
+  ilold-cli      The ilold binary: subcommands and the REPL
+  ilold-web      HTTP and WebSocket server with the Svelte web app
+  ilold-evm-mcp  MCP server for AI agents
+tests/fixtures/  Solidity projects used by the tests
+scripts/         Verification scripts
+docs/guide/      mdbook documentation
+install.sh       Install or update ilold
 ```
 
 ## License
 
-ilold is licensed under the [GNU Affero General Public License v3](LICENSE). AGPL section 13 applies: running a modified version on a network server requires offering the modified source to its users.
-
-Copyright (C) 2026 scab24.
+[AGPL-3.0](LICENSE). Running a modified version on a network server requires offering its source to its users (section 13). Copyright (C) 2026 scab24.
