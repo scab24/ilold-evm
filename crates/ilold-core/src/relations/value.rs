@@ -1,4 +1,3 @@
-//! Value a function moves between accounts and the balances it reads, from one table of recognized calls.
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -44,59 +43,42 @@ pub enum Operation {
     Take,
 }
 
-/// Seen from the contract that runs the code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Direction {
     In,
     Out,
-    /// Between two other accounts, such as `transferFrom(a, b, x)`.
     Other,
 }
 
-/// Why the asset of a fact is not decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValueReason {
-    /// The call names no declaration, so only its name matches.
     UnresolvedDeclaration,
-    /// The receiver's interface follows none of the token standards.
     NoStandard,
-    /// The receiver's interface follows several token standards.
     SeveralStandards,
     /// A Uniswap v4 `Currency` is ether or an ERC-20 token at run time.
     Currency,
-    /// Whether ERC-6909 claims move depends on a flag that is not a literal.
     ClaimsFlag,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValueTransfer {
-    /// `<function>#<n>`, `n` counting the function's transfers in source order.
     pub id: String,
-    /// `<contract key>::<function key>` declaring the code.
     pub function: String,
-    /// Key of the contract that runs the function.
     pub in_context: String,
-    /// The modifier whose code makes the call.
     pub modifier: Option<String>,
-    /// The call's span; the `calls` fact at the same span is the call.
     pub span: SourceSpan,
     pub asset_kind: AssetKind,
-    /// The kinds an AMBIGUOUS fact may be.
     pub asset_candidates: Vec<AssetKind>,
     pub operation: Operation,
     pub direction: Direction,
     pub token_expr: Option<String>,
-    /// None: the running contract.
     pub from_expr: Option<String>,
-    /// None when the value leaves circulation, as in a burn, or goes to a contract being created.
     pub to_expr: Option<String>,
     pub amount_expr: Option<String>,
     pub id_expr: Option<String>,
-    /// `<target>.<function>`, as the call facts name it.
     pub call: String,
-    /// `<library key>::<function key>` when a library function moves the value.
     pub via_library: Option<String>,
     pub tag: Tag,
     pub reason: Option<ValueReason>,
@@ -104,7 +86,6 @@ pub struct ValueTransfer {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BalanceRead {
-    /// `<function>#<n>`, `n` counting the function's balance reads in source order.
     pub id: String,
     pub function: String,
     pub in_context: String,
@@ -113,7 +94,6 @@ pub struct BalanceRead {
     pub asset_kind: AssetKind,
     pub asset_candidates: Vec<AssetKind>,
     pub token_expr: Option<String>,
-    /// None: the running contract.
     pub owner_expr: Option<String>,
     pub id_expr: Option<String>,
     pub via_library: Option<String>,
@@ -127,16 +107,13 @@ pub struct ValueFacts {
     pub balance_reads: Vec<BalanceRead>,
 }
 
-/// Transfers of one direction, asset and token with the same counterparty.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValueFlow {
     pub direction: Direction,
     pub asset_kind: AssetKind,
     pub token_expr: Option<String>,
-    /// The sender of what comes in, the receiver of the rest.
     pub counterparty_expr: Option<String>,
     pub functions: Vec<String>,
-    /// Ids of the transfers.
     pub transfers: Vec<String>,
 }
 
@@ -177,39 +154,27 @@ pub struct ValuePair {
     pub transfers: Vec<String>,
 }
 
-/// Where a recognizer reads a field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Arg {
-    /// The account or token the call is made on.
     Receiver,
-    /// The `value` call option.
     Value,
-    /// An argument; the receiver of a `using for` call is argument 0.
     At(usize),
-    /// No expression: for a sender or an owner, the running contract.
     Absent,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum Asset {
     Is(AssetKind),
-    /// A Uniswap v4 `Currency`: ether or an ERC-20 token.
     Currency,
-    /// ERC-6909 claims when the bool argument at the index is `true`, else a `Currency`.
     ClaimsIf(usize),
 }
 
 #[derive(Debug, Clone, Copy)]
 enum Callee {
-    /// Calls of these kinds.
     Kind(&'static [CallKind]),
-    /// Calls of these kinds that send ether with `{value: ...}`.
     WithValue(&'static [CallKind]),
-    /// `<address>.balance`.
     Balance,
-    /// An external function by ABI signature and selector, on a receiver whose interface follows the asset's standard.
     Token(&'static str, &'static str),
-    /// A function of the library with that name, by the declaration the call resolves to.
     Library(&'static str, &'static str),
 }
 
@@ -228,12 +193,10 @@ struct Recognizer {
     effect: Effect,
 }
 
-/// Fields in order: token, from, to, amount, id.
 const fn moves(callee: Callee, asset: Asset, operation: Operation, [token, from, to, amount, id]: [Arg; 5]) -> Recognizer {
     Recognizer { callee, asset, token, id, effect: Effect::Moves { operation, from, to, amount } }
 }
 
-/// Fields in order: token, owner, id.
 const fn reads(callee: Callee, asset: Asset, [token, owner, id]: [Arg; 3]) -> Recognizer {
     Recognizer { callee, asset, token, id, effect: Effect::Reads { owner } }
 }
@@ -248,7 +211,6 @@ const ERC1155: Asset = Asset::Is(AssetKind::Erc1155);
 const ERC6909: Asset = Asset::Is(AssetKind::Erc6909);
 const SENDS: &[CallKind] = &[CallKind::LowLevelCall, CallKind::External, CallKind::ExternalSelf];
 
-/// Every call and member access recognized as moving value or reading a balance; anything else yields no fact.
 const RECOGNIZERS: &[Recognizer] = &[
     moves(Kind(&[CallKind::Transfer]), NATIVE, Operation::Transfer, [Absent, Absent, Receiver, At(0), Absent]),
     moves(Kind(&[CallKind::Send]), NATIVE, Operation::Send, [Absent, Absent, Receiver, At(0), Absent]),
@@ -302,7 +264,6 @@ const RECOGNIZERS: &[Recognizer] = &[
     moves(Library("CurrencySettler", "take"), Asset::ClaimsIf(4), Operation::Take, [At(0), At(1), At(2), At(3), Absent]),
 ];
 
-/// Functions whose selector, declared or inherited, marks an interface as following a token standard.
 const STANDARDS: &[(AssetKind, &[(&str, &str)])] = &[
     (AssetKind::Erc20, &[("transfer(address,uint256)", "a9059cbb"), ("allowance(address,address)", "dd62ed3e")]),
     (AssetKind::Erc721, &[("ownerOf(uint256)", "6352211e")]),
@@ -316,16 +277,13 @@ const STANDARDS: &[(AssetKind, &[(&str, &str)])] = &[
     (AssetKind::Erc6909, &[("transfer(address,uint256,uint256)", "095bcdb6"), ("transferFrom(address,address,uint256,uint256)", "fe99049a")]),
 ];
 
-/// A recognizer a call matches, and how sure the match is.
 struct Match {
     recognizer: Recognizer,
     tag: Tag,
     via_library: Option<String>,
-    /// Several standards fit, or none does: the candidates and why.
     undecided: Option<(Vec<AssetKind>, ValueReason)>,
 }
 
-/// The expressions a recognizer reads, from the call's source when the code walk found it.
 struct Operands<'a> {
     receiver: Option<&'a Expression>,
     args: Vec<&'a Expression>,
@@ -333,7 +291,6 @@ struct Operands<'a> {
     stmt: Option<&'a CfgStatement>,
 }
 
-/// The text of a field, and whether it names the running contract.
 struct Operand {
     text: Option<String>,
     this: bool,
@@ -361,7 +318,6 @@ impl Operands<'_> {
         }
     }
 
-    /// `absent_is_this`: an absent sender or owner is the running contract.
     fn operand(&self, arg: Arg, absent_is_this: bool) -> Operand {
         let Some(expr) = self.expr(arg) else {
             let text = match (arg, self.stmt) {
@@ -386,7 +342,6 @@ impl Operands<'_> {
         }
     }
 
-    /// The asset, its candidates, the tag and the reason.
     fn asset(&self, found: &Match) -> (AssetKind, Vec<AssetKind>, Tag, Option<ValueReason>) {
         let currency = || (AssetKind::Unknown, vec![AssetKind::Native, AssetKind::Erc20], Tag::Ambiguous, Some(ValueReason::Currency));
         if let Some((candidates, reason)) = &found.undecided {
@@ -407,7 +362,6 @@ impl Operands<'_> {
     }
 }
 
-/// Where a fact is: its function, context and the modifier whose code holds it.
 struct Place<'a> {
     function: &'a str,
     in_context: &'a str,
@@ -583,7 +537,6 @@ fn parties(project: &Project, relations: &Relations, t: &ValueTransfer, typed: &
     (from.unwrap_or_else(|| Party::Expression(t.from_expr.clone())), to.unwrap_or_else(|| Party::Expression(t.to_expr.clone())))
 }
 
-/// Transfers grouped by direction, asset, token and counterparty, in that order.
 pub fn value_flows(transfers: &[ValueTransfer]) -> Vec<ValueFlow> {
     type Key = (Direction, AssetKind, Option<String>, Option<String>);
     let mut flows: BTreeMap<Key, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
@@ -631,7 +584,6 @@ impl Recognizer {
     }
 }
 
-/// Ether a call sends, then the token or library function it calls.
 fn matches(project: &Project, stmt: &CfgStatement, operands: &Operands) -> Vec<Match> {
     let mut found = Vec::new();
     if let CfgStatement::ExternalCall { kind, options, .. } = stmt {
@@ -648,7 +600,6 @@ fn matches(project: &Project, stmt: &CfgStatement, operands: &Operands) -> Vec<M
     found
 }
 
-/// A call to a recognized library function, by the declaration it resolves to.
 fn library(project: &Project, stmt: &CfgStatement) -> Option<Match> {
     let (library, function) = library_callee(project, stmt)?;
     let recognizer = RECOGNIZERS.iter().find(|r| matches!(r.callee, Library(l, f) if l == library.name && f == function.name))?;
@@ -656,7 +607,6 @@ fn library(project: &Project, stmt: &CfgStatement) -> Option<Match> {
     Some(Match { recognizer: *recognizer, tag: Tag::TypeResolved, via_library, undecided: None })
 }
 
-/// An external call by selector, on the standard the declaring interface follows; when that does not decide, AMBIGUOUS between the rows that fit.
 fn token(project: &Project, stmt: &CfgStatement, operands: &Operands) -> Option<Match> {
     let CfgStatement::ExternalCall { kind: CallKind::External | CallKind::ExternalSelf, resolved, function, .. } = stmt else {
         return None;
@@ -679,7 +629,6 @@ fn token(project: &Project, stmt: &CfgStatement, operands: &Operands) -> Option<
         None => (rows(&|signature, _| arity(signature, function) == Some(operands.args.len())), ValueReason::UnresolvedDeclaration),
     };
     let first = **rows.first()?;
-    // a field the fitting rows read from different places is not decided
     let args = std::array::from_fn(|i| {
         let arg = first.args()[i];
         if rows.iter().all(|r| r.args()[i] == arg) { arg } else { Absent }
@@ -690,13 +639,11 @@ fn token(project: &Project, stmt: &CfgStatement, operands: &Operands) -> Option<
     Some(Match { recognizer: first.with_args(args), tag: Tag::Ambiguous, via_library: None, undecided: Some((candidates, reason)) })
 }
 
-/// The parameter count of `signature` when it names `function`.
 fn arity(signature: &str, function: &str) -> Option<usize> {
     let params = signature.strip_prefix(function)?.strip_prefix('(')?.strip_suffix(')')?;
     Some(if params.is_empty() { 0 } else { params.split(',').count() })
 }
 
-/// The contract declaring a function or public state variable, and its selector.
 fn selector_of(project: &Project, id: DeclId) -> Option<(&ContractDef, &str)> {
     let t = project.decl_table.lookup(id)?;
     let c = contract(project, &t.contract)?;
@@ -708,7 +655,6 @@ fn selector_of(project: &Project, id: DeclId) -> Option<(&ContractDef, &str)> {
     Some((c, selector?))
 }
 
-/// The token standards a contract follows, by the selectors it declares or inherits.
 fn standards(project: &Project, c: &ContractDef) -> Vec<AssetKind> {
     let exposed: HashSet<&str> = project
         .linearization(c)

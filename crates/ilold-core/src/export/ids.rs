@@ -1,4 +1,3 @@
-//! Stable ids: `evm:<git-root-relative file>:<Contract>.<member>`.
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -9,7 +8,6 @@ use crate::model::function::FunctionDef;
 use crate::model::project::Project;
 use crate::parse::solc_frontend::canonical_type;
 
-/// Paths relative to the git root, or to the Foundry root outside a repository.
 pub(super) struct Paths {
     pub base: PathBuf,
 }
@@ -25,7 +23,6 @@ impl Paths {
         out.to_string_lossy().into_owned()
     }
 
-    /// Absolute paths inside free text, such as compiler messages: relative under the base, `<outside-root>/<file name>` elsewhere.
     pub fn relative_text(&self, text: &str) -> String {
         let base = self.base.to_string_lossy();
         let mut out = String::with_capacity(text.len());
@@ -59,7 +56,7 @@ impl Paths {
     }
 }
 
-/// Symlinks resolved in the longest existing prefix, e.g. `/tmp` to `/private/tmp` on macOS.
+/// Resolves symlinks such as `/tmp` to `/private/tmp` on macOS.
 fn resolved(path: &Path) -> PathBuf {
     path.ancestors()
         .find_map(|dir| Some(dir.canonicalize().ok()?.join(path.strip_prefix(dir).ok()?)))
@@ -91,7 +88,6 @@ impl<'p> Ids<'p> {
         })
     }
 
-    // free functions belong to their file, not to a contract
     fn scope(&self, c: &ContractDef) -> String {
         let file = self.file(c.span.file_index);
         if c.is_free_functions() { format!("evm:{file}:") } else { format!("evm:{file}:{}.", c.name) }
@@ -111,7 +107,6 @@ impl<'p> Ids<'p> {
         format!("{}{name}", self.scope(c))
     }
 
-    /// Events and errors carry their parameter types only when overloaded.
     pub fn overloadable(&self, c: &ContractDef, name: &str, params: &[Param], overloaded: bool) -> String {
         if overloaded {
             format!("{}{name}({})", self.scope(c), param_types(params).join(","))
@@ -125,7 +120,6 @@ impl<'p> Ids<'p> {
         c.functions.iter().find(|f| f.key == key).map(|f| self.function(c, f))
     }
 
-    /// From a declaration's readable key, `<contract qualified id>::<name>`.
     pub fn member_by_key(&self, key: &str) -> Option<String> {
         let (contract, name) = key.rsplit_once("::")?;
         Some(self.member(&self.project.contracts[*self.project.contract_index.get(contract)?], name))

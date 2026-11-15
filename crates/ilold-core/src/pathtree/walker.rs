@@ -32,7 +32,6 @@ pub fn build_path_tree(
         paths: Vec::new(),
         stats: PathTreeStats::default(),
     };
-    // one table entry per CFG edge taken (the entry block has none)
     let mut node_ids: HashMap<Option<EdgeIndex>, u32> = HashMap::new();
 
     let Some(entry) = cfg.node_indices().find(|&n| cfg[n].kind == BlockKind::Entry) else {
@@ -158,7 +157,6 @@ pub(crate) fn block_annotations(block: &BasicBlock) -> PathAnnotations {
     annotations
 }
 
-// reads through `storage` parameters are summarised per function
 fn collect_reads(reads: &[BlockRead], annotations: &mut PathAnnotations) {
     for read in reads.iter().map(|r| &r.place).filter(|r| r.param.is_none()) {
         push_unique(&mut annotations.state_reads, crate::util::target_base_name(&read.path).to_string());

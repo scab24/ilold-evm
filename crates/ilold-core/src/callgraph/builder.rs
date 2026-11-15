@@ -12,7 +12,6 @@ use crate::util::is_type_cast;
 
 use super::types::*;
 
-/// As the most derived contract; names are only a fallback for models without solc ids.
 pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph {
     let linearization = project.linearization(contract);
     let mut builder = Builder {
@@ -40,7 +39,6 @@ struct Builder<'a> {
     linearization: Vec<&'a ContractDef>,
     graph: CallGraph,
     index: HashMap<String, NodeIndex>,
-    // hierarchy functions whose bodies still have to be scanned
     queue: VecDeque<(&'a ContractDef, &'a FunctionDef, NodeIndex)>,
     queued: HashSet<String>,
 }
@@ -103,7 +101,6 @@ impl<'a> Builder<'a> {
                 idx
             }
         };
-        // bodies of hierarchy functions are part of this contract's code
         if let Some((owner, func)) = target.def {
             if self.in_hierarchy(owner.key()) && self.queued.insert(id) {
                 self.queue.push_back((owner, func, idx));
@@ -165,7 +162,6 @@ impl<'a> Builder<'a> {
                 return self.defined(c, f, None);
             }
         } else if kind == CallKind::Internal && qualifier.is_none() {
-            // virtual dispatch from the most derived contract
             match declared_def {
                 Some((c, f)) if f.is_virtual && self.in_hierarchy(c.key()) => {
                     if let Some((ic, i_f)) =
@@ -176,7 +172,6 @@ impl<'a> Builder<'a> {
                         return self.defined(ic, i_f, static_target);
                     }
                 }
-                // without a declaration id, first implementation by name; a function-pointer id must not match by name
                 None if resolved.is_none() => {
                     let by_name = self.linearization.iter().find_map(|c| {
                         c.functions.iter().find(|f| f.name == function && f.body.is_some()).map(|f| (*c, f))

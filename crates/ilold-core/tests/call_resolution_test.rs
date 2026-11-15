@@ -1,4 +1,3 @@
-//! Call resolution from compiler facts. Fixture: tests/fixtures/solc/call_resolution.
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -351,7 +350,6 @@ fn internal_overloads_by_data_location_have_distinct_keys() {
         .map(|f| f.key.as_str())
         .collect();
     assert_eq!(keys, ["_sum(uint256[] calldata)", "_sum(uint256[] storage)"]);
-    // public and external functions keep the ABI form
     assert_eq!(function("Ledger", "sums").signature, "sums(uint256[])");
     let sums: BTreeSet<Edge> =
         edges("Ledger").into_iter().filter(|(from, _, _)| from == "Ledger::sums").collect();
@@ -476,7 +474,6 @@ fn narratives_and_who_never_mix_functions_sharing_a_key() {
     else {
         panic!("VariableInfo")
     };
-    // a key both contracts declare is qualified with the declaring contract
     let names: Vec<&str> = writers.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(names, ["_bump", "ClashBase::put"]);
     assert_eq!(writers[0].1, AccessLevel::Internal);

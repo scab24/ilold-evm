@@ -1,4 +1,3 @@
-//! Which in-scope contracts may answer each external call, where the called address comes from, and the contract map they add up to.
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cfg::builder::expr_to_string;
@@ -19,7 +18,6 @@ use super::{
     DispatchCandidate, LinkCall, Relations, Running, Tag, UnresolvedReason,
 };
 
-/// The kind and the declared `<contract key>::<member key>` of an external call to a contract, `this` included.
 pub fn call_target(project: &Project, stmt: &CfgStatement) -> Option<(CallKind, Option<String>)> {
     let CfgStatement::ExternalCall { kind: kind @ (CallKind::External | CallKind::ExternalSelf), resolved, .. } = stmt else {
         return None;
@@ -174,7 +172,6 @@ struct ExternalCallSite {
     kind: CallKind,
     target: Option<String>,
     span: Option<SourceSpan>,
-    /// `<contract key>::<name>` of the state variable holding the called address.
     via: Option<String>,
 }
 
@@ -224,7 +221,6 @@ fn self_candidates(
         .collect()
 }
 
-/// Deployable project contracts answering `member` of `declared`: those inheriting it, else any exposing its selector.
 fn implementations(project: &Project, declared: &ContractDef, member: &str) -> Vec<DispatchCandidate> {
     let function = declared.functions.iter().find(|f| f.key == member);
     let selector = function
@@ -246,7 +242,6 @@ fn implementations(project: &Project, declared: &ContractDef, member: &str) -> V
     candidates
 }
 
-/// The public function or getter of `c` with `selector`, as `<declaring contract key>::<member key>`.
 fn answering(project: &Project, c: &ContractDef, selector: &str) -> Option<String> {
     let function = project.accessible_functions(c).into_iter().find(|af| {
         let f = af.function;
@@ -264,7 +259,6 @@ fn answering(project: &Project, c: &ContractDef, selector: &str) -> Option<Strin
         .map(|(v, owner, _)| format!("{owner}::{}", v.name))
 }
 
-/// The declaration's initial value and every direct assignment in a contract that inherits the variable.
 fn assignment_sites(project: &Project, state_var: &str) -> Vec<AssignmentSite> {
     let Some((owner, name)) = state_var.rsplit_once("::").and_then(|(c, n)| Some((contract(project, c)?, n))) else {
         return Vec::new();

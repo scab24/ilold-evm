@@ -22,7 +22,6 @@ use crate::sequence::effects::{summarize, CfgSummary, EffectEngine};
 use crate::sequence::builder::build_sequence_tree;
 use crate::sequence::types::SequenceTree;
 
-/// All of it is part of the cache key.
 #[derive(Debug, Clone)]
 pub struct AnalysisParams {
     pub max_seq_depth: usize,
@@ -57,7 +56,6 @@ impl ProjectAnalysis {
         let mut sequence_analyses = HashMap::new();
         let mut classifications = HashMap::new();
 
-        // other dependency functions (libraries, free functions) only once project code calls them
         let inherited_dependencies: HashSet<&str> = project
             .project_contracts()
             .flat_map(|c| project.linearization(c))
@@ -118,7 +116,7 @@ impl ProjectAnalysis {
             let mut functions = Vec::new();
             for af in project.accessible_functions(contract) {
                 let (owner, func) = (af.owner, af.function);
-                // hand-built models may leave the key empty; accessible_functions only skips empty names
+                // hand-built models may leave the key empty
                 if func.key.is_empty() {
                     continue;
                 }
@@ -147,13 +145,11 @@ impl ProjectAnalysis {
         }
     }
 
-    /// Without a key the project cache was bypassed and the analysis is always built fresh.
     pub fn load_or_build(project: &Project, key: Option<&ProjectKey>, params: &AnalysisParams) -> Self {
         crate::analysis_cache::load_or_build_from_env(key, params, || Self::build(project, params))
     }
 }
 
-/// `func`, declared in `owner`, as `contract` runs it.
 pub(crate) fn function_behavior<'p>(
     project: &'p Project,
     engine: &mut EffectEngine<'p>,

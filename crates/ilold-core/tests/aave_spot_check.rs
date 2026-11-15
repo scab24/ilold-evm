@@ -1,4 +1,4 @@
-//! Manual spot checks on Aave v3 origin; `ILOLD_AAVE_ROOT` points at the project.
+//! Needs `ILOLD_AAVE_ROOT` pointing at an Aave v3 origin checkout.
 use std::path::PathBuf;
 
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
@@ -234,7 +234,6 @@ fn aave_state_flow() {
     let analysis = ProjectAnalysis::build(&project, &params);
     println!("== analysis build {:.2?}: {} cfgs, {} path trees", started.elapsed(), analysis.cfgs.len(), analysis.path_trees.len());
 
-    // persisted snapshot size, and the part of it this model adds
     let store = PathBuf::from(std::env::var("ILOLD_PROJECT_CACHE_DIR").expect("ILOLD_PROJECT_CACHE_DIR")).join("state-flow-measure");
     let _ = ilold_core::analysis_cache::load_or_build_with(Some(&store), key.as_ref(), &params, || {
         ProjectAnalysis::build(&project, &params)
@@ -358,7 +357,6 @@ fn aave_state_flow() {
     println!("== Pool.getReserveData read_only {} external {:?} reads {:?}", data.read_only, data.effective_external_calls(), data.effective_state_reads());
     assert!(data.read_only);
 
-    // constants and immutables are never storage
     let mut checked = 0usize;
     for contract in project.project_contracts() {
         let Some(sa) = analysis.sequence_analyses.get(contract.key()) else { continue };
@@ -390,7 +388,6 @@ fn aave_state_flow() {
     let reserves = behavior("Pool", "getReservesList");
     println!("== Pool.getReservesList assembly {:?} effects_incomplete {} reads_incomplete {}",
         reserves.assembly_blocks, reserves.effects_incomplete, reserves.reads_incomplete);
-    // a view function: its Yul may read state but not change it
     assert!(!reserves.assembly_blocks.is_empty() && reserves.reads_incomplete && !reserves.effects_incomplete);
     assert!(reserves.reverts_incomplete);
 }

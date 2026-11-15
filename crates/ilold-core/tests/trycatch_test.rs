@@ -1,4 +1,3 @@
-//! Try statements read from the CFG, with the kind of each clause from the model. Fixture: tests/fixtures/solc/trycatch.
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;

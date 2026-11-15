@@ -1,4 +1,3 @@
-//! Each try statement a function runs: the call it guards and what every catch clause does when that call fails.
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use petgraph::stable_graph::NodeIndex;
@@ -19,17 +18,12 @@ use crate::sequence::effects::reachable;
 use super::keys::{storage_accesses, AccessKind, StorageAccess};
 use super::{call_text, Tag};
 
-/// The failures a clause catches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CatchKind {
-    /// `catch Error(string memory reason)`: a revert with a reason string.
     Error,
-    /// `catch Panic(uint256 code)`.
     Panic,
-    /// `catch (bytes memory data)`: any failure, with its revert data.
     #[serde(rename = "bytes")]
     Bytes,
-    /// `catch { ... }`: any failure, without its data.
     #[serde(rename = "all")]
     All,
 }
@@ -45,49 +39,38 @@ impl CatchKind {
     }
 }
 
-/// Why a try fact is AMBIGUOUS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TryReason {
-    /// No try statement of the code has the call the CFG guards, so its clauses cannot be told apart.
     StatementNotFound,
-    /// A clause names an error the language does not catch by name.
     UnknownCatchKind,
 }
 
-/// One effect inside a clause, as the source writes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectSite {
-    /// The raw path of a write, keys included; the call text; the event name.
     pub text: String,
     pub span: SourceSpan,
 }
 
-/// What a clause's own code does; effects of the functions it calls are theirs.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatchEffects {
     pub writes: Vec<EffectSite>,
     pub calls: Vec<EffectSite>,
     pub emits: Vec<EffectSite>,
-    /// Some path through the clause reverts.
     pub reverts: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatchClauseFact {
-    /// None when the clause names an error the language does not catch by name.
     pub kind: Option<CatchKind>,
     pub span: SourceSpan,
-    /// The body has no statement: the failure is swallowed.
     pub empty: bool,
     pub effects: CatchEffects,
-    /// The CFG block the clause starts at.
     pub block: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardedCall {
-    /// `<target>.<function>` as the source writes it; `<Contract>.constructor` for `new`.
     pub text: String,
     pub kind: CallKind,
     pub span: SourceSpan,
@@ -95,13 +78,9 @@ pub struct GuardedCall {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TryCatchFact {
-    /// `<function>#<n>`, `n` counting the function's try statements in source order.
     pub id: String,
-    /// `<contract key>::<function key>` declaring the code.
     pub function: String,
-    /// Key of the contract that runs the function.
     pub in_context: String,
-    /// The modifier whose code holds the try statement.
     pub modifier: Option<String>,
     pub span: SourceSpan,
     pub guarded_call: Option<GuardedCall>,
@@ -109,12 +88,10 @@ pub struct TryCatchFact {
     pub catch_clauses: Vec<CatchClauseFact>,
     pub tag: Tag,
     pub reason: Option<TryReason>,
-    /// The CFG block ending in the guarded call, and the one its success branch starts at.
     pub block: usize,
     pub success_block: usize,
 }
 
-/// Every try statement of `func`'s reachable code, as `context` runs it, in source order.
 pub fn try_catches(project: &Project, context: &ContractDef, owner: &ContractDef, func: &FunctionDef, cfg: &CfgGraph) -> Vec<TryCatchFact> {
     let statements = try_statements(project, context, func);
     let accesses = storage_accesses(project, context, owner, func, cfg);
@@ -185,7 +162,6 @@ pub(super) fn guards_call(cfg: &CfgGraph, n: NodeIndex) -> bool {
     cfg.edges(n).any(|e| matches!(e.weight(), BranchEdge::ExternalCallSuccess))
 }
 
-/// The try statements of the function's code and modifiers, by the span of the call each guards.
 fn try_statements<'a>(project: &'a Project, context: &'a ContractDef, func: &'a FunctionDef) -> HashMap<SourceSpan, (SourceSpan, &'a [CatchClause])> {
     let mut found = HashMap::new();
     let modifiers = func.modifiers.iter().filter_map(|m| modifier_code(Some(project), context, &m.name)).map(|m| m.body.as_slice());
@@ -218,13 +194,12 @@ fn catch_kind(clause: &CatchClause) -> Option<CatchKind> {
     }
 }
 
-/// What the code inside `span` does on the blocks reachable from `start` without re-running the try in `try_block`.
 fn effects(cfg: &CfgGraph, try_block: NodeIndex, start: NodeIndex, span: SourceSpan, accesses: &[StorageAccess], decls: &DeclTable) -> CatchEffects {
     let mut seen = HashSet::from([try_block, start]);
     let mut queue = VecDeque::from([start]);
     let mut blocks = HashSet::new();
     let mut out = CatchEffects::default();
-    // the walk leaves the clause through returns, loops and modifier code; only code inside its span is its own
+    // the walk may leave the clause through returns, loops and modifier code
     let inside = |s: Option<SourceSpan>| s.is_some_and(|s| span.contains(&s));
     while let Some(n) = queue.pop_front() {
         let block = &cfg[n];

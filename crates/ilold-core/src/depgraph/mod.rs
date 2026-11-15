@@ -18,7 +18,6 @@ pub type DepGraph = DiGraph<DepNode, DepEdge>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepNode {
-    /// The bare name unless it is ambiguous.
     pub name: String,
     pub kind: ContractKind,
     pub folder: String,
@@ -36,7 +35,6 @@ pub struct DepEdge {
     pub calls: bool,
     pub holds: bool,
     pub call_count: usize,
-    /// The deployable contract may answer calls the source makes through an interface.
     #[serde(default)]
     pub link: Option<ContractLink>,
 }
@@ -102,7 +100,6 @@ impl ContractDeps {
         build::from_call_graphs(project, call_graphs)
     }
 
-    /// Built graphs hold one node per contract key; anything else is rejected.
     pub fn from_graph(graph: DepGraph) -> Option<Self> {
         let mut index = HashMap::new();
         for idx in graph.node_indices() {
@@ -231,7 +228,6 @@ mod tests {
         assert_eq!(used, vec!["BasePool"]);
     }
 
-    // same-named contracts get one node each and inheritance follows the declaration id
     #[test]
     fn duplicate_names_keep_one_node_per_key() {
         let lib = |path: &str, id: isize| ContractDef {

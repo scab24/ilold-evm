@@ -667,7 +667,6 @@ fn stmt_to_flow_node(
                 children: Vec::new(),
             })
         }
-        // shown as a call that cannot be expanded: the modifier's code is unknown
         CfgStatement::UnresolvedModifier { name, from_modifier, .. } => Some(FlowNode {
             step_id: next_id(counter),
             depth,
@@ -794,7 +793,6 @@ fn resolve_callee_cfg<'a>(
     project: &Project,
     all_cfgs: &'a HashMap<(String, String), CfgGraph>,
 ) -> Option<(String, &'a CfgGraph)> {
-    // the first contract of the linearization that defines it
     project.linearization(starting_contract).into_iter().find_map(|c| {
         let key = (c.key().to_string(), callee.to_string());
         all_cfgs.get(&key).map(|cfg| (key.0, cfg))

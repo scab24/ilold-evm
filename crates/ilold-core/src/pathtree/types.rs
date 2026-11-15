@@ -6,7 +6,6 @@ use crate::cfg::types::{BlockKind, BranchEdge, CfgGraph};
 use crate::model::expression::CallKind;
 use crate::util::{push_unique, Page};
 
-/// Paths are indices into a table of distinct nodes; annotations are stored once per block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathTree {
     pub contract: String,
@@ -23,7 +22,6 @@ pub(crate) struct StoredPath {
     pub(crate) terminal: TerminalKind,
 }
 
-/// Every path ends in exactly one category, so the four counts add up to `total_paths`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathTreeStats {
     pub total_paths: usize,
@@ -146,9 +144,7 @@ pub struct PathAnnotations {
     pub state_write_paths: Vec<String>,
     #[serde(default)]
     pub state_read_paths: Vec<String>,
-    /// Calls that leave the execution frame.
     pub external_calls: Vec<ExternalCallInfo>,
-    /// JUMPs within the hierarchy or into internal library functions.
     pub internal_calls: Vec<String>,
     #[serde(default)]
     pub internal_call_targets: Vec<InternalCallTarget>,
@@ -177,7 +173,6 @@ impl PathAnnotations {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct InternalCallTarget {
     pub call: String,
-    /// Absent without solc ids or for function pointers.
     pub declaration: Option<(String, String)>,
 }
 

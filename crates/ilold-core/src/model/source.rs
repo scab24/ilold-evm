@@ -1,4 +1,3 @@
-//! Where a value comes from: what a call targets or what a guard compares the caller with.
 use serde::{Deserialize, Serialize};
 
 use super::common::StateVar;
@@ -8,7 +7,6 @@ use super::project::Project;
 use crate::cfg::builder::expr_to_string;
 use crate::util::is_type_cast;
 
-/// `key` is the declaration's readable key, absent without solc ids.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ValueSource {
     StateVar { name: String, key: Option<String> },
@@ -21,7 +19,6 @@ pub enum ValueSource {
     Expression { text: String },
 }
 
-/// The operand of a type conversion, typed or by name.
 pub fn cast_operand(expr: &Expression) -> Option<&Expression> {
     match &expr.kind {
         ExpressionKind::TypeCast { expression, .. } => Some(expression),
@@ -47,7 +44,6 @@ pub fn uncast(mut expr: &Expression) -> &Expression {
     expr
 }
 
-/// `bound` names the parameters in scope; `vars` stands in for solc ids in hand-built models.
 pub fn value_source(
     project: Option<&Project>,
     vars: &[StateVar],

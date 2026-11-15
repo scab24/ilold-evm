@@ -1,4 +1,3 @@
-// slicer v1: DEFs come from Assignment statements
 pub mod backward;
 pub mod extract;
 pub mod flatten;

@@ -39,7 +39,6 @@ fn test_staking_call_graph() {
             edge.kind, edge.call_count);
     }
 
-    // deposit calls stakingToken.transferFrom (external)
     let has_deposit_to_transfer = cg.edge_indices().any(|e| {
         let (src, dst) = cg.edge_endpoints(e).unwrap();
         cg[src].function == "deposit"
@@ -48,7 +47,6 @@ fn test_staking_call_graph() {
     });
     assert!(has_deposit_to_transfer, "deposit should call stakingToken.transferFrom");
 
-    // claimRewards calls rewardToken.transfer (external)
     let has_claim_to_transfer = cg.edge_indices().any(|e| {
         let (src, dst) = cg.edge_endpoints(e).unwrap();
         cg[src].function == "claimRewards"
@@ -57,7 +55,6 @@ fn test_staking_call_graph() {
     });
     assert!(has_claim_to_transfer, "claimRewards should call rewardToken.transfer");
 
-    // deposit calls rewardPerToken (internal, from inlined modifier)
     let has_deposit_to_reward = cg.edge_indices().any(|e| {
         let (src, dst) = cg.edge_endpoints(e).unwrap();
         cg[src].function == "deposit"
@@ -65,7 +62,6 @@ fn test_staking_call_graph() {
     });
     assert!(has_deposit_to_reward, "deposit should call rewardPerToken (from updateReward modifier)");
 
-    // setRewardRate has NO external calls
     let set_rate_external = cg.edge_indices().any(|e| {
         let (src, _) = cg.edge_endpoints(e).unwrap();
         cg[src].function == "setRewardRate" && cg[e].kind == CallKind::External
@@ -82,7 +78,6 @@ fn test_simple_storage_no_calls() {
     let contract = &project.contracts[0];
     let cg = build_call_graph(&project, contract);
 
-    // SimpleStorage has no function calls — graph should have 0 edges
     assert_eq!(cg.edge_count(), 0, "SimpleStorage should have no call edges");
 }
 

@@ -42,7 +42,7 @@ impl SolcFrontend {
     }
 
     pub fn parse_project_keyed(&self, root: &Path) -> Result<(Project, Option<ProjectKey>), ParseError> {
-        // solc normalizes `..` in import paths; source names must already be normalized
+        // solc normalizes `..` in import paths
         let root = &root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
         let prepared = prepare(root)?;
         let store = cache::Store::from_env();
@@ -67,7 +67,7 @@ impl SolcFrontend {
         let src_dir = prepared.paths.sources.clone();
         let roots: Vec<PathBuf> = [Some(root.to_path_buf()), prepared.canonical.clone()].into_iter().flatten().collect();
         let test_dirs = [&prepared.paths.tests, &prepared.paths.scripts].map(|dir| relative_path(dir, &roots)).to_vec();
-        // nothing is written into the analysed project: no artifacts, no compiler cache
+        // keeps artifacts and the compiler cache out of the analysed project
         let project = ProjectBuilder::<SolcCompiler>::default()
             .paths(prepared.paths)
             .settings(prepared.settings)
@@ -82,7 +82,7 @@ impl SolcFrontend {
             message: format!("solc compile: {e}"),
         })?;
 
-        // broken tests or scripts must not discard the model: compile the sources alone
+        // broken tests or scripts would discard the model
         let mut warnings = Vec::new();
         let mut compile_failures = Vec::new();
         if output.has_compiler_errors() {
@@ -159,7 +159,6 @@ impl SolcFrontend {
     }
 }
 
-/// Tests and scripts no source imports stay out of the model.
 fn import_closure(units: &[(&PathBuf, &Ast, String)], src_dir: &Path) -> std::collections::HashSet<usize> {
     let by_id: std::collections::HashMap<usize, usize> =
         units.iter().enumerate().map(|(i, (_, ast, _))| (ast.id, i)).collect();
@@ -243,14 +242,12 @@ fn compile_error(root: &Path, errors: &[&SolcError], roots: &[PathBuf]) -> Parse
     ParseError::SyntaxError { path, message, span, failures: failures(errors, roots) }
 }
 
-/// Outside the sources, or vendored inside them.
 pub fn is_dependency_path(path: &Path, src_dir: &Path) -> bool {
     let text = path.to_string_lossy();
     !path.starts_with(src_dir)
         || ["/dependencies/", "/deployments/", "/config-engine/"].iter().any(|segment| text.contains(segment))
 }
 
-/// The Foundry directories and settings a parse of a root uses.
 #[derive(Debug, Clone)]
 pub struct ProjectLayout {
     pub root: PathBuf,
@@ -258,7 +255,6 @@ pub struct ProjectLayout {
     pub sources: PathBuf,
     pub tests: PathBuf,
     pub scripts: PathBuf,
-    /// `context:name=path` in the order solc receives them, paths relative to the root.
     pub remappings: Vec<String>,
 }
 
@@ -299,7 +295,6 @@ fn solidity_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Bare names stay keys while unique (project contracts first), so keys are unique and bare names prefer project contracts.
 fn assign_contract_keys(contracts: &mut [ContractDef]) {
     let mut project_names: std::collections::HashMap<String, usize> = Default::default();
     let mut all_names: std::collections::HashMap<String, usize> = Default::default();
@@ -508,7 +503,7 @@ fn project_paths(root: &Path, cfg: &FoundryConfig) -> Result<ProjectPathsConfig<
     if cfg.auto_detect_remappings() {
         let explicit = remappings.len();
         for detected in library_remappings(root, &lib_paths(root, cfg), &selected_profile()) {
-            // explicit remappings win in their context; library remappings only displace each other within one context
+            // explicit remappings win in their context
             let shadowed = remappings[..explicit].iter().any(|existing| {
                 names_conflict(&existing.name, &detected.name)
                     && existing.context.as_deref().is_none_or(|context| {
@@ -544,7 +539,6 @@ fn names_conflict(existing: &str, new: &str) -> bool {
     new.starts_with(&existing_dir) || existing.starts_with(new)
 }
 
-/// As Foundry derives them; a name resolving differently per nested project is also emitted scoped to each, contexted first.
 fn library_remappings(root: &Path, libs: &[PathBuf], profile: &str) -> Vec<Remapping> {
     let mut owned = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -597,7 +591,6 @@ fn collect_library_remappings(
             if ["lib/", "src/", "contracts/"].contains(&detected.name.as_str()) {
                 continue;
             }
-            // a detected directory is owned by `project` only when it sits directly in its libs
             let first = detected.name.split('/').next().unwrap_or_default();
             let direct = Path::new(&detected.path).strip_prefix(lib).ok()
                 .and_then(|rest| rest.components().next())
@@ -616,7 +609,7 @@ fn collect_library_remappings(
                 let path = format!("{}/", nested.join(src).to_string_lossy().trim_end_matches('/'));
                 owned.push((project.to_path_buf(), Remapping { context: None, name: format!("{name}/"), path }, false));
             }
-            // like Foundry, contexts declared inside a library are not rebased
+            // contexts declared inside a library stay as written, as in Foundry
             for remapping in explicit.into_iter().filter(|r| r.context.is_none()) {
                 owned.push((nested.clone(), remapping, true));
             }
@@ -815,7 +808,6 @@ fn map_contract(node: &Node, index: &LineIndex, path: &str, is_dependency: bool)
 
 pub use crate::model::contract::FREE_FUNCTIONS;
 
-/// File-level functions as a library, so calls to them resolve like internal library calls; file-level events and errors join them.
 fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependency: bool) -> Option<ContractDef> {
     let of = |kind: NodeType| nodes.iter().filter(move |n| n.node_type == kind);
     let first = nodes.iter().find(|n| {
@@ -845,7 +837,6 @@ fn map_free_functions(nodes: &[Node], index: &LineIndex, path: &str, is_dependen
     })
 }
 
-// Overloads are keyed by signature; a regular function named like a special one always is.
 fn assign_function_keys(functions: &mut [FunctionDef]) {
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for f in functions.iter().filter(|f| f.kind == FunctionKind::Function) {
@@ -1448,7 +1439,6 @@ fn placeholder_expr(node: &Node, index: &LineIndex) -> Expression {
 }
 
 fn type_expr_name(node: &Node) -> String {
-    // the written type, not solc's `type(address)`
     if node.node_type == NodeType::ElementaryTypeNameExpression {
         if let Some(name) = node.attribute::<Node>("typeName").and_then(|t| {
             let name = t.attribute::<String>("name")?;
@@ -1540,7 +1530,7 @@ fn literal_type(node: &Node) -> LiteralType {
     }
 }
 
-// solc leaves `value` null for literals that are not valid UTF-8 (`hex"ff"`); `hexValue` is always set.
+// solc leaves `value` null for literals that are invalid UTF-8, such as `hex"ff"`
 fn literal_value(node: &Node) -> String {
     node.attribute::<String>("value")
         .or_else(|| node.attribute::<String>("hexValue").map(|hex| format!("hex\"{hex}\"")))
@@ -2029,7 +2019,6 @@ mod tests {
         }
     }
 
-    /// Compares against `forge remappings` for each root in `ILOLD_FORGE_PARITY_ROOTS`.
     #[test]
     #[ignore = "requires forge and ILOLD_FORGE_PARITY_ROOTS"]
     fn remappings_match_forge() {

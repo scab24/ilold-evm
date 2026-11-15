@@ -11,9 +11,7 @@ use crate::util::compact;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub source_files: Vec<SourceFile>,
-    /// Project contracts and the dependency contracts they reach.
     pub contracts: Vec<ContractDef>,
-    /// By `key` and by `qualified_id`.
     #[serde(skip)]
     pub contract_index: HashMap<String, usize>,
     #[serde(skip)]
@@ -22,18 +20,14 @@ pub struct Project {
     pub decl_table: DeclTable,
     #[serde(default)]
     pub warnings: Vec<String>,
-    /// Lets the default contract skip Foundry test and script directories.
     #[serde(default)]
     pub test_dirs: Vec<String>,
-    /// Every solc version that compiled a modelled source.
     #[serde(default)]
     pub solc_versions: Vec<String>,
-    /// Errors in files outside the sources, which the model leaves out.
     #[serde(default)]
     pub compile_failures: Vec<CompileFailure>,
 }
 
-/// `path` is relative to the project root; errors without a location have none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompileFailure {
     pub path: Option<String>,
@@ -44,7 +38,6 @@ pub struct CompileFailure {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractLookupError {
     NotFound,
-    /// Carries the qualified ids.
     Ambiguous(Vec<String>),
 }
 
@@ -84,7 +77,7 @@ impl Project {
         rel.rsplit_once('/').map(|(dir, _)| dir.to_string()).unwrap_or_default()
     }
 
-    // call after deserialization; serde(skip) leaves the indexes empty
+    // serde(skip) leaves the indexes empty after deserialization
     pub fn rebuild_index(&mut self) {
         self.contract_index.clear();
         self.id_index.clear();
@@ -111,14 +104,12 @@ impl Project {
         self.contracts.len() - self.listed_contracts().count()
     }
 
-    /// The state variable a declaration id names, with its declaration entry.
     pub fn state_var_by_id(&self, id: DeclId) -> Option<(&DeclTarget, &StateVar)> {
         let target = self.decl_table.lookup(id).filter(|t| t.kind == DeclKind::StateVariable)?;
         let owner = &self.contracts[*self.contract_index.get(&target.contract)?];
         Some((target, owner.state_vars.iter().find(|v| v.name == target.name)?))
     }
 
-    /// `None` when unknown.
     pub fn is_view_declaration(&self, id: DeclId) -> Option<bool> {
         let target = self.decl_table.lookup(id)?;
         Some(match target.kind {
@@ -132,7 +123,6 @@ impl Project {
         })
     }
 
-    /// A bare name selects the one project contract with it, or else the one dependency.
     pub fn lookup_contract(&self, query: &str) -> Result<&ContractDef, ContractLookupError> {
         if let Some(&i) = self.contract_index.get(query) {
             return Ok(&self.contracts[i]);
@@ -161,7 +151,6 @@ impl Project {
         self.contracts.iter().find(|c| c.key() == key)
     }
 
-    /// Tests, scripts, mocks and harnesses, which never make a good default.
     pub fn is_auxiliary(&self, contract: &ContractDef) -> bool {
         let path = contract.qualified_id.rsplit_once(':').map_or("", |(path, _)| path);
         let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
@@ -224,7 +213,6 @@ pub struct AccessibleFunction<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionLookupError {
     NotFound,
-    /// Carries the signatures.
     Ambiguous(Vec<String>),
 }
 
@@ -237,7 +225,6 @@ impl Project {
         }
     }
 
-    /// By the declarations solc resolved, so aliased or same-named bases select the right contract; bases outside the model are omitted.
     pub fn base_keys(&self, contract: &ContractDef) -> Vec<String> {
         if contract.base_ids.is_empty() {
             contract.inherits.clone()
@@ -246,7 +233,6 @@ impl Project {
         }
     }
 
-    /// Most derived first; models without `linearizedBaseContracts` fall back to the declared bases, right to left, breadth first.
     pub fn linearization<'a>(&'a self, contract: &'a ContractDef) -> Vec<&'a ContractDef> {
         let mut out = vec![contract];
         if !contract.linearized_bases.is_empty() {
@@ -271,7 +257,6 @@ impl Project {
         out
     }
 
-    /// Starts after the contract keyed `after` (`super`); bodiless declarations only when nothing implements it.
     pub fn implementation<'a>(
         &self,
         linearization: &[&'a ContractDef],
@@ -305,7 +290,6 @@ impl Project {
             .collect()
     }
 
-    /// Own functions, then inherited non-private ones in linearization order; getter-implemented interface functions are not listed.
     pub fn accessible_functions<'a>(&'a self, contract: &'a ContractDef) -> Vec<AccessibleFunction<'a>> {
         let mut seen: HashSet<&str> = HashSet::new();
         let mut result: Vec<AccessibleFunction<'a>> = Vec::new();
@@ -348,7 +332,7 @@ impl Project {
         contract: &'a ContractDef,
         query: &str,
     ) -> Result<(&'a ContractDef, &'a FunctionDef), FunctionLookupError> {
-        // internal signatures carry spaced locations (`f(uint256[] storage)`); compare unspaced
+        // internal signatures carry spaced data locations such as `f(uint256[] storage)`
         let query = compact(query);
         let matches: Vec<AccessibleFunction<'a>> = self
             .accessible_functions(contract)
@@ -378,7 +362,6 @@ impl Project {
         }
     }
 
-    /// Like `lookup_function`, but an ambiguous bare name picks the first overload.
     pub fn resolve_function<'a>(
         &'a self,
         contract: &'a ContractDef,
@@ -395,7 +378,6 @@ impl Project {
         }
     }
 
-    /// The name when it selects `function` on `contract`, otherwise the signature.
     pub fn route_key(&self, contract: &ContractDef, function: &FunctionDef) -> String {
         match self.lookup_function(contract, &function.name) {
             Ok((_, found)) if std::ptr::eq(found, function) => function.name.clone(),
@@ -403,7 +385,6 @@ impl Project {
         }
     }
 
-    /// Storage order, most base contract first, with the declaring contract's key and whether it is inherited.
     pub fn accessible_state_vars(&self, contract: &ContractDef) -> Vec<(StateVar, String, bool)> {
         self.linearization(contract)
             .into_iter()
@@ -438,7 +419,6 @@ impl Project {
 
 const AUXILIARY_DIRS: &[&str] = &["mock", "mocks", "test", "tests", "harness", "harnesses", "script", "scripts"];
 
-/// Non-auxiliary contracts first, then deployable ones, then the most derived one (most ancestors), ties by name.
 fn pick_default_contract<'a>(
     candidates: impl IntoIterator<Item = (&'a str, ContractKind, &'a [String], bool)>,
 ) -> Option<&'a str> {

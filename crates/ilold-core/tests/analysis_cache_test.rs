@@ -1,4 +1,4 @@
-// The restart test uses a private ILOLD_PROJECT_CACHE_DIR, so it never touches the real cache.
+// The restart test uses a private ILOLD_PROJECT_CACHE_DIR to keep the real cache untouched.
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -33,7 +33,6 @@ fn sorted<K: Ord + Debug, V: Debug>(map: &HashMap<K, V>) -> String {
     format!("{entries:?}")
 }
 
-/// Graph indices, edge order and the dependency index included.
 fn canonical(analysis: &ProjectAnalysis) -> String {
     let deps = &analysis.dep_graph;
     let index: Vec<_> = deps.graph.node_indices()

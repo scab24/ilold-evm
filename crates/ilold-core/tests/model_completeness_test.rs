@@ -1,4 +1,3 @@
-//! Model completeness. Fixtures: tests/fixtures/solc/model.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -86,7 +85,6 @@ fn dependency_contracts_are_loaded_and_flagged() {
     assert!(!listed.iter().any(|k| ["Multicall", "Context", "Ownable", "Math"].contains(k)), "{listed:?}");
     assert!(p.project_contracts().all(|c| !c.is_dependency));
 
-    // `_msgSender` and `onlyOwner` resolve to the dependency declarations
     let vault = contract("Vault");
     assert_eq!(p.resolve_modifier(vault, "onlyOwner").map(|m| m.name.as_str()), Some("onlyOwner"));
     let (owner, f) = p.resolve_function(vault, "_msgSender").expect("_msgSender inherited");
@@ -114,7 +112,6 @@ fn inherited_functions_follow_visibility_and_skip_getter_implemented_declaration
     .iter()
     .map(|(c, f)| (c.to_string(), f.to_string()))
     .collect();
-    // not the getter-implemented ADDRESSES, own deposit, private _secret or the Ownable constructor
     assert_eq!(inherited, expected);
 }
 
@@ -215,7 +212,6 @@ fn analysis_builds_dependencies_only_through_derived_contracts() {
     let pt = |c: &str, f: &str| analysis.path_trees.contains_key(&(c.to_string(), f.to_string()));
     assert!(pt("Multicall", "multicall"), "inherited dependency functions are analysed");
     assert!(pt("Context", "_msgSender"));
-    // a dependency library that nothing inherits is analysed only where project code calls it
     assert!(pt("Math", "max"), "Vault.deposit calls Math.max");
     assert!(!analysis.sequence_analyses.contains_key("Math"), "no behaviors listed for dependencies");
     assert!(!analysis.call_graphs.contains_key("Multicall"), "no call graph for dependencies");
@@ -288,7 +284,7 @@ fn parsing_does_not_write_into_the_project() {
 fn broken_test_files_keep_the_source_model_with_a_warning() {
     let dir = scratch("partial");
     for attempt in 0..2 {
-        // the second parse may come from the project cache; the warning must survive it
+        // the second parse may come from the project cache
         let parsed = SolcFrontend.parse_project(&dir).expect("sources compile");
         assert!(parsed.lookup_contract("Good").is_ok(), "attempt {attempt}");
         assert!(parsed.lookup_contract("BrokenTest").is_err());
@@ -322,7 +318,7 @@ fn broken_sources_fail_with_the_message_and_a_span() {
 fn default_contract_skips_mocks_harnesses_and_test_dirs() {
     let dir = scratch("default_pick");
     for attempt in 0..2 {
-        // the second parse may come from the project cache; the test dirs must survive it
+        // the second parse may come from the project cache
         let parsed = SolcFrontend.parse_project(&dir).expect("parse default_pick");
         let picked = parsed.default_contract().map(|c| c.name.as_str());
         assert_eq!(picked, Some("Vault"), "attempt {attempt}");

@@ -10,7 +10,6 @@ pub struct Expression {
 }
 
 impl Expression {
-    /// The declaration an identifier or member access names.
     pub fn resolved(&self) -> Option<DeclId> {
         match &self.kind {
             ExpressionKind::Identifier { resolved, .. } | ExpressionKind::MemberAccess { resolved, .. } => *resolved,
@@ -18,7 +17,6 @@ impl Expression {
         }
     }
 
-    /// Itself, then every nested expression in source order.
     pub fn walk<'a>(&'a self, visit: &mut impl FnMut(&'a Expression)) {
         visit(self);
         let options = |options: &'a [CallOption]| options.iter().map(|o| &o.value);
@@ -61,7 +59,6 @@ pub enum ExpressionKind {
         member: String,
         #[serde(default)]
         resolved: Option<DeclId>,
-        // solc type string of the object
         #[serde(default)]
         object_type: Option<String>,
     },
@@ -109,7 +106,7 @@ pub enum ExpressionKind {
         arguments: Vec<Expression>,
         #[serde(default)]
         options: Vec<CallOption>,
-        // `new C(...)` deploys a contract; `new uint256[](n)` only allocates
+        // `new uint256[](n)` only allocates memory
         #[serde(default)]
         creates_contract: bool,
     },
@@ -131,10 +128,8 @@ pub struct CallOption {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallType {
-    /// No compiler type information; consumers fall back to syntax and names.
     #[default]
     Unknown,
-    /// Compiler builtin, event, error or array push/pop: no contract code runs.
     Builtin,
     Call(CallKind),
 }
@@ -175,7 +170,6 @@ impl CallKind {
         }
     }
 
-    /// `None` means a builtin that runs no contract code.
     pub fn from_solc_function_kind(kind: &str) -> Option<CallKind> {
         Some(match kind {
             "internal" => CallKind::Internal,
@@ -213,7 +207,6 @@ pub enum BinaryOperator {
     BitXor,
     Shl,
     Shr,
-    /// Never silently mapped to another operator.
     Unknown,
 }
 
@@ -318,7 +311,6 @@ impl AssignOperator {
         }
     }
 
-    /// Writes made through a call have no value expression to show.
     pub fn describe_change(self, value_expr: &str) -> String {
         if value_expr.is_empty() { "written".to_string() } else { format!("{} {}", self.as_str(), value_expr) }
     }

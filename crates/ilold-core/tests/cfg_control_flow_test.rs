@@ -152,7 +152,6 @@ fn for_break_and_continue_use_the_increment_and_exit() {
             (8, 5, "U"),
         ]
     );
-    // per iteration: exit, break, continue or fall through
     assert_eq!(counts(&tree), (14, 0, 8));
 }
 
@@ -344,7 +343,6 @@ fn blocks_and_statements_cite_their_source_lines() {
     revert_lines.sort();
     assert_eq!(revert_lines, vec![Some(117), Some(118)]);
 
-    // a block of modifier code cites the modifier; the body's own code cites the body
     let (cfg, _) = build("constructor");
     assert_eq!(block(&cfg, 0).statements[0].origin(), (block(&cfg, 0).span, Some("guarded")));
     assert_eq!(start_line(block(&cfg, 0).span), Some(30));

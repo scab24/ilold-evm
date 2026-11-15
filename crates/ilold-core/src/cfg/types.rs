@@ -16,17 +16,14 @@ pub struct BasicBlock {
     pub span: Option<SourceSpan>,
     #[serde(default)]
     pub return_value: Option<String>,
-    /// Conditions it branches on included, resolved through declaration ids and storage pointers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reads: Vec<BlockRead>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revert_reason: Option<String>,
-    /// The modifier whose code reverts here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revert_modifier: Option<String>,
 }
 
-/// A storage read and the modifier whose code makes it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlockRead {
     pub place: StorageRef,
@@ -34,7 +31,6 @@ pub struct BlockRead {
     pub from_modifier: Option<String>,
 }
 
-/// With `param`, the path is rooted at the `storage` parameter with that index.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StorageRef {
     pub path: String,
@@ -54,7 +50,6 @@ impl StorageRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageArg {
-    /// The receiver of a `using for` call is parameter 0.
     pub param: usize,
     pub place: StorageRef,
 }
@@ -82,7 +77,6 @@ pub enum BranchEdge {
 }
 
 impl BranchEdge {
-    // traversal order: lower first, then target index
     pub fn variant_order(&self) -> u8 {
         match self {
             BranchEdge::Unconditional => 0,
@@ -109,7 +103,6 @@ pub enum CfgStatement {
         span: Option<SourceSpan>,
         #[serde(default)]
         from_modifier: Option<String>,
-        /// `None` for locals and memory.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         storage: Option<StorageRef>,
     },
@@ -131,10 +124,8 @@ pub enum CfgStatement {
         options: Vec<(String, String)>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         storage_args: Vec<StorageArg>,
-        /// The receiver of a call to an address; none for library and creation calls.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target_source: Option<ValueSource>,
-        /// Low-level calls and `send` only.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         result_used: Option<bool>,
     },
@@ -163,7 +154,6 @@ pub enum CfgStatement {
         from_modifier: Option<String>,
         #[serde(default)]
         arguments: String,
-        /// The event declaration solc resolved.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         event_id: Option<DeclId>,
     },
@@ -178,7 +168,6 @@ pub enum CfgStatement {
         span: Option<SourceSpan>,
         #[serde(default)]
         from_modifier: Option<String>,
-        /// `None` for state.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         param: Option<usize>,
     },
@@ -206,7 +195,6 @@ pub enum CfgStatement {
         #[serde(default)]
         from_modifier: Option<String>,
     },
-    /// Its code is unknown.
     UnresolvedModifier {
         name: String,
         span: Option<SourceSpan>,

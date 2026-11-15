@@ -14,7 +14,6 @@ pub trait ProjectParser {
     fn parse(&self, paths: &[PathBuf]) -> Result<Project, ParseError>;
 }
 
-/// Present only when the project cache was usable; derived caches must bypass without it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectKey {
     pub root: PathBuf,

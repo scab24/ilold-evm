@@ -1,4 +1,3 @@
-//! What was analysed: the git revision and every Solidity file under the project with its status.
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -34,7 +33,6 @@ impl Repo {
     }
 }
 
-/// Analysed sources in path order: each path, then the digest of its content.
 pub(super) fn sources_sha256(project: Option<&Project>, paths: &Paths) -> String {
     let files: BTreeMap<String, String> = project
         .map(|p| p.source_files.iter().map(|f| (paths.relative(Path::new(&f.path)), digest(f.content.as_bytes()))).collect())
@@ -63,7 +61,6 @@ fn solidity_files(dir: &Path, out: &mut BTreeSet<PathBuf>) {
 const UNIMPORTED: &str = "no project source imports it";
 const SOURCES_FAILED: &str = "a compile error inside the sources left no facts";
 
-/// `project` is `None` when the sources failed to compile; `failures` then name the failing files.
 pub(super) fn files(layout: &ProjectLayout, paths: &Paths, project: Option<&Project>, failures: &[CompileFailure]) -> Vec<Value> {
     let mut files = BTreeSet::new();
     solidity_files(&layout.root, &mut files);
@@ -106,7 +103,6 @@ pub(super) fn files(layout: &ProjectLayout, paths: &Paths, project: Option<&Proj
     entries
 }
 
-/// Compile errors without a file, the note that a partial compile left files out, and empty dependency directories.
 pub(super) fn warnings(layout: &ProjectLayout, paths: &Paths, failures: &[CompileFailure], partial: bool) -> Vec<Value> {
     let partial = partial.then(|| {
         json!({"kind": "partial_compile", "message": "files outside the sources failed to compile; facts cover the sources and their imports"})
@@ -120,10 +116,8 @@ pub(super) fn warnings(layout: &ProjectLayout, paths: &Paths, failures: &[Compil
         .collect()
 }
 
-/// The first empty directory on the way to each remapping target, and declared submodules that are empty or missing.
 fn empty_dependencies(layout: &ProjectLayout, paths: &Paths) -> BTreeSet<String> {
     let is_empty = |dir: &Path| std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none());
-    // a missing directory on the way is a stale remapping, not an uninitialised submodule
     let remapped = layout.remappings.iter().filter_map(|r| r.split_once('=')).filter_map(|(_, target)| {
         let target = layout.root.join(target);
         let mut below: Vec<&Path> =

@@ -1,4 +1,3 @@
-//! Facts a code map exports: never dropped by path caps or depth caps. Fixture: tests/fixtures/solc/facts.
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -48,7 +47,6 @@ fn access(contract: &str, func: &str) -> AccessLevel {
     analysis().classifications[contract].iter().find(|(n, _)| n == func).map(|(_, a)| a.clone()).unwrap()
 }
 
-/// The 1-based line of the first fixture line containing `needle`.
 fn line_of(needle: &str) -> u32 {
     let source = std::fs::read_to_string(root().join("src/Facts.sol")).unwrap();
     source.lines().position(|l| l.contains(needle)).unwrap_or_else(|| panic!("{needle}")) as u32 + 1
@@ -58,7 +56,7 @@ fn lines(spans: &[SourceSpan]) -> Vec<u32> {
     spans.iter().map(|s| s.start_line).collect()
 }
 
-/// (function, kind, target source, result used) of every external call in reachable code.
+/// (function, kind, target source, result used)
 fn external_calls(contract: &str, key: &str) -> Vec<(String, CallKind, Option<ValueSource>, Option<bool>)> {
     let cfg = &analysis().cfgs[&(contract.to_string(), key.to_string())];
     cfg.node_weights()
@@ -206,7 +204,6 @@ fn a_disjunction_of_role_predicates_lists_every_alternative() {
     assert_no_partial_fact(&g);
 }
 
-/// A compound guard leaves who and what is checked to its parts.
 fn assert_no_partial_fact(g: &GuardFact) {
     assert_eq!((&g.checked_by, &g.role_implied_by), (&None, &None), "{g:?}");
     assert_eq!((&g.role, &g.account, &g.compared_against), (&None, &None, &None), "{g:?}");
@@ -219,7 +216,6 @@ fn the_account_is_bound_through_helper_parameters_and_msg_sender_helpers() {
     assert_admin_role(&g);
 }
 
-/// (kind, condition text, negated) of each term.
 fn terms(terms: &[GuardTerm]) -> Vec<(GuardKind, &str, bool)> {
     terms.iter().map(|t| (t.kind, t.condition.as_str(), t.negated)).collect()
 }

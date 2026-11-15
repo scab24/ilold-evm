@@ -9,10 +9,8 @@ use super::statement::{walk_all, Statement, StatementKind};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionDef {
     pub name: String,
-    /// Unique within the defining contract: the name, or the signature when overloaded.
     #[serde(default)]
     pub key: String,
-    /// Without data locations.
     #[serde(default)]
     pub signature: String,
     #[serde(default)]
@@ -23,7 +21,6 @@ pub struct FunctionDef {
     pub visibility: Visibility,
     pub mutability: Mutability,
     pub modifiers: Vec<ModifierRef>,
-    // constructor `Base(args)` specifiers; not inlined like modifiers
     #[serde(default)]
     pub base_constructor_calls: Vec<ModifierRef>,
     pub params: Vec<Param>,
@@ -35,17 +32,14 @@ pub struct FunctionDef {
 }
 
 impl FunctionDef {
-    /// Hand-built models fall back to the name.
     pub fn match_signature(&self) -> &str {
         if self.signature.is_empty() { &self.name } else { &self.signature }
     }
 
-    /// A transaction can call it from outside.
     pub fn is_entry_point(&self) -> bool {
         self.kind != FunctionKind::Constructor && matches!(self.visibility, Visibility::Public | Visibility::External)
     }
 
-    /// Every `return e` and every assignment to a named return variable, anywhere in the body.
     pub fn returned_values<'a>(&'a self) -> Vec<&'a Expression> {
         let names_return = |name: &str, resolved: Option<DeclId>| {
             self.returns.iter().any(|r| match (resolved, r.id) {

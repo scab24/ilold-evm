@@ -35,7 +35,6 @@ fn build_staking_path_trees() -> (ilold_core::model::project::Project, Vec<ilold
     (project, path_trees)
 }
 
-// REQ-SEQ-4: 8 functions, depth 2 → 72 sequences (8 + 64)
 #[test]
 fn test_staking_sequence_count_depth_2() {
     let (project, path_trees) = build_staking_path_trees();
@@ -60,7 +59,6 @@ fn test_staking_sequence_count_depth_2() {
     assert_eq!(st.sequence_count(2), 72);
 }
 
-// REQ-SEQ-1: read_only flag correct
 #[test]
 fn test_read_only_flags() {
     let (project, path_trees) = build_staking_path_trees();
@@ -74,12 +72,10 @@ fn test_read_only_flags() {
     println!("Read-only: {:?}", read_only.iter().map(|f| &f.name).collect::<Vec<_>>());
     println!("State-changing: {:?}", state_changing.iter().map(|f| &f.name).collect::<Vec<_>>());
 
-    // rewardPerToken (view) and earned (view) should be read_only
     assert_eq!(read_only.len(), 2, "Should have 2 read-only functions");
     assert_eq!(state_changing.len(), 6, "Should have 6 state-changing functions");
 }
 
-// REQ-SEQ-6: constructors excluded
 #[test]
 fn test_constructor_excluded() {
     let (project, path_trees) = build_staking_path_trees();
@@ -91,7 +87,6 @@ fn test_constructor_excluded() {
     assert!(!has_constructor, "Constructor should not appear in sequences");
 }
 
-// REQ-SEQ-3: has_state_change correct
 #[test]
 fn test_has_state_change_flag() {
     let (project, path_trees) = build_staking_path_trees();
@@ -99,7 +94,6 @@ fn test_has_state_change_flag() {
 
     let st = build_sequence_tree(staking, &path_trees, 2);
 
-    // A sequence of only read-only functions should have has_state_change = false
     let earned_idx = st.functions.iter().position(|f| f.name == "earned").unwrap();
     let reward_idx = st.functions.iter().position(|f| f.name == "rewardPerToken").unwrap();
 
@@ -112,7 +106,6 @@ fn test_has_state_change_flag() {
         assert!(!seq.has_state_change, "earned → rewardPerToken should have no state change");
     }
 
-    // A sequence with deposit should have has_state_change = true
     let deposit_idx = st.functions.iter().position(|f| f.name == "deposit").unwrap();
     let deposit_seq = sequences.iter().find(|s| {
         s.depth == 1 && s.steps == vec![deposit_idx]

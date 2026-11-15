@@ -1,4 +1,3 @@
-//! Value transfers and balance reads from the recognizer table. Fixtures: tests/fixtures/solc/value, tests/fixtures/solc/call_resolution.
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;

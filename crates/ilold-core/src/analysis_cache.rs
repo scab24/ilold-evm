@@ -1,4 +1,3 @@
-//! Persisted derived analysis, valid only for its exact project key, parameters and format version.
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
@@ -20,10 +19,9 @@ use crate::relations::Relations;
 use crate::sequence::analysis::SequenceAnalysis;
 use crate::sequence::types::SequenceTree;
 
-/// Bump whenever an analysis algorithm or any persisted type changes shape or meaning.
+/// Bump when an analysis algorithm or a persisted type changes shape or meaning.
 const VERSION: &str = concat!("ilold-analysis-v24-", env!("CARGO_PKG_VERSION"));
 const MAX_SNAPSHOT: u64 = 256 * 1024 * 1024;
-/// Parameter sets map to a slot and keep only their latest result.
 const SLOTS: u8 = 4;
 
 fn parameters(params: &AnalysisParams) -> [usize; 4] {
@@ -41,7 +39,7 @@ fn snapshot_path(dir: &Path, params: &AnalysisParams) -> PathBuf {
     dir.join(format!("analysis-{slot}.json"))
 }
 
-/// Builders never remove nodes or edges, so re-adding them in order restores identical indices.
+/// Builders only add nodes and edges, so re-adding them in order restores the same indices.
 #[derive(Serialize, Deserialize)]
 struct Graph<N, E> {
     nodes: Vec<N>,
@@ -132,7 +130,6 @@ fn snapshot_ref(analysis: &ProjectAnalysis) -> Result<SnapshotRef<'_>, String> {
     })
 }
 
-/// A snapshot written from a map can never contain duplicate keys.
 fn unique<K: Eq + Hash, V>(entries: Vec<(K, V)>) -> Option<HashMap<K, V>> {
     let len = entries.len();
     let map: HashMap<K, V> = entries.into_iter().collect();
@@ -175,7 +172,6 @@ pub(crate) fn load_or_build_from_env(
     load_or_build_in(store.as_ref(), key, params, build)
 }
 
-/// `store_base` replaces the environment-selected store (`None` bypasses it).
 pub fn load_or_build_with(
     store_base: Option<&Path>, key: Option<&ProjectKey>, params: &AnalysisParams,
     build: impl FnOnce() -> ProjectAnalysis,

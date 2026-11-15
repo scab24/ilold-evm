@@ -1,4 +1,3 @@
-//! Phase candidates: state variables tested in the conditions of several entry points and written by one. Fixture: tests/fixtures/solc/phases.
 use std::path::PathBuf;
 use std::sync::OnceLock;
 

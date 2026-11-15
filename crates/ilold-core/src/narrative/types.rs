@@ -34,27 +34,20 @@ pub struct FunctionNarrative {
     pub transitive_external_calls: Vec<TransitiveEffect>,
     #[serde(default)]
     pub transitive_events: Vec<TransitiveEffect>,
-    /// Path counts only cover this function's own code.
     #[serde(default)]
     pub can_revert: bool,
-    /// Own checks with an empty `via` first.
     #[serde(default)]
     pub revert_sources: Vec<TransitiveEffect>,
     #[serde(default)]
     pub guards: Vec<crate::classify::guards::GuardFact>,
-    /// Reads and writes of its own code and modifiers, with their keys; filled where the project is at hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accesses: Vec<crate::relations::StorageAccess>,
-    /// Its try statements; filled where the project is at hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub try_catches: Vec<crate::relations::TryCatchFact>,
-    /// The value its code moves; filled where the project is at hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub value_transfers: Vec<crate::relations::ValueTransfer>,
-    /// The balances its code reads; filled where the project is at hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub balance_reads: Vec<crate::relations::BalanceRead>,
-    /// The phases of the contract that runs it which it tests or writes; filled where the project is at hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub phase_candidates: Vec<crate::relations::PhaseCandidate>,
 }
@@ -183,7 +176,6 @@ pub struct FlowSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutationRef {
     pub variable: String,
-    /// `None` for writes made through calls the flow tree does not show.
     pub flow_step_id: Option<usize>,
     pub session_step_index: usize,
 }

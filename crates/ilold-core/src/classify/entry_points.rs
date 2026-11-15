@@ -41,7 +41,6 @@ impl AccessLevel {
     }
 }
 
-/// From its own contract only; use [`classify_in`] when the project is at hand.
 pub fn classify_function(func: &FunctionDef, contract: &ContractDef) -> AccessLevel {
     access_level(func, &function_guards(None, contract, contract, func))
 }
@@ -56,13 +55,11 @@ pub fn classify_in(
     (access_level(func, &guards), guards)
 }
 
-/// `name` is a bare name, key or signature.
 pub fn classify_named(project: &Project, context: &ContractDef, name: &str) -> Option<AccessLevel> {
     let (owner, func) = project.resolve_function(context, name)?;
     Some(classify_in(project, context, owner, func).0)
 }
 
-/// The role names the modifiers carrying the guards, or the checks when no modifier is on the chain; conditional guards never restrict.
 pub fn access_level(func: &FunctionDef, guards: &[GuardFact]) -> AccessLevel {
     match func.kind {
         FunctionKind::Constructor => return AccessLevel::Special { kind: "constructor".into() },

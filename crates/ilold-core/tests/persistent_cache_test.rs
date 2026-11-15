@@ -1,4 +1,4 @@
-// Requires ILOLD_CACHE_TEST_SOLC_VERSION set to an installed SVM compiler; each parse runs in its own process.
+// Requires ILOLD_CACHE_TEST_SOLC_VERSION set to an installed SVM compiler.
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -76,7 +76,6 @@ fn separate_process_hit_and_input_invalidation() {
     let (ok, config) = child(&root, &cache, "default");
     assert!(ok && config.contains("ilold project cache miss"), "{config}");
 
-    // Imports resolved through a nested library's own remappings.txt stay cacheable.
     let outer = root.join("lib/outer");
     for inner in ["inner", "inner2"] {
         fs::create_dir_all(outer.join("lib").join(inner).join("src")).unwrap();

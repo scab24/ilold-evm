@@ -1,4 +1,3 @@
-//! External calls resolved to the in-scope contracts that may answer them. Fixture: tests/fixtures/solc/dispatch.
 use std::path::PathBuf;
 use std::sync::OnceLock;
 

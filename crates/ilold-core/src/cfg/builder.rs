@@ -21,29 +21,21 @@ use super::types::*;
 pub struct CfgBuilder<'p> {
     graph: CfgGraph,
     project: Option<&'p Project>,
-    // names the library behind `using for` calls
     decls: Option<&'p DeclTable>,
     next_block_id: usize,
     current_block: NodeIndex,
-    // provenance is tagged on top-level statements
     current_modifier: Option<String>,
-    // the statement being processed; what it adds without a narrower span cites it
     current_span: Option<SourceSpan>,
     scope: Scope,
-    // `return` of a function returning a storage pointer does not read the storage
     returns_storage: bool,
-    // blocks left through break/continue; control never falls out of them
     closed: HashSet<NodeIndex>,
     loops: Vec<LoopFrame>,
-    // modifiers in application order, then the function body
     levels: Vec<Level>,
     body: Rc<Vec<Statement>>,
     level: usize,
-    // where a `return` of each inlined body continues: after its placeholder, innermost last
     exits: Vec<Option<NodeIndex>>,
-    // constants and immutables included: they name call targets
+    // constants and immutables are included because they name call targets
     state_vars: Vec<StateVar>,
-    // low-level calls whose result nothing reads
     discarded: Vec<SourceSpan>,
 }
 
@@ -53,7 +45,6 @@ enum Level {
     Unresolved(String),
 }
 
-// Blocks that may stay unused (increment, do-while condition, exit) are created on first use.
 struct LoopFrame {
     continue_block: Option<NodeIndex>,
     continue_kind: BlockKind,
@@ -154,7 +145,6 @@ impl<'p> CfgBuilder<'p> {
         Self::build_with_project(function, contract, None)
     }
 
-    /// `contract` is the most derived contract: modifiers resolve to the overrides it sees.
     pub fn build_with_project(
         function: &FunctionDef,
         contract: &ContractDef,
@@ -256,14 +246,13 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // A `return` in the inner levels continues after the placeholder, so the code after `_` runs on every exit.
+    // A `return` in the inner levels continues after the placeholder, so the code after `_` runs on return.
     fn process_placeholder(&mut self) {
         let level = self.level;
         if level >= self.levels.len() {
             return;
         }
         let modifier = self.current_modifier.clone();
-        // inner levels must not cite the `_` statement
         let placeholder = self.current_span.take();
         self.exits.push(None);
         self.run_level(level + 1);
@@ -308,7 +297,6 @@ impl<'p> CfgBuilder<'p> {
     }
 
     fn process_statement(&mut self, stmt: &Statement) {
-        // code after revert/break/continue never runs
         if self.closed.contains(&self.current_block)
             || self.graph[self.current_block].kind == BlockKind::Revert
         {
@@ -373,12 +361,10 @@ impl<'p> CfgBuilder<'p> {
                 }
                 if let Some(val) = initial_value {
                     if *is_storage_ref {
-                        // a pointer: binds a location without reading it
                         let places = self.place(val);
                         self.pointer_effects(val);
                         self.scope.point(key, places);
                     } else {
-                        // a tuple declaration is named `(first, ...)`, `_` for a skipped slot
                         let first = name.strip_prefix('(').map(|n| n.split(',').next().unwrap_or_default().trim());
                         let unread = || match first {
                             Some(first) => first == "_" || !self.read_later(first, None, 0),
@@ -454,7 +440,6 @@ impl<'p> CfgBuilder<'p> {
         })
     }
 
-    // falls through to the continue target unless the body already left the block
     fn close_loop_body(&mut self) -> LoopFrame {
         if !self.block_is_terminal(self.current_block) {
             if let Some((target, edge)) = self.loop_continue() {
@@ -465,7 +450,6 @@ impl<'p> CfgBuilder<'p> {
     }
 
 
-    // calls, nested writes and reads of an expression whose value is consumed elsewhere
     fn add_effects(&mut self, expr: &Expression) {
         let mut reads = Vec::new();
         self.reads(expr, &mut reads);
@@ -473,7 +457,6 @@ impl<'p> CfgBuilder<'p> {
         self.push_calls(expr);
     }
 
-    // a storage pointer expression: only its index expressions and calls are evaluated
     fn pointer_effects(&mut self, expr: &Expression) {
         let mut reads = Vec::new();
         self.index_reads(expr, &mut reads);
@@ -496,7 +479,6 @@ impl<'p> CfgBuilder<'p> {
         };
         if *operator == AssignOperator::Assign {
             if let Some(key) = self.scope.is_pointer(target) {
-                // re-pointing a storage pointer
                 let places = self.place(value);
                 self.pointer_effects(value);
                 self.scope.point(key, places);
@@ -507,7 +489,6 @@ impl<'p> CfgBuilder<'p> {
         let mut reads = Vec::new();
         self.reads(expr, &mut reads);
         self.push_reads(reads);
-        // what the value and the target's indexes do comes before the write
         self.push_calls(target);
         self.push_calls(value);
         if let ExpressionKind::Tuple { elements } = &target.kind {
@@ -555,7 +536,6 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // calls returning a storage pointer are followed once
     fn place(&self, expr: &Expression) -> Vec<StorageRef> {
         self.place_in(&self.scope, expr, true)
     }
@@ -589,7 +569,6 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // The known places the `return`s of a callee returning one storage pointer may yield.
     fn returned_place(&self, callee: &Expression, arguments: &[Expression], kind: CallKind) -> Vec<StorageRef> {
         let Some(def) = self.callee_def(callee) else { return Vec::new() };
         let [ret] = def.returns.as_slice() else { return Vec::new() };
@@ -597,7 +576,7 @@ impl<'p> CfgBuilder<'p> {
             return Vec::new();
         }
         let callee_scope = Scope {
-            // libraries have no storage of their own; contract functions share ours
+            // libraries have no storage of their own
             state_ids: if kind == CallKind::Internal { self.scope.state_ids.clone() } else { HashMap::new() },
             params: def.params.clone(),
             by_name: self.scope.by_name,
@@ -632,7 +611,6 @@ impl<'p> CfgBuilder<'p> {
         owner.functions.iter().find(|f| f.key == target.function)
     }
 
-    // For each argument of a call (the `using for` receiver first): bound to a `storage` parameter.
     fn storage_bindings(&self, callee: &Expression, arguments: &[Expression], call: CallType) -> Vec<bool> {
         let CallType::Call(kind) = call else { return Vec::new() };
         let Some(def) = self.callee_def(callee) else { return Vec::new() };
@@ -651,7 +629,6 @@ impl<'p> CfgBuilder<'p> {
             .collect()
     }
 
-    // A storage path counts once; the storage a pointer binding or assignment target names is not read.
     fn reads(&self, expr: &Expression, out: &mut Vec<StorageRef>) {
         match &expr.kind {
             ExpressionKind::Identifier { .. } | ExpressionKind::MemberAccess { .. } | ExpressionKind::IndexAccess { .. } => {
@@ -740,7 +717,6 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // reads made while locating storage: index expressions and the arguments of a call
     fn index_reads(&self, expr: &Expression, out: &mut Vec<StorageRef>) {
         match &expr.kind {
             ExpressionKind::MemberAccess { object, .. } => self.index_reads(object, out),
@@ -760,7 +736,6 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // an assignment target: only what locates it is read
     fn target_reads(&self, target: &Expression, out: &mut Vec<StorageRef>) {
         match &target.kind {
             ExpressionKind::Tuple { elements } => {
@@ -984,7 +959,7 @@ impl<'p> CfgBuilder<'p> {
         let end = self.current_block;
         let frame = self.close_loop_body();
 
-        // the condition is unreachable when the body never falls through or continues
+        // the condition is reachable only when the body falls through or continues
         let Some(cond_block) = frame.continue_block else {
             self.current_block = frame.exit_block.unwrap_or(end);
             self.join_loop_aliases(entry_aliases);
@@ -1139,7 +1114,6 @@ impl<'p> CfgBuilder<'p> {
                 };
                 let unread = match slot.map(|e| &e.kind) {
                     None => true,
-                    // the assignment itself names it once
                     Some(ExpressionKind::Identifier { name, resolved }) => !self.read_later(name, *resolved, 1),
                     Some(_) => false,
                 };
@@ -1153,7 +1127,7 @@ impl<'p> CfgBuilder<'p> {
         self.evaluate(expr);
     }
 
-    // with assembly in the code a Yul read cannot be ruled out
+    // assembly in the code may read state through Yul
     fn read_later(&self, name: &str, id: Option<DeclId>, written: usize) -> bool {
         let code: &[Statement] = match self.levels.get(self.level) {
             Some(Level::Modifier(def)) => &def.body,
@@ -1189,7 +1163,6 @@ impl<'p> CfgBuilder<'p> {
             self.add_effects(cond);
         }
         match arguments.get(1).map(|e| &e.kind) {
-            // custom error constructor: only its arguments are evaluated calls
             Some(ExpressionKind::FunctionCall { arguments: error_args, .. }) => {
                 for arg in error_args {
                     self.add_effects(arg);
@@ -1228,7 +1201,6 @@ impl<'p> CfgBuilder<'p> {
         self.branch_or_revert(cond_str, "assert");
     }
 
-    // continues on the true edge; the false edge reverts
     fn branch_or_revert(&mut self, condition: String, check: &str) {
         let before = self.current_block;
 
@@ -1276,7 +1248,6 @@ impl<'p> CfgBuilder<'p> {
         });
     }
 
-    // statement-level assignments go through `evaluate`; a nested re-pointing is not followed
     fn push_nested_assignment(&self, target: &Expression, operator: AssignOperator, value: &Expression, stmts: &mut Vec<CfgStatement>) {
         if operator == AssignOperator::Assign && self.scope.is_pointer(target).is_some() {
             return;
@@ -1303,11 +1274,9 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // calls and nested writes, in evaluation order
     fn collect_calls(&self, expr: &Expression, stmts: &mut Vec<CfgStatement>) {
         let start = stmts.len();
         self.collect_calls_of(expr, stmts);
-        // nested expressions already cited themselves; the rest is this expression's own
         for stmt in &mut stmts[start..] {
             stmt.span_mut().get_or_insert(expr.span);
         }
@@ -1316,7 +1285,6 @@ impl<'p> CfgBuilder<'p> {
     fn collect_calls_of(&self, expr: &Expression, stmts: &mut Vec<CfgStatement>) {
         match &expr.kind {
             ExpressionKind::FunctionCall { callee, arguments, options, call } => {
-                // evaluation order: callee object, options, arguments, then the call itself
                 match &callee.kind {
                     ExpressionKind::Identifier { .. } | ExpressionKind::TypeMeta { .. } => {}
                     ExpressionKind::MemberAccess { object, .. } => self.collect_calls(object, stmts),
@@ -1439,7 +1407,6 @@ impl<'p> CfgBuilder<'p> {
                 }
                 let target = match &object.kind {
                     ExpressionKind::Identifier { name, .. } if name == "super" || name == "this" => name.clone(),
-                    // a library function, named or bound through `using for`
                     _ if matches!(kind, CallKind::InternalLibrary | CallKind::LibraryDelegatecall) => {
                         object_type
                             .as_deref()
@@ -1538,7 +1505,6 @@ impl<'p> CfgBuilder<'p> {
                     _ => stmts.push(external(object, member.clone(), *resolved, CallKind::External)),
                 }
             }
-            // `push`/`pop` without types
             ExpressionKind::MemberAccess { object, .. } => {
                 for place in self.place(object) {
                     stmts.push(storage_write(place, from_modifier.clone()));
@@ -1549,7 +1515,6 @@ impl<'p> CfgBuilder<'p> {
     }
 }
 
-/// A modifier declared without a body (`virtual;`) has no code to inline.
 pub(crate) fn modifier_code<'a>(project: Option<&'a Project>, contract: &'a ContractDef, name: &str) -> Option<&'a ModifierDef> {
     let def = match project {
         Some(project) => project.resolve_modifier(contract, name),
@@ -1558,7 +1523,6 @@ pub(crate) fn modifier_code<'a>(project: Option<&'a Project>, contract: &'a Cont
     def.filter(|d| !d.body.is_empty())
 }
 
-// Lines a block covers: its own code, or the modifier code when it has no other.
 fn block_span(statements: &[CfgStatement]) -> Option<SourceSpan> {
     let origins: Vec<(SourceSpan, bool)> = statements
         .iter()

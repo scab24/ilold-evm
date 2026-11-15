@@ -8,7 +8,6 @@ pub struct CatchClause {
     pub name: Option<String>,
     pub params: Vec<Param>,
     pub body: Vec<Statement>,
-    /// From `catch` or `returns` through the closing brace; the block alone for a success clause without returns.
     pub span: SourceSpan,
 }
 
@@ -19,7 +18,6 @@ pub struct Statement {
 }
 
 impl Statement {
-    /// Itself, then its expressions and nested statements in source order.
     pub fn walk<'a>(&'a self, on_stmt: &mut impl FnMut(&'a Statement), on_expr: &mut impl FnMut(&'a Expression)) {
         on_stmt(self);
         match &self.kind {
@@ -120,7 +118,6 @@ pub enum StatementKind {
         initial_value: Option<Expression>,
         #[serde(default)]
         is_storage_ref: bool,
-        /// Identifiers referring to the variable carry the same id.
         #[serde(default)]
         id: Option<super::decl_id::DeclId>,
     },

@@ -93,7 +93,6 @@ fn function_label(f: &Finding) -> &str {
     if f.affected_function.is_empty() { SESSION_LEVEL } else { &f.affected_function }
 }
 
-/// The first recorded entry for journals saved without a start.
 fn started_at(journal: &AuditJournal) -> &str {
     if !journal.started_at.is_empty() {
         return &journal.started_at;
@@ -112,7 +111,7 @@ fn entry_timestamp(entry: &JournalEntry) -> &str {
     }
 }
 
-/// Other strings keep their first 16 characters (ISO minutes).
+/// The first 16 characters of an ISO timestamp end at the minutes.
 pub fn format_timestamp(ts: &str) -> String {
     if ts.is_empty() {
         return "unknown".into();
@@ -127,7 +126,6 @@ pub fn format_timestamp(ts: &str) -> String {
     }
 }
 
-/// Proleptic Gregorian date (Howard Hinnant's algorithm).
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);

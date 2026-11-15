@@ -23,17 +23,13 @@ fn cross_contract_calls_become_dep_edges() {
     let vault = deps.dependencies("Vault");
     let edge_to = |name: &str| vault.iter().find(|d| d.node.name == name);
 
-    // pool.supply() and IPool(addr).supply() resolve to IPool — a real
-    // calls edge, not a placeholder. The IPool state var also gives `holds`.
     let ipool = edge_to("IPool").expect("Vault must depend on IPool");
     assert!(ipool.edge.calls, "pool.supply() must produce a calls edge");
     assert!(ipool.edge.holds, "the `IPool pool` state var must produce a holds edge");
 
-    // amount.safeAdd(...) via using-for resolves to the SafeMath library.
     let safe = edge_to("SafeMath").expect("Vault must depend on SafeMath");
     assert!(safe.edge.calls, "safeAdd must produce a calls edge to SafeMath");
 
-    // Inheritance is captured structurally.
     let lp = deps.dependencies("LendingPool");
     assert!(
         lp.iter().any(|d| d.node.name == "BasePool" && d.edge.inherits),
@@ -60,7 +56,6 @@ fn bases_are_ordered_before_dependents() {
         panic!("{name} not found in any layer");
     };
 
-    // IPool depends on nobody → read first; Vault depends on it → later.
     assert!(
         layer_of("IPool") < layer_of("Vault"),
         "IPool must come before Vault in reading order"

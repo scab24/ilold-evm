@@ -4,7 +4,6 @@ use crate::pathtree::types::PathTree;
 
 use super::types::*;
 
-/// Interfaces and unimplemented functions run nothing.
 pub fn build_sequence_tree(
     contract: &ContractDef,
     path_trees: &[PathTree],
@@ -16,7 +15,6 @@ pub fn build_sequence_tree(
         .filter(|f| f.kind != FunctionKind::Constructor && f.body.is_some())
         .filter(|f| matches!(f.visibility, Visibility::Public | Visibility::External))
         .map(|f| {
-            // path trees are keyed like the analysis maps; overloads by signature
             let key = if f.key.is_empty() { &f.name } else { &f.key };
             let path_count = path_trees
                 .iter()
