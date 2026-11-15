@@ -191,7 +191,8 @@ others on their own: an abstract contract or a library is never listed under
   reads to and from them, a call with several candidates counted once.
 - **calls** — the calls it makes, grouped by the contract that may answer. A
   call through an interface several contracts implement is one row, listed under
-  each of them, with `N possible` and `AMBIGUOUS`. Library calls are listed
+  each of them, with `N possible` and `AMBIGUOUS`. A candidate running a
+  function it inherits shows as `Receiver (Base::f)`. Library calls are listed
   under the library and `this.f()` calls under the contract itself. Rows other
   than plain calls say `read` (a view or pure function or a getter), `library`
   or `self`, `via` names the state variable holding the called address,
