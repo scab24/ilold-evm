@@ -82,12 +82,13 @@ any group opened in the URL; drag the canvas to reach the rest:
   function (the [`links --all`](../commands/contract.md#links) pairs); the chip
   counts them, `4 down · 1 up` or `3 → · 1 ←` when they go both ways.
 - the **Lines** legend at the bottom is the only filter: Calls, Reads, Value,
-  Library, Inherits, Holds, Via interface and Unresolved each cycle between
-  shown, dimmed and hidden (Unresolved is never hidden). A line's colour names
-  the relation (calls light grey, reads cyan, library grey, value green,
-  inherits purple, holds orange, unresolved amber) and its dash how the target
-  was found ("Found by": through the interface solid, selector match dashed,
-  `this` call dotted); AMBIGUOUS calls are amber. The workbench link rows and
+  Library, Inherits, Holds, Via interface, Ambiguous and Unresolved each cycle
+  between shown, dimmed and hidden (Unresolved is never hidden). A line's
+  colour names the relation (calls light grey, reads cyan, library grey, value
+  green, inherits purple, holds orange, ambiguous pink, unresolved amber) and
+  its dash how the target was found ("Found by": through the interface solid,
+  selector match dashed, `this` call dotted). An AMBIGUOUS call, one more than
+  one project contract may answer, is pink. The workbench link rows and
   legend use the same colours and dashes. An abstract contract has a dashed
   border.
 - **hover** a contract to fade every box it has no drawn line with and animate

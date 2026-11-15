@@ -1,7 +1,7 @@
 <script lang="ts" module>
   import type { IconName } from '$lib/components/chrome/Icon.svelte';
 
-  export type Tone = '' | 'val' | 'amb' | 'mono' | 'dim';
+  export type Tone = '' | 'val' | 'amb' | 'ambig' | 'mono' | 'dim';
   export interface BoxLine { text: string; tone?: Tone; icon?: IconName }
   export interface BoxPort { id: string; side: 'l' | 'r' | 't' | 'b'; type: 'source' | 'target' }
   export interface BoxRow { id: string; text: string; icon?: IconName; tone?: Tone; title?: string; marks?: IconName[]; count?: string; on?: boolean; label?: string }
@@ -97,11 +97,13 @@
   .meta :global(.pj-icon) { margin-top: 2px; }
   .val { color: var(--color-success-light); }
   .amb { color: var(--amber); }
+  .ambig { color: var(--ambiguous); }
   .mono { font-family: var(--font-mono); }
   .rows { list-style: none; margin: 6px 0 0; padding: 0; }
   .row { position: relative; display: flex; align-items: center; gap: 6px; height: 26px; font: 13px var(--font-mono); color: var(--color-text); white-space: nowrap; }
   .row span { overflow: hidden; text-overflow: ellipsis; }
   .row.amb { font: 12px var(--font-sans); color: var(--amber); }
+  .row.ambig { color: var(--ambiguous); }
   .row.dim { color: var(--root); }
   .row.on { background: var(--color-tint-accent); border-radius: 4px; padding-left: 6px; box-shadow: inset 3px 0 0 var(--color-accent); color: var(--color-text-light); }
   .row:has(.hit):hover { background: var(--color-hover); }

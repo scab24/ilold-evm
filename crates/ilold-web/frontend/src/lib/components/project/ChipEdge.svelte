@@ -5,7 +5,7 @@
     [key: string]: unknown;
     chip?: string;
     icon?: IconName;
-    tone?: '' | 'val' | 'amb';
+    tone?: '' | 'val' | 'amb' | 'ambig';
     on?: boolean;
     faded?: boolean;
     labelAt?: number | null;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { TryCatchFact } from '$lib/api/rest';
-  import { AMBIGUOUS_COLOR } from '$lib/utils/links';
+  import { RELATION_STYLE } from '$lib/utils/links';
   import CatchClauseView from './CatchClauseView.svelte';
 
   let { facts }: { facts: TryCatchFact[] } = $props();
@@ -12,7 +12,7 @@
       <span class="try-call">try {fact.guarded_call?.text ?? '?'}</span>
       <span class="try-lines">line {fact.span.start_line}</span>
       {#if fact.modifier}<span class="try-lines">in {fact.modifier}</span>{/if}
-      {#if fact.tag === 'AMBIGUOUS'}<span class="try-ambiguous" style="color:{AMBIGUOUS_COLOR}" title={fact.reason ?? ''}>ambiguous</span>{/if}
+      {#if fact.tag === 'AMBIGUOUS'}<span class="try-ambiguous" style="color:{RELATION_STYLE.ambiguous.color}" title={fact.reason ?? ''}>ambiguous</span>{/if}
     </div>
     {#each fact.catch_clauses as clause}
       <CatchClauseView {clause} />

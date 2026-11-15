@@ -4,7 +4,7 @@
 
   interface Props {
     icon: IconName;
-    tone?: '' | 'val' | 'amb';
+    tone?: '' | 'val' | 'amb' | 'ambig';
     title: string;
     meta?: Snippet;
     line: number;

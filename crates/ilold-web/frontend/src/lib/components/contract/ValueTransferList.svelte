@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { BalanceRead, ValueTransfer } from '$lib/api/rest';
-  import { AMBIGUOUS_COLOR } from '$lib/utils/links';
+  import { RELATION_STYLE } from '$lib/utils/links';
   import { assetLabel, describeRead, SELF } from '$lib/utils/value';
 
   let { transfers = [], reads = [] }: { transfers?: ValueTransfer[]; reads?: BalanceRead[] } = $props();
@@ -13,7 +13,7 @@
       <span class="value-asset">{assetLabel(t)}</span>
       <span class="value-line">line {t.span.start_line}</span>
       {#if t.modifier}<span class="value-line">in {t.modifier}</span>{/if}
-      {#if t.tag === 'AMBIGUOUS'}<span class="value-ambiguous" style="color:{AMBIGUOUS_COLOR}" title={t.reason ?? ''}>ambiguous</span>{/if}
+      {#if t.tag === 'AMBIGUOUS'}<span class="value-ambiguous" style="color:{RELATION_STYLE.ambiguous.color}" title={t.reason ?? ''}>ambiguous</span>{/if}
     </div>
     <div class="value-row"><span class="value-label">from</span>{t.from_expr ?? SELF}</div>
     <div class="value-row"><span class="value-label">to</span>{t.to_expr ?? '∅'}</div>
@@ -24,7 +24,7 @@
 {#each reads as r}
   <div class="value read" data-testid="balance-read" title={r.reason ?? ''}>
     <span class="value-line">line {r.span.start_line}</span> {describeRead(r)}
-    {#if r.tag === 'AMBIGUOUS'}<span class="value-ambiguous" style="color:{AMBIGUOUS_COLOR}">ambiguous</span>{/if}
+    {#if r.tag === 'AMBIGUOUS'}<span class="value-ambiguous" style="color:{RELATION_STYLE.ambiguous.color}">ambiguous</span>{/if}
   </div>
 {/each}
 

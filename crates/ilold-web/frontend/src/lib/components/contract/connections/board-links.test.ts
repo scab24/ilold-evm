@@ -81,7 +81,7 @@ test('the board graph draws cards with their rows and lines from caller to calle
   });
   assert.deepEqual(data.get('C:DenA@1'), {
     _type: 'box', ports: PORTS, rowPorts: true, label: 'DenA', icon: undefined, variant: '', lines: [{ text: 'called by Curve · 1', icon: 'entry', tone: undefined }],
-    rows: [{ id: 'DenA|deliver', text: 'deliver', title: 'deliver', tone: 'amb', label: 'DenA deliver. Opens DenA here' }],
+    rows: [{ id: 'DenA|deliver', text: 'deliver', title: 'deliver', tone: 'ambig', label: 'DenA deliver. Opens DenA here' }],
     rowAction: true, headAction: 'DenA, 1 link. Opens it here', width: 220,
   });
   assert.deepEqual(data.get('C:#libraries@1'), {
@@ -105,6 +105,9 @@ test('the board graph draws cards with their rows and lines from caller to calle
     ],
   );
   const style = new Map(g.edges.map((e) => [e.id, e.style]));
+  const tone = new Map(g.edges.map((e) => [e.id, (e.data as { tone?: string }).tone]));
+  assert.equal(style.get('cb:O:Curve|Curve|buy>C:DenA@1|DenA|deliver'), 'stroke: #f778ba; stroke-width: 2.4; opacity: 1');
+  assert.equal(tone.get('cb:O:Curve|Curve|buy>C:DenA@1|DenA|deliver'), 'ambig');
   assert.equal(style.get('cb:O:Curve|Curve|buy>O:Token|Token|mint'), 'stroke: #7aba8a; stroke-width: 2.8; opacity: 1');
   assert.equal(style.get('cb:O:Curve|Curve|Payout::pay>O:Token|Token|transfer'), 'stroke: #7aba8a; stroke-width: 2.2; opacity: 0.4');
   assert.equal(style.get('cd:O:Curve>O:Hook'), 'stroke: var(--color-text-dim); stroke-width: 1.3; opacity: 0.25');

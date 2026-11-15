@@ -88,6 +88,7 @@
 .pj :is(.rb, .rw) > .pj-icon { margin-top: 2px; color: var(--root); }
 .pj :is(.rb, .rw) > .pj-icon.val { color: var(--color-success-light); }
 .pj :is(.rb, .rw) > .pj-icon.amb { color: var(--amber); }
+.pj :is(.rb, .rw) > .pj-icon.ambig { color: var(--ambiguous); }
 .pj .rb-body { flex: 1 1 auto; min-width: 0; display: block; }
 .pj .rt { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-light); overflow-wrap: break-word; }
 .pj .rs { display: block; font-size: 12px; color: var(--root); overflow-wrap: anywhere; }
@@ -138,6 +139,7 @@
 .pj .chip.val .pj-icon { color: var(--color-success-light); }
 .pj .chip.amb { border-color: var(--amber); color: var(--color-text-light); }
 .pj .chip.amb .pj-icon { color: var(--amber); }
+.pj .chip.ambig { border-color: var(--ambiguous); color: var(--color-text-light); }
 .pj .chip.on { background: var(--color-tint-accent); border-color: var(--color-accent); }
 .pj .chip.faded { opacity: 0.25; }
 .pj button.chip { line-height: normal; }

@@ -1,9 +1,8 @@
 import type { Basis, ContractCall, ContractSummary, ProjectConnections, ProjectDepGraph } from '$lib/api/rest';
-import { lineStyle, type LineStyle, type Relation } from '../../utils/links.ts';
+import type { Relation } from '../../utils/links.ts';
 
-export type Line = 'calls' | 'reads' | 'value' | 'library' | 'inherits' | 'holds' | 'iface' | 'unresolved';
+export type Line = 'calls' | 'reads' | 'value' | 'library' | 'inherits' | 'holds' | 'iface' | 'ambiguous' | 'unresolved';
 export type LineState = 'show' | 'dim' | 'hide';
-export type Look = Relation | 'ambiguous';
 
 export const LINES: { id: Line; label: string; tip: string }[] = [
   { id: 'calls', label: 'Calls', tip: 'Calls that can change state, including deploying a contract with new' },
@@ -13,15 +12,16 @@ export const LINES: { id: Line; label: string; tip: string }[] = [
   { id: 'inherits', label: 'Inherits', tip: 'A contract inherits a project interface or base' },
   { id: 'holds', label: 'Holds', tip: 'A state variable holds the address of the other contract' },
   { id: 'iface', label: 'Via interface', tip: 'Target matched through the interface it implements (inherits_interface)' },
+  { id: 'ambiguous', label: 'Ambiguous', tip: 'More than one project contract can answer the call (AMBIGUOUS)' },
   { id: 'unresolved', label: 'Unresolved', tip: 'Nothing in the project answers the call (an interface outside the project). Can be dimmed, never hidden' },
 ];
 
 export const DEFAULT_LINES: Record<Line, LineState> = {
-  calls: 'show', reads: 'dim', value: 'show', library: 'dim', inherits: 'hide', holds: 'hide', iface: 'show', unresolved: 'show',
+  calls: 'show', reads: 'dim', value: 'show', library: 'dim', inherits: 'hide', holds: 'hide', iface: 'show', ambiguous: 'show', unresolved: 'show',
 };
 
 const RANK: Record<LineState, number> = { hide: 0, dim: 1, show: 2 };
-const PRIORITY: Look[] = ['unresolved', 'ambiguous', 'value', 'calls', 'library', 'reads', 'holds', 'inherits'];
+const PRIORITY: Relation[] = ['unresolved', 'ambiguous', 'value', 'calls', 'library', 'reads', 'holds', 'inherits'];
 
 export function nextState(line: Line, state: LineState): LineState {
   if (line === 'unresolved') return state === 'show' ? 'dim' : 'show';
@@ -44,7 +44,7 @@ export function linesParam(state: Record<Line, LineState>): string | null {
 export interface Item {
   from: string;
   to: string;
-  line: Exclude<Line, 'value' | 'iface'>;
+  line: Exclude<Line, 'value' | 'iface' | 'ambiguous'>;
   iface: boolean;
   value: boolean;
   ambiguous: boolean;
@@ -114,18 +114,19 @@ export function itemState(item: Item, lines: Record<Line, LineState>): number {
   let rank = RANK[lines[item.line]];
   if (item.value) rank = Math.max(rank, RANK[lines.value]);
   if (item.iface) rank = Math.min(rank, RANK[lines.iface]);
+  if (item.ambiguous) rank = Math.min(rank, RANK[lines.ambiguous]);
   if (item.line === 'unresolved') rank = Math.max(rank, 1);
   return rank;
 }
 
-export function itemLook(item: Item, lines: Record<Line, LineState>): Look {
+export function itemLook(item: Item, lines: Record<Line, LineState>): Relation {
   if (item.line === 'unresolved') return 'unresolved';
   if (item.ambiguous) return 'ambiguous';
   if (item.value && lines.value === 'show') return 'value';
   return item.line;
 }
 
-export function lookOf(found: Item[], lines: Record<Line, LineState>): Look {
+export function lookOf(found: Item[], lines: Record<Line, LineState>): Relation {
   const looks = found.map((i) => itemLook(i, lines));
   return PRIORITY.find((l) => looks.includes(l)) ?? 'calls';
 }
@@ -138,7 +139,7 @@ export interface MapEdge {
   forward: number;
   back: number;
   state: number;
-  look: Look;
+  look: Relation;
   basis: Basis | null;
 }
 
@@ -152,7 +153,7 @@ export function edges(all: Item[], endpoint: (id: string) => string, lines: Reco
     if (from === to) continue;
     const [a, b] = from < to ? [from, to] : [to, from];
     const id = `${a}|${b}`;
-    const edge = byPair.get(id) ?? { id, a, b, items: [], forward: 0, back: 0, state: 0, look: 'calls' as Look, basis: null };
+    const edge = byPair.get(id) ?? { id, a, b, items: [], forward: 0, back: 0, state: 0, look: 'calls' as Relation, basis: null };
     edge.items.push(item);
     if (from === a) edge.forward += 1;
     else edge.back += 1;
@@ -167,8 +168,8 @@ export function edges(all: Item[], endpoint: (id: string) => string, lines: Reco
   return [...byPair.values()];
 }
 
-export function edgeStyle(edge: Pick<MapEdge, 'look' | 'basis'>): LineStyle {
-  return edge.look === 'ambiguous' ? lineStyle('calls', edge.basis, 'AMBIGUOUS') : lineStyle(edge.look, edge.basis);
+export function lookTone(look: Relation): '' | 'val' | 'amb' | 'ambig' {
+  return look === 'unresolved' ? 'amb' : look === 'ambiguous' ? 'ambig' : look === 'value' ? 'val' : '';
 }
 
 export function neighbourhood(all: MapEdge[], start: string, depth: number, direction: 'callers' | 'callees' | 'both'): Map<string, number> {

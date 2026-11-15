@@ -50,7 +50,7 @@ export interface BoardRow {
   key: string;
   label: string;
   title: string;
-  amb?: boolean;
+  tone?: 'amb' | 'ambig';
 }
 
 export interface BoardNode {
@@ -143,7 +143,7 @@ export function build(b: Board, links: Link[], lines: Record<Line, LineState>, f
     const ar = A.type === 'collapsed' ? '' : l.fromKey;
     const br = Z.type === 'collapsed' ? '' : l.toKey;
     if (ar) addRow(A, ar);
-    if (br) addRow(Z, br, { amb: target === OUTSIDE || l.ambiguous });
+    if (br) addRow(Z, br, { tone: target === OUTSIDE ? 'amb' : l.ambiguous ? 'ambig' : undefined });
     push(edges, `${A.id}|${ar}>${Z.id}|${br}`, { a: A.id, ar, b: Z.id, br, links: [l] });
   }
   if (b.fn && open.has(keyParts(b.fn).contract)) addRow(nodes.get(`O:${keyParts(b.fn).contract}`)!, b.fn);

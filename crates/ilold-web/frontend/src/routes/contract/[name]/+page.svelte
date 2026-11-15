@@ -47,7 +47,7 @@
   import { ownEntry, runDagreLayout } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
   import { tryRoles } from '$lib/utils/trycatch';
-  import { AMBIGUOUS_COLOR, splitRef } from '$lib/utils/links';
+  import { RELATION_STYLE, UNRESOLVED_COLOR, splitRef } from '$lib/utils/links';
   import { MarkerType } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
 
@@ -1410,7 +1410,7 @@
   });
 </script>
 
-<div class="pj wb" style:--amber={AMBIGUOUS_COLOR}>
+<div class="pj wb" style:--amber={UNRESOLVED_COLOR} style:--ambiguous={RELATION_STYLE.ambiguous.color}>
   <AppHeader count={projectContracts.length || null} contract={contract?.name ?? page.params.name ?? ''} {mode} onmode={switchMode} />
   {#if error}
     <div class="state-msg full err">{error}</div>

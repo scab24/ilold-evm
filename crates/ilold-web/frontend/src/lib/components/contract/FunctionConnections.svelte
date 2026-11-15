@@ -4,7 +4,7 @@
   import Row from '$lib/components/chrome/Row.svelte';
   import { openFunctionLine, openInIde } from '$lib/utils/ide-links';
   import { BASIS_LABEL, splitRef } from '$lib/utils/links';
-  import { assetLabel } from '$lib/utils/value';
+  import { amountSuffix, assetLabel } from '$lib/utils/value';
   import { shortName } from '$lib/components/project/map-graph';
   import { functionIndex } from '$lib/utils/function-keys';
 
@@ -86,7 +86,7 @@
     <ul class="list">
       {#each s.list as l (l.id)}
         {@const site = assignment(l.row)}
-        <Row icon={l.row.transfers.length ? 'value' : s.icon} tone={l.row.callees.some((d) => d.tag === 'AMBIGUOUS') ? 'amb' : l.row.transfers.length ? 'val' : ''} title={l.out ? `${name(l.row.function)} → ${shortName(l.other)}.${l.otherFn}` : `${shortName(l.other)}.${l.otherFn} → ${member.split('(')[0]}`} line={l.row.span.start_line} onsource={source(l.row)}>
+        <Row icon={l.row.transfers.length ? 'value' : s.icon} tone={l.row.callees.some((d) => d.tag === 'AMBIGUOUS') ? 'ambig' : l.row.transfers.length ? 'val' : ''} title={l.out ? `${name(l.row.function)} → ${shortName(l.other)}.${l.otherFn}` : `${shortName(l.other)}.${l.otherFn} → ${member.split('(')[0]}`} line={l.row.span.start_line} onsource={source(l.row)}>
           {#snippet meta()}{describe(l)}{#if l.row.transfers.length}{describe(l) ? ' · ' : ''}<span class="val">moves value</span>{/if}{#if site}{describe(l) || l.row.transfers.length ? ' · ' : ''}set by {site.kind.replaceAll('_', ' ')} <span class="mono">{site.expr_text}</span>{#if site.function}{' '}<button type="button" class="src" onclick={() => onsource(splitRef(site.function!).contract, splitRef(site.function!).member)}>{name(site.function)} ↗</button>{/if}{/if}{/snippet}
         </Row>
       {/each}
@@ -107,8 +107,9 @@
   <h2><Icon name="value" /><span class="ht">Value</span><span class="n">{transfers.length}</span></h2>
   <ul class="list">
     {#each transfers as t (t.id)}
-      <Row icon="value" tone="val" title="{t.operation} {assetLabel(t)}{t.to_expr ? ` to ${t.to_expr}` : ''}" line={t.span.start_line} onsource={() => openFunctionLine(t.function, t.span.start_line)}>
-        {#snippet meta()}{t.amount_expr ? `amount ${t.amount_expr}` : 'amount not recorded'}{t.via_library ? ` · through ${t.via_library}` : ''}{/snippet}
+      {@const amount = amountSuffix(t)}
+      <Row icon="value" tone="val" title="{t.operation} {assetLabel(t)}{amount}{t.to_expr ? ` to ${t.to_expr}` : ''}" line={t.span.start_line} onsource={() => openFunctionLine(t.function, t.span.start_line)}>
+        {#snippet meta()}{[amount ? '' : 'amount not recorded', t.via_library ? `through ${t.via_library}` : ''].filter(Boolean).join(' · ')}{/snippet}
       </Row>
     {/each}
   </ul>
