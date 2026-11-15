@@ -32,7 +32,7 @@
     }
   });
 
-  // the PTY starts when first shown and stays alive while hidden, until the page ends
+  // the PTY starts on first show and lives until the page ends
   $effect(() => {
     if (ready && isTerminalVisible() && !ws) connect();
   });

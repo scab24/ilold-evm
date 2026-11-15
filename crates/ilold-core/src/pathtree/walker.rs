@@ -157,6 +157,7 @@ pub(crate) fn block_annotations(block: &BasicBlock) -> PathAnnotations {
     annotations
 }
 
+// reads through `storage` parameters are summarised per function
 fn collect_reads(reads: &[BlockRead], annotations: &mut PathAnnotations) {
     for read in reads.iter().map(|r| &r.place).filter(|r| r.param.is_none()) {
         push_unique(&mut annotations.state_reads, crate::util::target_base_name(&read.path).to_string());

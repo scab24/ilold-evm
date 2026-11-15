@@ -58,6 +58,7 @@ pub fn routes(relations: &Relations, call_graphs: &HashMap<String, CallGraph>, f
     let on_route = |n: &str, depth: usize| ahead.get(n) == Some(&depth) && behind.get(n) == Some(&(length - depth));
     let complete = shortest(&graph, &on_route, length, &mut vec![from], &mut paths);
     let mut nodes: Nodes = HashMap::new();
+    // only contracts between two steps need their internal calls
     for contract in paths.iter().flat_map(|p| &p[1..p.len() - 1]) {
         let Some(graph) = call_graphs.get(*contract) else { continue };
         nodes.entry(contract).or_insert_with(|| (graph, graph.node_indices().map(|n| (graph[n].id(), n)).collect()));

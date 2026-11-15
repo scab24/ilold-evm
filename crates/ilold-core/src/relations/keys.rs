@@ -195,7 +195,7 @@ fn index_texts(path: &str) -> Vec<&str> {
 struct Indexes(HashMap<String, Option<AccessKey>>);
 
 impl Indexes {
-    /// The builder follows callees returning a storage pointer, so their indexes reach the path.
+    /// Indexes from callees returning a storage pointer reach the path.
     fn of(project: &Project, context: &ContractDef, code: Code) -> Self {
         let mut indexes = Self::default();
         indexes.add(project, context, &code);

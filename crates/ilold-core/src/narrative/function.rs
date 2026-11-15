@@ -336,7 +336,7 @@ fn generate_observations(
         }
     }
 
-    // sorted so the observation text is stable across runs
+    // keeps the observation text stable across runs
     let my_writes: BTreeSet<&str> = path_tree
         .block_annotations()
         .flat_map(|a| a.state_writes.iter().map(|s| s.as_str()))

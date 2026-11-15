@@ -52,7 +52,7 @@ fn ether_sent_by_call_transfer_and_send() {
     assert_eq!(call.iter().map(moved).collect::<Vec<_>>(), [(AssetKind::Native, Operation::Call, None, None, s("to"), s("amount"), None)]);
     assert_eq!((call[0].tag, call[0].direction, call[0].reason, call[0].via_library.as_deref()), (Tag::Extracted, Direction::Out, None, None));
     assert_eq!((call[0].span.start_line, call[0].call.as_str(), call[0].id.as_str()), (35, "to.call", "Payments::payCall#0"));
-    // the model drops a literal's unit, so `1 ether` reads `1`
+    // the model drops a literal's unit (`1 ether` reads `1`)
     assert_eq!(transfers("payTransfer").iter().map(moved).collect::<Vec<_>>(), [(AssetKind::Native, Operation::Transfer, None, None, s("to"), s("1"), None)]);
     assert_eq!(transfers("paySend").iter().map(moved).collect::<Vec<_>>(), [(AssetKind::Native, Operation::Send, None, None, s("to"), s("1"), None)]);
 }

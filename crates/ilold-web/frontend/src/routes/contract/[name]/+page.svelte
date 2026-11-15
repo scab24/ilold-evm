@@ -53,7 +53,7 @@
 
   let contract: ContractDetail | null = $state(null);
   const funcIndex = $derived.by(() => functionIndex(contract?.functions, contract?.inherited_functions));
-  // canvas, caches and API calls use the key so overloads stay distinct
+  // keys keep overloads distinct
   function routeKey(ref: string): string {
     return funcIndex.get(ref)?.key ?? ref;
   }
@@ -1158,6 +1158,7 @@
     }
   }
 
+  // a collapsed CFG reads its blocks from the cache
   function lookupBlock(blockId: string): { statements: string[]; node_type: string } | null {
     const node = findNode(blockId);
     if (node && node.data._type === 'block') {

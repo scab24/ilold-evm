@@ -396,7 +396,7 @@ impl Project {
             .collect()
     }
 
-    /// State variables cannot be shadowed, so the name selects one declaration in the linearization.
+    /// State variables cannot be shadowed.
     pub fn state_var_owner<'a>(&'a self, context: &'a ContractDef, name: &str) -> Option<&'a ContractDef> {
         self.linearization(context).into_iter().find(|c| c.state_vars.iter().any(|v| v.name == name))
     }
@@ -411,7 +411,7 @@ impl Project {
             .find_map(|c| c.modifiers.iter().find(|m| m.name == mod_name))
     }
 
-    /// Constants and immutables stay in place although they take no slot.
+    /// Includes constants and immutables, which take no slot.
     pub fn inherited_state_vars(&self, contract: &ContractDef) -> Vec<StateVar> {
         self.accessible_state_vars(contract).into_iter().map(|(sv, _, _)| sv).collect()
     }

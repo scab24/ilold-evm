@@ -84,6 +84,7 @@ fn static_edges(project: &Project, graph: &mut DepGraph, index: &Index) {
 fn call_edges(graph: &mut DepGraph, index: &Index, from: NodeIndex, name: &str, cg: &CallGraph) {
     for eidx in cg.edge_indices() {
         let (s, t) = cg.edge_endpoints(eidx).unwrap();
+        // inheritance edges cover inherited bodies and hierarchy calls
         if cg[s].contract != name || !cg[t].is_external {
             continue;
         }

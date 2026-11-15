@@ -92,7 +92,7 @@ fn web_link(link: &Value) -> Link {
     (text(&link["from_contract"]), text(&link["to_contract"]), text(&link["basis"]), text(&link["tag"]), vars, calls)
 }
 
-/// `ContractLink` rows carry a call count in place of call positions.
+/// `ContractLink` rows carry a call count.
 fn map_links(map: &Value) -> BTreeSet<(String, String, String, String, Vec<String>, u64)> {
     map["relationships"]
         .as_array()

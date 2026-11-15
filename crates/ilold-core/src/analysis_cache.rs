@@ -39,7 +39,7 @@ fn snapshot_path(dir: &Path, params: &AnalysisParams) -> PathBuf {
     dir.join(format!("analysis-{slot}.json"))
 }
 
-/// Builders only add nodes and edges, so re-adding them in order restores the same indices.
+/// Re-adding nodes and edges in order restores their indices.
 #[derive(Serialize, Deserialize)]
 struct Graph<N, E> {
     nodes: Vec<N>,

@@ -821,7 +821,7 @@ fn handle_input(
                         return InputResult::Continue;
                     }
                     if parsed.has_render_flags() {
-                        // the persisted trace has a fixed shape, so flags rebuild it from the function
+                        // flags rebuild the persisted trace from the function
                         let func_name = &steps[*idx];
                         println!("  {}", c_muted(&format!("step {idx} ({func_name}) rebuilt with the given flags")));
                         (
@@ -1220,6 +1220,7 @@ struct TraceArgs {
 }
 
 impl TraceArgs {
+    /// Flags that change the trace content.
     fn has_render_flags(&self) -> bool {
         self.depth.is_some() || self.reverts || !self.expand.is_empty()
     }
@@ -1415,7 +1416,7 @@ fn read_prompt(label: &str) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
-/// Keys typed right after the command may already sit in crossterm's queue, out of reach of stdin.
+/// Keys typed right after the command may already sit in crossterm's queue.
 fn read_answer() -> Option<String> {
     use std::io::Write;
     let mut out = std::io::stdout();

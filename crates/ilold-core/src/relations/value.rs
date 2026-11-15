@@ -481,7 +481,7 @@ pub(super) fn build(project: &Project, units: &[Running], relations: &Relations)
     let mut pairs: BTreeMap<Key, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
     for Running { context, owner, func, cfg } in units {
         let (mut found, typed) = typed_value_facts(project, context, owner, func, cfg);
-        // code nothing deploys on its own moves value only inside the contracts running it
+        // undeployable code moves value for the contracts running it
         for (t, typed) in found.transfers.iter().zip(&typed).filter(|_| context.is_project_deployable()) {
             let (from, to) = parties(project, relations, t, typed);
             let (functions, ids) = pairs.entry((t.in_context.clone(), from, to, t.asset_kind, t.token_expr.clone(), t.reason)).or_default();

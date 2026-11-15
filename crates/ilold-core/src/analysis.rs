@@ -56,6 +56,7 @@ impl ProjectAnalysis {
         let mut sequence_analyses = HashMap::new();
         let mut classifications = HashMap::new();
 
+        // other dependency functions join once project code calls them
         let inherited_dependencies: HashSet<&str> = project
             .project_contracts()
             .flat_map(|c| project.linearization(c))

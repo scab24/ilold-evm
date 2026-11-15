@@ -51,6 +51,7 @@ pub fn phase_candidates(project: &Project, context: &ContractDef, behaviors: &[F
     }
     let mut out = Vec::new();
     for (state_var, (functions, texts)) in tested {
+        // one function's own check is a precondition
         if functions.len() < 2 {
             continue;
         }

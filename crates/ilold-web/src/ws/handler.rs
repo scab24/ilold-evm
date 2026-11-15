@@ -81,7 +81,7 @@ fn server_message_from_patch(SessionBroadcast { contract, patch }: SessionBroadc
     }
 }
 
-/// A lagged receiver gets `session_resync` so it can recover dropped patches.
+/// A lagged receiver gets `session_resync` to recover dropped patches.
 pub async fn next_session_message(rx: &mut broadcast::Receiver<SessionBroadcast>) -> Option<String> {
     let msg = match rx.recv().await {
         Ok(update) => server_message_from_patch(update),

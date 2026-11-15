@@ -118,6 +118,7 @@ pub(super) fn warnings(layout: &ProjectLayout, paths: &Paths, failures: &[Compil
 
 fn empty_dependencies(layout: &ProjectLayout, paths: &Paths) -> BTreeSet<String> {
     let is_empty = |dir: &Path| std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none());
+    // a missing directory on the way marks a stale remapping
     let remapped = layout.remappings.iter().filter_map(|r| r.split_once('=')).filter_map(|(_, target)| {
         let target = layout.root.join(target);
         let mut below: Vec<&Path> =

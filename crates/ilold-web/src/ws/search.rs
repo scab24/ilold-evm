@@ -35,7 +35,7 @@ pub fn search_paths(state: &AppState, query: &SearchQuery, limit: usize) -> Resu
     let mut results = Vec::new();
     let mut total = 0;
 
-    // a contract filter covers its inherited functions, whose trees the declaring contract keys
+    // the declaring contract keys the trees of inherited functions
     let trees: Vec<(&str, &str, String, &PathTree)> = match &query.contract {
         Some(name) => {
             let contract = state.project.find_contract(Some(name))?;

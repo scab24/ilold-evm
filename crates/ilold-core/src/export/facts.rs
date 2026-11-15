@@ -219,7 +219,7 @@ impl<'p> Builder<'p> {
         Graph { nodes, edges, truncation: self.truncation }
     }
 
-    /// The hash leaves out the position and later fields, so moving code or extending a kind keeps the id.
+    /// Position and later fields stay out of the hash to keep ids stable when code moves or a kind grows.
     fn edge(&mut self, kind: &str, from: &str, mut record: Value, span: Option<SourceSpan>, tag: &str, rule: &str) -> &mut Pending {
         record["kind"] = Value::from(kind);
         let hash = digest(as_1_0(&record).to_string().as_bytes());
@@ -402,7 +402,7 @@ impl<'p> Builder<'p> {
         pending.record["reason"] = json!(fact.reason);
     }
 
-    /// Clauses and positions stay out of the id, so editing a catch keeps it.
+    /// Clauses and positions stay out of the id to survive catch edits.
     fn try_catch(&mut self, pending: AwaitingCalls<TryCatchFact>, calls: &HashMap<(String, String, String), String>) {
         let AwaitingCalls { function, context_id, via, fact } = pending;
         let in_context = json!(context_id);
@@ -761,7 +761,7 @@ impl<'p> Builder<'p> {
         }
     }
 
-    /// Who tests and who writes the variable stay out of the id, so a new entry point keeps it.
+    /// Testers and writers stay out of the id to survive new entry points.
     fn phases(&mut self, c: &'p ContractDef) {
         let (Some(contract), Some(sequence)) = (self.ids.contract(c), self.analysis.sequence_analyses.get(c.key())) else { return };
         for phase in phase_candidates(self.project, c, &sequence.functions) {

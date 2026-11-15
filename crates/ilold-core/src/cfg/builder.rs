@@ -63,7 +63,7 @@ struct Scope {
     state_ids: HashMap<DeclId, String>,
     state_names: HashSet<String>,
     params: Vec<Param>,
-    // without solc ids, names are the only way to tell state from locals
+    // models lacking solc ids tell state from locals by name
     by_name: bool,
     storage_locals: HashSet<VarKey>,
     aliases: Aliases,
@@ -71,7 +71,7 @@ struct Scope {
 
 type Aliases = HashMap<VarKey, Vec<StorageRef>>;
 
-// with no branch reaching the join, code there (a modifier after `_`) still sees the pointers
+// code after a modifier's `_` sees the pointers even when no branch reaches the join
 fn join_aliases(ends: Vec<Aliases>, before: Aliases) -> Aliases {
     if ends.is_empty() { before } else { merge_aliases(ends) }
 }
@@ -246,7 +246,7 @@ impl<'p> CfgBuilder<'p> {
         }
     }
 
-    // A `return` in the inner levels continues after the placeholder, so the code after `_` runs on return.
+    // A `return` in inner levels continues after the placeholder.
     fn process_placeholder(&mut self) {
         let level = self.level;
         if level >= self.levels.len() {

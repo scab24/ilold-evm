@@ -77,7 +77,7 @@
   let paneHeight = $state(0);
   let initialFitDone = false;
 
-  // a fit before layout clamps to minZoom, so wait for real pane dimensions and measured nodes
+  // a fit before layout clamps to minZoom
   function measured(options: FitViewOptions): boolean {
     if (!flowFitView || paneWidth === 0 || paneHeight === 0) return false;
     const wanted = options.nodes ? new Set(options.nodes.map((n) => n.id)) : null;

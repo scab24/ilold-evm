@@ -107,7 +107,7 @@ pub(super) fn fingerprint(
         walk.walk(dir, true)?;
     }
     let files = walk.files;
-    // Foundry's graph resolver reads dependencies before returning, so it cannot enforce this byte budget
+    // Foundry's graph resolver reads dependencies past this byte budget
     let mut total = 0u64;
     let mut sources = Vec::new();
     for file in &files {
@@ -487,7 +487,7 @@ mod tests {
         fs::write(root.join("src/cache/Kept.sol"), "pragma solidity ^0.8.0; contract Kept {}\n").unwrap();
         fs::write(root.join("lib/dep/src/Dep.sol"), "pragma solidity ^0.8.0; contract Dep {}\n").unwrap();
         fs::write(root.join("lib/dep/node_modules/pkg/Pruned.sol"), "pragma solidity ^0.8.0; contract Pruned {}\n").unwrap();
-        // Library files outside the import closure are hashed, but their imports need not resolve.
+        // Library files outside the import closure are hashed with unresolved imports allowed.
         fs::write(root.join("lib/dep/src/Unused.sol"), "pragma solidity ^0.8.0; import 'missing/X.sol';\n").unwrap();
         for i in 0..5000 { fs::write(root.join(format!("lib/dep/docs/{i}.md")), "doc").unwrap(); }
         let compiler_path = root.join("solc-fixture");

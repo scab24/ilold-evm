@@ -172,6 +172,7 @@ impl<'a> Builder<'a> {
                         return self.defined(ic, i_f, static_target);
                     }
                 }
+                // a function-pointer id skips the by-name fallback
                 None if resolved.is_none() => {
                     let by_name = self.linearization.iter().find_map(|c| {
                         c.functions.iter().find(|f| f.name == function && f.body.is_some()).map(|f| (*c, f))

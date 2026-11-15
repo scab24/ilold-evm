@@ -17,7 +17,7 @@ use crate::util::{is_type_cast, push_unique};
 
 use super::analysis::{EffectKind, EffectTrace};
 
-/// A recursion passing `n.kids[i]` for `n` writes ever longer paths, so a cycle may not converge.
+/// Recursion through `n.kids[i]` yields ever longer paths.
 pub(crate) const MAX_ROUNDS: usize = 64;
 
 #[derive(Debug, Clone)]
@@ -112,6 +112,7 @@ pub fn summarize(cfg: &CfgGraph, project: &Project) -> CfgSummary {
     for n in reachable(cfg) {
         let block = &cfg[n];
         s.annotations.extend(&block_annotations(block));
+        // a path ends where the path walker ends it
         let ends = cfg.neighbors(n).next().is_none() && !(block.kind == BlockKind::Entry && block.statements.is_empty());
         s.returns |= block.kind == BlockKind::Return || (ends && block.kind != BlockKind::Revert);
         for read in block.reads.iter().map(|r| &r.place) {
@@ -217,7 +218,7 @@ fn insert<K: Ord>(map: &mut BTreeMap<K, Vec<String>>, key: K, via: Vec<String>) 
 }
 
 impl Effects {
-    /// solc holds a function's Yul, modifiers included, to its mutability.
+    /// solc checks inline assembly, modifiers included, against mutability.
     fn direct(summary: &CfgSummary, mutability: Mutability) -> Self {
         let mut e = Effects::default();
         let none = Vec::new;
@@ -230,6 +231,7 @@ impl Effects {
         for ev in &summary.events { insert(&mut e.events, ev.clone(), none()); }
         for r in &summary.reverts { insert(&mut e.reverts, r.clone(), none()); }
         let opaque = !summary.assembly.is_empty();
+        // Yul can revert at any mutability
         e.reverts_incomplete = opaque;
         match mutability {
             Mutability::Pure => {}
@@ -241,7 +243,7 @@ impl Effects {
 
     fn lift(&mut self, callee_effects: &Effects, head: &[String], call: &CallSite, callee: &FunctionDef, shares_storage: bool) {
         let via = |v: &Vec<String>| head.iter().chain(v).cloned().collect::<Vec<_>>();
-        // a library has no storage of its own, so its state paths are constants
+        // libraries have no storage of their own
         if shares_storage {
             for (p, v) in &callee_effects.state_writes { insert(&mut self.state_writes, p.clone(), via(v)); }
             for (p, v) in &callee_effects.state_reads { insert(&mut self.state_reads, p.clone(), via(v)); }
@@ -307,7 +309,6 @@ struct Pending<'a> {
     calls: Vec<(usize, EffectKey, &'a ContractDef, &'a FunctionDef, bool)>,
 }
 
-/// Per strongly connected component, so every member of a cycle gets all of its effects.
 pub struct EffectEngine<'a> {
     project: &'a Project,
     summaries: &'a HashMap<(String, String), CfgSummary>,

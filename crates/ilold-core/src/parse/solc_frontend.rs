@@ -843,6 +843,7 @@ fn assign_function_keys(functions: &mut [FunctionDef]) {
         *counts.entry(f.name.clone()).or_default() += 1;
     }
     for f in functions.iter_mut() {
+        // special functions take the bare name as their key
         let special_name = matches!(f.name.as_str(), "constructor" | "receive" | "fallback");
         f.key = if f.kind != FunctionKind::Function {
             f.name.clone()
@@ -854,7 +855,7 @@ fn assign_function_keys(functions: &mut [FunctionDef]) {
     }
 }
 
-// Internal and private signatures keep data locations, because overloads may differ only by them.
+// Overloads may differ only by data location.
 fn function_signature(node: &Node, kind: FunctionKind, name: &str, vis: Visibility) -> String {
     if matches!(kind, FunctionKind::Receive | FunctionKind::Fallback) {
         return name.to_string();

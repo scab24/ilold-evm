@@ -446,7 +446,7 @@ fn walk_block(
         .map(|e| (e.target(), e.weight().clone()))
         .collect();
 
-    // stable edge order so step_ids stay consistent across runs
+    // keeps step_ids stable across runs
     edges.sort_by_key(|(target, edge)| (edge.variant_order(), target.index()));
 
     if edges.is_empty() {

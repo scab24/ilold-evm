@@ -23,6 +23,7 @@ fn is_user_type_name(head: &str) -> bool {
         && head.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
+// used when solc types are absent
 pub fn is_builtin_function(name: &str) -> bool {
     matches!(
         name,

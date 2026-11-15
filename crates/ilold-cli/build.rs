@@ -18,7 +18,7 @@ fn main() {
     }
     let Some(top) = git(&["rev-parse", "--show-toplevel"]) else { return };
     let inputs = ["crates", "Cargo.toml", "Cargo.lock"];
-    // edits to tracked sources leave the git index unchanged, so the sources are watched
+    // edits to tracked sources leave the git index unchanged
     for input in inputs.iter().map(|i| Path::new(&top).join(i)).filter(|p| p.exists()) {
         println!("cargo:rerun-if-changed={}", input.display());
     }
