@@ -460,12 +460,10 @@ fn render_slice_side(label: &str, entries: &[SliceEntry], var: &str, out: &mut S
 }
 
 
-/// A variant as the API spells it, from `serde_json::to_value`.
-fn api_name(value: serde_json::Result<serde_json::Value>) -> String {
+pub fn api_name(value: serde_json::Result<serde_json::Value>) -> String {
     value.ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
 
-/// One line per key site of `who`; an access in a callee has no keys to show.
 pub fn render_variable_keys(accesses: &[VariableAccess]) -> String {
     let width = accesses.iter().map(|a| a.function.chars().count()).max().unwrap_or(0);
     let mut out = String::new();
@@ -485,7 +483,6 @@ pub fn render_variable_keys(accesses: &[VariableAccess]) -> String {
     out
 }
 
-/// One line per value transfer, then per balance read, for `info`.
 pub fn render_value_facts(transfers: &[ValueTransfer], reads: &[BalanceRead]) -> Vec<String> {
     let asset = |kind: AssetKind, candidates: &[AssetKind], token: &Option<String>| {
         let kind = if candidates.is_empty() { api_name(serde_json::to_value(kind)) } else { candidates.iter().map(|c| api_name(serde_json::to_value(c))).collect::<Vec<_>>().join("|") };
@@ -524,7 +521,6 @@ pub fn render_value_facts(transfers: &[ValueTransfer], reads: &[BalanceRead]) ->
     moved.chain(read).collect()
 }
 
-/// One line per phase for `info`: the variable, the functions it gates, its writers and the conditions that test it.
 pub fn render_phases(phases: &[PhaseCandidate]) -> Vec<String> {
     let members = |refs: &[String]| refs.iter().map(|r| r.rsplit_once("::").map_or(r.as_str(), |(_, m)| m)).collect::<Vec<_>>().join(", ");
     phases
@@ -543,7 +539,6 @@ pub fn render_phases(phases: &[PhaseCandidate]) -> Vec<String> {
         .collect()
 }
 
-/// One line per try statement for `info`: the guarded call, then what each clause does with the failure.
 pub fn render_try_catches(facts: &[TryCatchFact]) -> Vec<String> {
     let texts = |sites: &[ilold_core::relations::EffectSite]| sites.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(", ");
     facts

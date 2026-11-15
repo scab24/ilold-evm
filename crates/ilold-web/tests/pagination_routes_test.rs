@@ -1,5 +1,3 @@
-//! Paged lists. Fixture: tests/fixtures/staking (server sequence depth 2).
-
 use std::path::PathBuf;
 
 use serde_json::Value;

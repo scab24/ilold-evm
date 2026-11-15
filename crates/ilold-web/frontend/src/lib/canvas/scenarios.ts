@@ -54,7 +54,7 @@ export function composeScenarioTree(
         access: step.access,
         _sessionStep: true,
         _scenario: name,
-        _scenariosPassingThrough: [], // filled in the second pass below
+        _scenariosPassingThrough: [],
       });
       if (i > renderFrom) {
         edges.push({

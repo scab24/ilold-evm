@@ -1,24 +1,23 @@
-//! Which in-scope contracts may answer each external call, where the called address comes from, and the contract map they add up to.
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cfg::builder::expr_to_string;
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::model::common::SourceSpan;
-use crate::model::contract::ContractDef;
+use crate::model::contract::{ContractDef, ContractKind};
 use crate::model::decl_id::DeclKind;
 use crate::model::expression::{CallKind, Expression, ExpressionKind};
 use crate::model::function::{FunctionDef, FunctionKind, Visibility};
 use crate::model::project::Project;
 use crate::model::source::{uncast, value_source, ValueSource};
 use crate::model::statement::walk_all;
-use crate::sequence::effects::reachable;
+use crate::sequence::effects::{is_view_call, reachable};
 
+use super::trycatch::guards_call;
 use super::{
-    param_source, state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractLink, Dispatch, DispatchCandidate, LinkCall, Relations, Tag,
-    UnresolvedReason,
+    param_source, state_var_ref, AssignmentKind, AssignmentSite, Basis, ContractCall, ContractCallKind, ContractLink, Dispatch,
+    DispatchCandidate, LinkCall, Relations, Running, Tag, UnresolvedReason,
 };
 
-/// The kind and the declared `<contract key>::<member key>` of an external call to a contract, `this` included.
 pub fn call_target(project: &Project, stmt: &CfgStatement) -> Option<(CallKind, Option<String>)> {
     let CfgStatement::ExternalCall { kind: kind @ (CallKind::External | CallKind::ExternalSelf), resolved, .. } = stmt else {
         return None;
@@ -31,46 +30,55 @@ pub fn call_target(project: &Project, stmt: &CfgStatement) -> Option<(CallKind, 
     Some((*kind, target))
 }
 
-pub(super) fn build(project: &Project, cfgs: &HashMap<(String, String), CfgGraph>) -> Relations {
-    let mut keys: Vec<&(String, String)> = cfgs.keys().collect();
-    keys.sort();
+pub(super) fn build(project: &Project, units: &[Running]) -> Relations {
     let mut dispatches = BTreeMap::new();
     let mut targeted = BTreeSet::new();
+    let (mut own, mut inherited) = (Vec::new(), Vec::new());
+    for Running { context, owner, func, cfg } in units {
+        let made = contract_calls(project, context, owner, func, cfg, &mut dispatches);
+        if !std::ptr::eq(*context, *owner) {
+            inherited.extend(made);
+            continue;
+        }
+        targeted.extend(made.iter().filter_map(|c| c.via.clone()));
+        if !owner.is_dependency {
+            own.extend(made);
+        }
+    }
+    let links = links(&own);
+    let mut calls = own;
+    calls.extend(inherited);
+    calls.sort_by(|a, b| (&a.in_context, &a.function, a.span).cmp(&(&b.in_context, &b.function, b.span)));
+    let mut assignments: Vec<AssignmentSite> = targeted.iter().flat_map(|var| assignment_sites(project, var)).collect();
+    assignments.sort_by(|a, b| (&a.state_var, a.span).cmp(&(&b.state_var, b.span)));
+    Relations { dispatches: dispatches.into_values().collect(), assignments, links, calls, ..Relations::default() }
+}
+
+pub(super) fn links<'a>(calls: impl IntoIterator<Item = &'a ContractCall>) -> Vec<ContractLink> {
     let mut links: BTreeMap<(String, String), ContractLink> = BTreeMap::new();
-    for (owner_key, func_key) in keys {
-        let Some(owner) = contract(project, owner_key) else { continue };
-        let Some(func) = owner.functions.iter().find(|f| &f.key == func_key) else { continue };
-        for ExternalCallSite { kind, target, span, via } in external_calls(project, owner, &cfgs[&(owner_key.clone(), func_key.clone())]) {
-            let dispatch = dispatches
-                .entry((context_of(owner, kind), target))
-                .or_insert_with_key(|(context, target)| resolve(project, context.as_deref(), kind, target.as_deref()));
-            targeted.extend(via.clone());
-            if owner.is_dependency {
-                continue;
+    for made in calls.into_iter().filter(|c| c.kind != ContractCallKind::Library) {
+        let call = LinkCall { function: made.function.clone(), span: made.span };
+        let only = made.callees.len() == 1;
+        for candidate in &made.callees {
+            let link = links.entry((made.in_context.clone(), candidate.contract.clone())).or_insert_with(|| ContractLink {
+                from_contract: made.in_context.clone(),
+                to_contract: candidate.contract.clone(),
+                via_state_vars: Vec::new(),
+                calls: Vec::new(),
+                basis: candidate.basis,
+                tag: Tag::Ambiguous,
+            });
+            link.basis = link.basis.min(candidate.basis);
+            if only {
+                link.tag = Tag::Inferred;
             }
-            let call = LinkCall { function: format!("{owner_key}::{func_key}"), span: span.unwrap_or(func.span) };
-            let only = dispatch.candidates.len() == 1;
-            for candidate in &dispatch.candidates {
-                let link = links.entry((owner_key.clone(), candidate.contract.clone())).or_insert_with(|| ContractLink {
-                    from_contract: owner_key.clone(),
-                    to_contract: candidate.contract.clone(),
-                    via_state_vars: Vec::new(),
-                    calls: Vec::new(),
-                    basis: candidate.basis,
-                    tag: Tag::Ambiguous,
-                });
-                link.basis = link.basis.min(candidate.basis);
-                if only {
-                    link.tag = Tag::Inferred;
+            if let Some(name) = made.via.as_deref().and_then(|v| v.rsplit_once("::")).map(|(_, n)| n.to_string()) {
+                if !link.via_state_vars.contains(&name) {
+                    link.via_state_vars.push(name);
                 }
-                if let Some(name) = via.as_deref().and_then(|v| v.rsplit_once("::")).map(|(_, n)| n.to_string()) {
-                    if !link.via_state_vars.contains(&name) {
-                        link.via_state_vars.push(name);
-                    }
-                }
-                if !link.calls.contains(&call) {
-                    link.calls.push(call.clone());
-                }
+            }
+            if !link.calls.contains(&call) {
+                link.calls.push(call.clone());
             }
         }
     }
@@ -79,9 +87,77 @@ pub(super) fn build(project: &Project, cfgs: &HashMap<(String, String), CfgGraph
         link.via_state_vars.sort();
         link.calls.sort_by(|a, b| (&a.function, a.span).cmp(&(&b.function, b.span)));
     }
-    let mut assignments: Vec<AssignmentSite> = targeted.iter().flat_map(|var| assignment_sites(project, var)).collect();
-    assignments.sort_by(|a, b| (&a.state_var, a.span).cmp(&(&b.state_var, b.span)));
-    Relations { dispatches: dispatches.into_values().collect(), assignments, links }
+    links
+}
+
+fn contract_calls(
+    project: &Project,
+    context: &ContractDef,
+    owner: &ContractDef,
+    func: &FunctionDef,
+    cfg: &CfgGraph,
+    dispatches: &mut BTreeMap<(Option<String>, Option<String>), Dispatch>,
+) -> Vec<ContractCall> {
+    let function = format!("{}::{}", owner.key(), func.key);
+    let mut calls = Vec::new();
+    let statements = reachable(cfg).into_iter().flat_map(|n| {
+        let statements = &cfg[n].statements;
+        let guarded = guards_call(cfg, n);
+        statements.iter().enumerate().map(move |(i, stmt)| (stmt, guarded && i + 1 == statements.len()))
+    });
+    for (stmt, in_try) in statements {
+        let (kind, dispatch, span, via) = if let Some(site) = external_site(project, context, stmt) {
+            let dispatch = dispatches
+                .entry((context_of(context, site.kind), site.target))
+                .or_insert_with_key(|(context, target)| resolve(project, context.as_deref(), site.kind, target.as_deref()))
+                .clone();
+            let read = matches!(stmt, CfgStatement::ExternalCall { resolved, .. } if is_view_call(project, site.kind, *resolved));
+            let kind = match site.kind {
+                CallKind::ExternalSelf => ContractCallKind::SelfCall,
+                _ if read => ContractCallKind::Read,
+                _ => ContractCallKind::Call,
+            };
+            (kind, dispatch, site.span, site.via)
+        } else if let Some((library, callee)) = library_callee(project, stmt).filter(|(library, _)| library.key() != owner.key()) {
+            let answer = format!("{}::{}", library.key(), callee.key);
+            let candidate = DispatchCandidate { function: answer.clone(), contract: library.key().to_string(), basis: Basis::Library, tag: Tag::TypeResolved };
+            let dispatch = Dispatch { context: None, target: Some(answer), candidates: vec![candidate], unresolved_reason: None };
+            (ContractCallKind::Library, dispatch, stmt.origin().0, None)
+        } else {
+            continue;
+        };
+        let span = span.unwrap_or(func.span);
+        let call = ContractCall {
+            in_context: context.key().to_string(),
+            function: function.clone(),
+            span,
+            kind,
+            target: dispatch.target,
+            callees: dispatch.candidates,
+            unresolved_reason: dispatch.unresolved_reason,
+            via,
+            in_try,
+            transfers: Vec::new(),
+            file: project.source_file(span).map(|f| f.path.clone()),
+        };
+        if !calls.contains(&call) {
+            calls.push(call);
+        }
+    }
+    calls
+}
+
+pub(super) fn library_callee<'p>(project: &'p Project, stmt: &CfgStatement) -> Option<(&'p ContractDef, &'p FunctionDef)> {
+    let (contract_key, function_key) = match stmt {
+        CfgStatement::InternalCall { kind: CallKind::InternalLibrary, declaration: Some((c, f)), .. } => (c.as_str(), f.as_str()),
+        CfgStatement::ExternalCall { kind: CallKind::LibraryDelegatecall, resolved: Some(id), .. } => {
+            let t = project.decl_table.function(*id)?;
+            (t.contract.as_str(), t.function.as_str())
+        }
+        _ => return None,
+    };
+    let library = contract(project, contract_key).filter(|c| c.kind == ContractKind::Library)?;
+    Some((library, library.functions.iter().find(|f| f.key == function_key)?))
 }
 
 pub(super) fn contract<'p>(project: &'p Project, key: &str) -> Option<&'p ContractDef> {
@@ -92,27 +168,18 @@ fn context_of(owner: &ContractDef, kind: CallKind) -> Option<String> {
     (kind == CallKind::ExternalSelf).then(|| owner.key().to_string())
 }
 
-/// An external call to a contract in a function's reachable code.
-pub struct ExternalCallSite {
-    pub kind: CallKind,
-    pub target: Option<String>,
-    pub span: Option<SourceSpan>,
-    /// `<contract key>::<name>` of the state variable holding the called address.
-    pub via: Option<String>,
+struct ExternalCallSite {
+    kind: CallKind,
+    target: Option<String>,
+    span: Option<SourceSpan>,
+    via: Option<String>,
 }
 
-/// `context` declares the code `cfg` runs.
-pub fn external_calls(project: &Project, context: &ContractDef, cfg: &CfgGraph) -> Vec<ExternalCallSite> {
-    reachable(cfg)
-        .into_iter()
-        .flat_map(|n| cfg[n].statements.iter())
-        .filter_map(|stmt| {
-            let (kind, target) = call_target(project, stmt)?;
-            let CfgStatement::ExternalCall { target_source, span, .. } = stmt else { return None };
-            let via = target_source.as_ref().and_then(|s| state_var_ref(project, context, s));
-            Some(ExternalCallSite { kind, target, span: *span, via })
-        })
-        .collect()
+fn external_site(project: &Project, context: &ContractDef, stmt: &CfgStatement) -> Option<ExternalCallSite> {
+    let (kind, target) = call_target(project, stmt)?;
+    let CfgStatement::ExternalCall { target_source, span, .. } = stmt else { return None };
+    let via = target_source.as_ref().and_then(|s| state_var_ref(project, context, s));
+    Some(ExternalCallSite { kind, target, span: *span, via })
 }
 
 pub(super) fn resolve(project: &Project, context: Option<&str>, kind: CallKind, target: Option<&str>) -> Dispatch {
@@ -154,7 +221,6 @@ fn self_candidates(
         .collect()
 }
 
-/// Deployable project contracts answering `member` of `declared`: those inheriting it, else any exposing its selector.
 fn implementations(project: &Project, declared: &ContractDef, member: &str) -> Vec<DispatchCandidate> {
     let function = declared.functions.iter().find(|f| f.key == member);
     let selector = function
@@ -163,7 +229,7 @@ fn implementations(project: &Project, declared: &ContractDef, member: &str) -> V
     let Some(selector) = selector else { return Vec::new() };
     let mut inheriting = Vec::new();
     let mut matching = Vec::new();
-    for c in project.project_contracts().filter(|c| c.is_deployable()) {
+    for c in project.contracts.iter().filter(|c| c.is_project_deployable()) {
         let Some(answer) = answering(project, c, selector) else { continue };
         let inherits = project.linearization(c).iter().any(|base| base.key() == declared.key());
         let (list, basis) = if inherits { (&mut inheriting, Basis::InheritsInterface) } else { (&mut matching, Basis::SelectorMatch) };
@@ -176,7 +242,6 @@ fn implementations(project: &Project, declared: &ContractDef, member: &str) -> V
     candidates
 }
 
-/// The public function or getter of `c` with `selector`, as `<declaring contract key>::<member key>`.
 fn answering(project: &Project, c: &ContractDef, selector: &str) -> Option<String> {
     let function = project.accessible_functions(c).into_iter().find(|af| {
         let f = af.function;
@@ -194,7 +259,6 @@ fn answering(project: &Project, c: &ContractDef, selector: &str) -> Option<Strin
         .map(|(v, owner, _)| format!("{owner}::{}", v.name))
 }
 
-/// The declaration's initial value and every direct assignment in a contract that inherits the variable.
 fn assignment_sites(project: &Project, state_var: &str) -> Vec<AssignmentSite> {
     let Some((owner, name)) = state_var.rsplit_once("::").and_then(|(c, n)| Some((contract(project, c)?, n))) else {
         return Vec::new();

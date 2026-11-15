@@ -29,7 +29,7 @@ export type SessionCommand =
   | 'SaveSession'
   | { Scenario: { sub: ScenarioAction } };
 
-/** A command the server rejected with `CommandResult::Error` (HTTP 200). */
+/** The server reports `CommandResult::Error` with HTTP 200. */
 export class CommandError extends Error {}
 
 // without `?contract=` the server reads the contract of the most recent command

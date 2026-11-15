@@ -19,11 +19,8 @@ pub enum DeclKind {
 pub struct DeclTarget {
     pub kind: DeclKind,
     pub contract: String,
-    /// Empty for every kind but functions.
     pub function: String,
-    /// Empty for contracts.
     pub name: String,
-    /// Readable and stable: `<contract qualified id>` or `<contract qualified id>::<name>`.
     pub key: String,
 }
 
@@ -36,7 +33,6 @@ pub struct DeclTable {
 }
 
 impl DeclTable {
-    /// An empty `function` registers the contract.
     pub fn insert(&mut self, id: DeclId, contract: String, function: String) {
         let kind = if function.is_empty() { DeclKind::Contract } else { DeclKind::Function };
         let key = if function.is_empty() { contract.clone() } else { format!("{contract}::{function}") };

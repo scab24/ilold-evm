@@ -1,4 +1,3 @@
-//! The keys a storage access indexes with, read from the raw path. Fixture: tests/fixtures/solc/keys.
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -29,7 +28,7 @@ fn accesses(func: &str) -> Vec<StorageAccess> {
     storage_accesses(project(), keys, keys, f, cfg)
 }
 
-/// `(text, kind, ref)` of each index level of the function's writes to `var`.
+/// `(text, kind, ref)` of each index level.
 fn written_keys(func: &str, var: &str) -> Vec<Vec<(String, KeyKind, Option<String>)>> {
     accesses(func)
         .into_iter()

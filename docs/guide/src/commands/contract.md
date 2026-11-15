@@ -174,6 +174,168 @@ The same relationships are available project-wide on the CLI with
 topological reading order (dependency-free contracts first), and as an
 interactive graph on the web canvas.
 
+## links
+
+`links [contract | --all]`
+
+Lists the calls between a contract — the current one, or the named one — and
+other contracts, function to function, as the contract runs its code: inherited
+functions and base constructors are included, so a call an abstract base makes
+is listed under every contract that inherits it. Only deployed contracts call
+others on their own: an abstract contract or a library is never listed under
+`called by`, though `links` on it still lists its own calls.
+
+- the first line counts the other deployed contracts it calls or reads
+  (`contracts N → · M ←`, a call with several candidates counting each of
+  them; libraries and the contract itself not counted) and then its calls and
+  reads to and from them, a call with several candidates counted once.
+- **calls** — the calls it makes, grouped by the contract that may answer. A
+  call through an interface several contracts implement is one row, listed under
+  each of them, with `N possible` and `AMBIGUOUS`. Library calls are listed
+  under the library and `this.f()` calls under the contract itself. Rows other
+  than plain calls say `read` (a view or pure function or a getter), `library`
+  or `self`, `via` names the state variable holding the called address,
+  `moves` the asset and amount the call sends and `in try` a call a try
+  statement guards.
+- **called by** — the calls into it, grouped by the contract running the
+  calling code.
+- **Unresolved** — calls nothing in the project answers, with the reason
+  (`out_of_scope_interface`, `no_implementation`, `dynamic_address`); a call
+  naming no declaration reads `dynamic address` as its target.
+- **Addresses set at** — where the state variables named in `via` get their
+  value.
+
+```
+ilold[Curve]> links
+
+  Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←
+
+  Curve → calls
+    DenA  1 call
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
+    DenB  1 call
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
+    Hook  2 calls
+      CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook  moves native address(this).balance
+      CurveBase::_graduate → Hook::fee  read  line 27  via CurveBase::hook
+    Payout  1 call
+      buy → Payout::pay  library  line 41
+    Token  2 calls
+      buy → Token::mint  line 35  via CurveBase::token  moves erc20 token msg.value
+      Payout::pay → Token::transfer  line 8  moves erc20 token amount
+
+  Curve ← called by
+    Router  2 calls
+      Router::buyWith → Curve::buy  line 14  via Router::curve  moves native msg.value
+      Router::quote → CurveBase::price  read  line 18  via Router::curve
+
+  Addresses set at
+      CurveBase::den = den_  constructor_param  CurveBase::constructor  line 15
+      CurveBase::hook = hook_  constructor_param  CurveBase::constructor  line 13
+      CurveBase::token = token_  constructor_param  CurveBase::constructor  line 14
+```
+
+Functions of the contract itself are shown by name; inherited ones keep their
+declaring contract (`CurveBase::_graduate`). The code of a project library the
+contract calls runs inside the contract, so its calls are listed as the
+contract's own (`Payout::pay`); a dependency library stays a single `library`
+row.
+
+`links --all` lists the whole project instead: every pair of a deployed
+contract and a contract answering its calls, with its calls, reads and library
+calls (a call with several candidates counted once under each), how many go
+through an interface the target inherits, the value moved and `AMBIGUOUS`; then
+the unresolved calls per interface (`dynamic address` when the call names no
+declaration). The `in all` lines count each row and value transfer once. Each
+deployed contract shows the other contracts it calls and that call it, its
+calls and reads to and from them, its entry points (public and restricted functions) and whether it moves value. The
+project map draws the same pairs and totals.
+
+```
+ilold[Curve]> links --all
+
+  Project connections  7 pair(s)
+    in all  5 calls, 2 reads, 2 library calls  7 via interface  moves value ×4
+    Curve → DenA  1 call  1 via interface  AMBIGUOUS
+    Curve → DenB  1 call  1 via interface  AMBIGUOUS
+    Curve → Hook  1 call, 1 read  2 via interface  moves value ×1
+    Curve → Payout  1 library call
+    Curve → Token  2 calls  2 via interface  moves value ×2
+    Hook → PoolMath  1 library call
+    Router → Curve  1 call, 1 read  2 via interface  moves value ×1
+
+  Unresolved
+    Hook → IPoolManager  2 calls
+    in all 2 calls
+
+  Deployed contracts
+    Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←  3 entry · 0 restricted  moves value
+    DenA  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    DenB  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    Hook  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  2 entry · 0 restricted  moves value
+    Router  contracts 1 → · 0 ←  calls and reads 2 → · 0 ←  2 entry · 0 restricted  moves value
+    Token  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  3 entry · 0 restricted
+```
+
+## route
+
+`route <from> <to> [--reads]`
+
+Prints the shortest chains of calls from one contract to another through
+deployed contracts, step by step, with every call of each step. Library and
+`this` calls are not followed; reads are followed only with `--reads`. A call
+marked `not recorded from the previous step` joins the route by contract only:
+nothing records the previous step's callee reaching it inside the contract;
+`moves value` and `in try` mark the calls as in `links`. When more than 32
+routes are equally short, the rest are left out and the header says so.
+
+```
+ilold[Curve]> route Router Hook
+
+  Router → Hook  1 shortest route(s) following calls
+
+  route 1 Router → Curve → Hook
+    Router → Curve
+      Router::buyWith → Curve::buy  line 14  moves value
+    Curve → Hook
+      CurveBase::_graduate → Hook::migrate  line 27  moves value
+```
+
+## value
+
+`value [contract]`
+
+Who pays whom: the value moves of every deployed project contract, grouped per
+running contract by the two sides, the asset and the token. A side is a contract only
+where the code resolves one — the contract running the code, the contract a
+call with value or a mint or burn goes to, or a contract outside the project
+the call is typed as, such as a pool manager (`(outside the project)`); any
+other account stays as the source writes it, in backticks. A Uniswap v4
+`Currency` is shown as `ETH or token, set by the pool`. With a contract, only
+the moves it runs or is a side of are listed.
+
+```
+ilold[Curve]> value
+
+  Value flow  6 pair(s), 6 transfer(s)
+    as Curve runs
+      Curve → Hook  native  ×1  CurveBase::_graduate
+      Curve → `payable(to)`  native  ×1  buy
+      Curve → `to`  erc20 token  ×1  Payout::pay
+      Token → `to`  erc20 token  ×1  buy
+    as Hook runs
+      Hook → IPoolManager (outside the project)  native  ×1  migrate
+    as Router runs
+      Router → Curve  native  ×1  buyWith
+```
+
+`links`, `route` and `value` read the same facts as the web API
+([`/api/contract/{name}/connections`](../reference/api-endpoints.md#get-apicontractnameconnections),
+[`/api/project/connections`](../reference/api-endpoints.md#get-apiprojectconnections),
+[`/api/project/route`](../reference/api-endpoints.md#get-apiprojectroute),
+[`/api/project/value-flow`](../reference/api-endpoints.md#get-apiprojectvalue-flow))
+and the MCP tools `ilold_connections`, `ilold_route` and `ilold_value_flow`.
+
 ## use
 
 `use <contract>`

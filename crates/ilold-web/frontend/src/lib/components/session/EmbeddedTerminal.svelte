@@ -32,7 +32,7 @@
     }
   });
 
-  // the PTY starts when first shown and stays alive while hidden, until the page ends
+  // the PTY starts on first show and lives until the page ends
   $effect(() => {
     if (ready && isTerminalVisible() && !ws) connect();
   });
@@ -48,7 +48,7 @@
     });
   });
 
-  /** The server then ends the attached REPL. */
+  /** Closing the socket makes the server end the attached REPL. */
   function disconnect() {
     const socket = ws;
     ws = null;
@@ -82,6 +82,7 @@
   const MIN_W = 400;
   const MIN_H = 200;
   const TITLE_BAR_H = 36;
+  const BOTTOM_BARS = 76;
 
   let dragging = $state(false);
 
@@ -149,17 +150,18 @@
       prevPosY = posY;
       prevWidth = panelWidth;
       prevHeight = panelHeight;
-      posX = 16;
-      posY = 16;
-      panelWidth = window.innerWidth - 32;
-      panelHeight = window.innerHeight - 32;
+      const a = area();
+      posX = a.left + 8;
+      posY = a.top + 8;
+      panelWidth = a.right - a.left - 16;
+      panelHeight = a.bottom - a.top - 16;
       maximized = true;
     }
     requestAnimationFrame(() => fitAddon?.fit());
   }
 
   let fontSize = $state(13);
-  const MIN_FONT = 9;
+  const MIN_FONT = 12;
   const MAX_FONT = 22;
 
   function changeFontSize(delta: number) {
@@ -174,14 +176,36 @@
     terminal?.clear();
   }
 
-  function clampToViewport() {
-    posX = Math.max(0, Math.min(posX, window.innerWidth - panelWidth));
-    posY = Math.max(0, Math.min(posY, window.innerHeight - panelHeight));
+  function area(): { left: number; top: number; right: number; bottom: number } {
+    const canvas = document.querySelector('.wb-canvas')?.getBoundingClientRect();
+    return canvas ?? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight - BOTTOM_BARS };
   }
 
+  function clampToViewport() {
+    const a = area();
+    panelWidth = Math.max(Math.min(MIN_W, a.right - a.left - 16), Math.min(panelWidth, a.right - a.left - 16));
+    panelHeight = Math.max(Math.min(MIN_H, a.bottom - a.top - 16), Math.min(panelHeight, a.bottom - a.top - 16));
+    posX = Math.max(a.left + 8, Math.min(posX, a.right - panelWidth - 8));
+    posY = Math.max(a.top + 8, Math.min(posY, a.bottom - panelHeight - 8));
+  }
+
+  let canvasWatch: ResizeObserver | null = null;
+
+  function dock() {
+    const a = area();
+    posX = a.right - panelWidth - 8;
+    posY = a.bottom - panelHeight - 8;
+    clampToViewport();
+  }
+
+  $effect(() => {
+    if (isTerminalVisible()) untrack(() => (maximized ? clampToViewport() : dock()));
+  });
+
   onMount(() => {
-    posX = window.innerWidth - panelWidth - 16;
-    posY = window.innerHeight - panelHeight - 16;
+    dock();
+    const canvas = document.querySelector('.wb-canvas');
+    if (canvas) (canvasWatch = new ResizeObserver(() => clampToViewport())).observe(canvas);
 
     requestAnimationFrame(() => { fadeIn = true; });
 
@@ -291,6 +315,7 @@
   }
 
   onDestroy(() => {
+    canvasWatch?.disconnect();
     window.removeEventListener('resize', clampToViewport);
     window.removeEventListener('pagehide', onPageHide);
     window.removeEventListener('pageshow', onPageShow);
@@ -300,7 +325,6 @@
   });
 </script>
 
-<!-- Outer container: premium floating panel -->
 <div
   class="fixed z-50 flex flex-col overflow-hidden"
   class:opacity-0={!fadeIn}
@@ -321,7 +345,6 @@
     transition: height 200ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms ease-out;
   "
 >
-  <!-- Title bar (drag handle) — glass effect -->
   <div
     class="flex items-center justify-between px-3 shrink-0 select-none {dragging ? 'cursor-grabbing' : 'cursor-grab'}"
     style="
@@ -334,29 +357,15 @@
     onmousedown={onDragStart}
     role="toolbar"
   >
-    <!-- Left: traffic light buttons -->
     <div class="flex items-center gap-2">
       <div class="flex items-center gap-1.5">
-        <!-- Close (red) -->
         <button
-          class="w-3 h-3 rounded-full border-none cursor-pointer transition-all duration-150 hover:brightness-125"
-          style="background: var(--color-danger);"
-          title="Close"
+          class="term-close"
+          title="Close the terminal"
           aria-label="Close terminal"
           onmousedown={(e: MouseEvent) => e.stopPropagation()}
           onclick={() => closePanel()}
-        ></button>
-        <!-- Hide (yellow) — kept alongside red for the macOS traffic-light
-             aesthetic. Both close the terminal; reopen via TopBar >_. -->
-        <button
-          class="w-3 h-3 rounded-full border-none cursor-pointer transition-all duration-150 hover:brightness-125"
-          style="background: var(--color-warning);"
-          title="Hide terminal"
-          aria-label="Hide terminal"
-          onmousedown={(e: MouseEvent) => e.stopPropagation()}
-          onclick={() => closePanel()}
-        ></button>
-        <!-- Maximize (green/success) -->
+        >×</button>
         <button
           class="w-3 h-3 rounded-full border-none cursor-pointer transition-all duration-150 hover:brightness-125"
           style="background: var(--color-success);"
@@ -367,37 +376,30 @@
         ></button>
       </div>
 
-      <!-- PTY link status — compact dot only. The docked StatusBar already
-           exposes the main WS state; labelling this one "connected" side
-           by side would have read as duplicate info. -->
       <div class="flex items-center gap-1.5 ml-3" title={connected ? 'PTY connected' : 'PTY disconnected'}>
         <span
           class="w-1.5 h-1.5 rounded-full inline-block"
           style="background: {connected ? 'var(--color-success-light)' : 'var(--color-danger-light)'}; box-shadow: 0 0 6px {connected ? 'var(--color-success)' : 'var(--color-danger)'};"
           aria-label={connected ? 'PTY connected' : 'PTY disconnected'}
         ></span>
-        <span class="text-[9px] text-text-dim tracking-wider uppercase">PTY</span>
+        <span class="text-[12px] text-text-dim tracking-wider uppercase">PTY</span>
       </div>
     </div>
 
-    <!-- Center: title -->
     <span
-      class="text-[11px] font-semibold tracking-wider uppercase absolute left-1/2 -translate-x-1/2"
+      class="text-[12px] font-semibold tracking-wider uppercase absolute left-1/2 -translate-x-1/2"
       style="color: var(--color-text-muted);"
     >Terminal</span>
 
-    <!-- Right: spacer for symmetry -->
     <div class="w-16"></div>
   </div>
 
-  <!-- Terminal body -->
   <div
     class="flex-1 min-h-0 relative"
     style="
       background: rgba(13, 17, 23, 0.97);
     "
   >
-    <!-- Inner shadow overlay for depth -->
     <div
       class="absolute inset-x-0 top-0 h-4 z-10 pointer-events-none"
       style="background: linear-gradient(180deg, rgba(0, 0, 0, 0.25) 0%, transparent 100%);"
@@ -405,10 +407,6 @@
     <div bind:this={terminalEl} class="h-full w-full" />
   </div>
 
-  <!-- Status bar (bottom) — glass style matching the docked StatusBar so
-       both strips read as the same UI layer (same height, gradient, font
-       size). Cols×rows and PTY dot stay inside the terminal because they
-       describe the xterm instance, not the global app. -->
   <div
       class="flex items-center justify-between px-3 shrink-0 select-none"
       style="
@@ -420,7 +418,7 @@
       "
     >
       <div class="flex items-center gap-3">
-        <span class="text-[10px] text-text-dim font-mono tracking-wide">
+        <span class="text-[12px] text-text-dim font-mono tracking-wide">
           {termCols}×{termRows}
         </span>
         <span
@@ -430,24 +428,23 @@
         ></span>
       </div>
       <div class="flex items-center gap-2">
-        <!-- Font size controls -->
         <div class="flex items-center gap-0.5">
           <button
-            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[11px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
+            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[12px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
             onclick={() => changeFontSize(-1)}
             title="Decrease font size"
             aria-label="Decrease font size"
           >−</button>
-          <span class="text-[10px] text-text-dim font-mono min-w-[24px] text-center">{fontSize}px</span>
+          <span class="text-[12px] text-text-dim font-mono min-w-[24px] text-center">{fontSize}px</span>
           <button
-            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[11px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
+            class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[12px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
             onclick={() => changeFontSize(1)}
             title="Increase font size"
             aria-label="Increase font size"
           >+</button>
         </div>
         <button
-          class="bg-transparent border-none text-text-dim hover:text-text-muted cursor-pointer text-[10px] px-1.5 py-0 rounded tracking-wide transition-colors duration-150"
+          class="bg-transparent border-none text-text-dim hover:text-text-muted cursor-pointer text-[12px] px-1.5 py-0 rounded tracking-wide transition-colors duration-150"
           onclick={clearTerminal}
           title="Clear terminal"
         >
@@ -456,7 +453,6 @@
       </div>
   </div>
 
-  <!-- Resize handle (bottom-right corner) — diagonal grip pattern -->
   <div
       class="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-10"
       onmousedown={onResizeStart}
@@ -470,3 +466,8 @@
       </svg>
   </div>
 </div>
+
+<style>
+  .term-close { width: 18px; height: 18px; border-radius: 9px; border: none; cursor: pointer; background: var(--color-danger); color: #1a1a1a; font: 700 12px/18px var(--font-sans); padding: 0; text-align: center; }
+  .term-close:hover { filter: brightness(1.2); }
+</style>

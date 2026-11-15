@@ -23,7 +23,7 @@
 </script>
 
 <div
-  class="block-node py-1 px-3 rounded-sm bg-hover border border-border font-mono text-[10px] min-w-[80px] text-center"
+  class="block-node py-1 px-3 rounded-sm bg-hover border border-border font-mono text-[12px] min-w-[80px] text-center"
   class:entry={typeClass === 'entry'}
   class:return={typeClass === 'return'}
   class:revert={typeClass === 'revert'}
@@ -33,23 +33,23 @@
   <span>{data.label}</span>
   {#if showBadges}
     <div class="flex items-center justify-center gap-1 mt-0.5">
-      <span class="text-[8px] text-text-dim">{stmtCount} stmts</span>
+      <span class="text-text-dim">{stmtCount} stmts</span>
       {#if hasExternal}
-        <span class="text-[8px] px-0.5 rounded bg-danger/20 text-danger-light">ext</span>
+        <span class="px-0.5 rounded bg-danger/20 text-danger-light">ext</span>
       {/if}
       {#if hasStateWrite}
-        <span class="text-[8px] px-0.5 rounded bg-accent-dark/30 text-accent-hover">write</span>
+        <span class="px-0.5 rounded bg-accent-dark/30 text-accent-hover">write</span>
       {/if}
     </div>
   {/if}
   {#if data.tryCatch}
-    <div class="mt-0.5"><span class="text-[8px] px-0.5 rounded bg-warning/20 text-warning" data-testid="try-badge">try {data.tryCatch.guarded_call?.text ?? '?'}</span></div>
+    <div class="mt-0.5"><span class="px-0.5 rounded bg-warning/20 text-warning" data-testid="try-badge">try {data.tryCatch.guarded_call?.text ?? '?'}</span></div>
   {/if}
   {#if data.catchClause}
     <div class="flex items-center justify-center gap-1 mt-0.5">
-      <span class="text-[8px] text-danger-light" data-testid="catch-label">{catchLabel(data.catchClause)}</span>
+      <span class="text-danger-light" data-testid="catch-label">{catchLabel(data.catchClause)}</span>
       {#if data.catchClause.empty}
-        <span class="text-[8px] px-0.5 rounded bg-danger/30 text-danger-light font-bold" data-testid="swallowed-badge">{SWALLOWED}</span>
+        <span class="px-0.5 rounded bg-danger/30 text-danger-light font-bold" data-testid="swallowed-badge">{SWALLOWED}</span>
       {/if}
     </div>
   {/if}

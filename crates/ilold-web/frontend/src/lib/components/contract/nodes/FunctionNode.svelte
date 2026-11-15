@@ -50,26 +50,26 @@
   <span>{data.label}</span>
   {#if scenarioName}
     <span
-      class="inline-block ml-1 text-[8px] px-1 rounded bg-accent-dark/30 text-accent-hover align-middle"
+      class="inline-block ml-1 px-1 rounded bg-accent-dark/30 text-accent-hover align-middle"
       title={`Scenario: ${scenarioName}`}
     >{scenarioName}</span>
   {/if}
   {#if hasBadges}
     <div class="flex items-center justify-center gap-1 mt-0.5">
       {#if visLabel}
-        <span class="text-[8px] px-1 rounded {visClass}">{visLabel}</span>
+        <span class="px-1 rounded {visClass}">{visLabel}</span>
       {/if}
       {#if mutIcon}
-        <span class="text-[9px]">{mutIcon}</span>
+        <span>{mutIcon}</span>
       {/if}
       {#if data.path_count != null && data.path_count > 0}
-        <span class="text-[8px] text-text-dim">{data.path_count}p</span>
+        <span class="text-text-dim">{data.path_count}p</span>
       {/if}
       {#if hasAccessControl}
-        <span class="text-[9px]" title={data.modifiers?.join(', ')}>&#x1F512;</span>
+        <span title={data.modifiers?.join(', ')}>&#x1F512;</span>
       {/if}
       {#if transfers}
-        <span class="text-[9px] text-success-light" title={transfers} data-testid="node-value-mark">⇄</span>
+        <span class="text-success-light" title={transfers} data-testid="node-value-mark">⇄</span>
       {/if}
     </div>
   {/if}
@@ -84,7 +84,6 @@
     border-style: dashed;
     border-color: var(--color-danger);
     color: var(--color-danger-light);
-    font-size: 11px;
   }
   .function-node.dimmed {
     opacity: 0.55;

@@ -1,4 +1,3 @@
-//! The graph export through the library: canonical lines and the no-facts envelope. CLI behaviour: crates/ilold-cli/tests/graph_export_test.rs.
 use std::path::PathBuf;
 
 use ilold_core::analysis::AnalysisParams;

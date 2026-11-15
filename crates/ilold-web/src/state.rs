@@ -178,7 +178,6 @@ impl ScenarioStore {
     }
 }
 
-/// One store per contract; `current` is the contract named by the most recent `/api/cmd`.
 pub struct ScenarioRegistry {
     current: String,
     stores: HashMap<String, ScenarioStore>,
@@ -200,7 +199,6 @@ impl ScenarioRegistry {
         self.stores.get(contract)
     }
 
-    /// Created on first use; it becomes the current contract.
     pub fn select(&mut self, contract: &str) -> &mut ScenarioStore {
         self.current = contract.to_string();
         self.stores
@@ -208,7 +206,6 @@ impl ScenarioRegistry {
             .or_insert_with(|| ScenarioStore::new_for_contract(contract))
     }
 
-    /// Makes it current.
     pub fn replace(&mut self, store: ScenarioStore) {
         self.current = store.contract.clone();
         self.stores.insert(store.contract.clone(), store);

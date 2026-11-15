@@ -53,7 +53,6 @@ pub struct DepEdgeData {
     pub link: Option<ContractLink>,
 }
 
-/// Layers are computed on the listed graph.
 fn listed_graph(state: &AppState, include_dependencies: bool) -> std::borrow::Cow<'_, ContractDeps> {
     if include_dependencies {
         std::borrow::Cow::Borrowed(&state.dep_graph)

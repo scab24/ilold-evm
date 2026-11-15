@@ -1,4 +1,3 @@
-//! External calls resolved to the in-scope contracts that may answer them. Fixture: tests/fixtures/solc/dispatch.
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -132,7 +131,8 @@ fn links_aggregate_the_candidates_per_contract_pair() {
             ("Router", "Vault", Basis::InheritsInterface, Tag::Inferred, vec!["vault"], 1),
         ]
     );
-    assert_eq!(analysis().relations.incoming("Vault").count(), 1);
+    let into_vault: Vec<&str> = analysis().relations.links.iter().filter(|l| l.to_contract == "Vault").map(|l| l.from_contract.as_str()).collect();
+    assert_eq!(into_vault, vec!["Router"]);
 }
 
 #[test]

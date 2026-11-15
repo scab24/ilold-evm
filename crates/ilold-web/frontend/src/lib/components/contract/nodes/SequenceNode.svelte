@@ -17,7 +17,7 @@
 </script>
 
 <div
-  class="seq-node py-1 px-2.5 rounded-sm bg-surface-alt border-[1.5px] border-accent text-text font-mono text-[11px] min-w-[80px] text-center flex flex-col items-center gap-0.5"
+  class="seq-node py-1 px-2.5 rounded-sm bg-surface-alt border-[1.5px] border-accent text-text font-mono text-[12px] min-w-[80px] text-center flex flex-col items-center gap-0.5"
   class:readonly={data.readOnly}
   class:has-conditions={hasConditions}
   class:has-shared={hasShared}
@@ -25,30 +25,30 @@
 >
   <div class="flex items-center gap-1.5">
     {#if hasConditions}
-      <span class="text-[10px] text-warning" title="Conditions affected">&#x26A0;</span>
+      <span class="text-warning" title="Conditions affected">&#x26A0;</span>
     {/if}
     {#if data.readOnly}
-      <span class="text-[9px] text-text-muted" title="Read-only">&#x25CE;</span>
+      <span class="text-text-muted" title="Read-only">&#x25CE;</span>
     {/if}
     <span>{data.label}</span>
     {#if visLabel}
-      <span class="text-[8px] px-1 rounded {visClass}">{visLabel}</span>
+      <span class="px-1 rounded {visClass}">{visLabel}</span>
     {/if}
     {#if hasAccessControl}
-      <span class="text-[9px]" title={data.modifiers?.join(', ')}>&#x1F512;</span>
+      <span title={data.modifiers?.join(', ')}>&#x1F512;</span>
     {/if}
     {#if data.pathCount}
-      <span class="text-[9px] text-text-dim">{data.pathCount}p</span>
+      <span class="text-text-dim">{data.pathCount}p</span>
     {/if}
-    <span class="text-[8px] text-text-dim ml-auto">&#x25B6;</span>
+    <span class="text-text-dim ml-auto">&#x25B6;</span>
   </div>
   {#if hasShared && visibleVars.length > 0}
     <div class="flex items-center gap-0.5 flex-wrap justify-center">
       {#each visibleVars as v}
-        <span class="text-[8px] bg-accent-dark/30 text-accent-hover px-1 rounded">{v}</span>
+        <span class="bg-accent-dark/30 text-accent-hover px-1 rounded">{v}</span>
       {/each}
       {#if overflowCount > 0}
-        <span class="text-[8px] text-text-dim">+{overflowCount}</span>
+        <span class="text-text-dim">+{overflowCount}</span>
       {/if}
     </div>
   {/if}

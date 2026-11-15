@@ -46,16 +46,16 @@
 </div>
 
 <style>
-  .who { margin-top: 6px; padding: 6px; border: 1px solid var(--color-border-subtle); border-radius: 6px; font-size: 11px; }
+  .who { margin-top: 6px; padding: 6px; border: 1px solid var(--color-border-subtle); border-radius: 6px; font-size: 12px; }
   .who-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; color: var(--color-text-muted); }
   .who-close { background: transparent; border: none; color: var(--color-text-dim); cursor: pointer; font-size: 14px; }
   .who-group { display: flex; gap: 6px; align-items: baseline; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--color-border-subtle); }
-  .who-label { font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--color-text-muted); }
-  .who-scope { font-size: 10px; color: var(--color-accent-hover); }
+  .who-label { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--color-text-muted); }
+  .who-scope { font-size: 12px; color: var(--color-accent-hover); }
   .who-row { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 2px 4px; }
-  .who-kind { font-size: 9px; font-weight: 700; width: 14px; text-align: center; color: var(--color-text-muted); }
+  .who-kind { font-size: 12px; font-weight: 700; width: 14px; text-align: center; color: var(--color-text-muted); }
   .who-kind.write { color: var(--color-accent-hover); }
   .who-fn { font-family: 'JetBrains Mono', monospace; color: var(--color-text); }
-  .who-dim { font-size: 10px; color: var(--color-text-dim); }
+  .who-dim { font-size: 12px; color: var(--color-text-dim); }
   .who-error { color: var(--color-danger); }
 </style>

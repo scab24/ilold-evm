@@ -18,7 +18,6 @@
     loading = true;
     error = null;
     try {
-      // a read, never a command that takes the session over
       stateVars = await getSessionState(contract);
     } catch (e: any) {
       error = e.message ?? 'Failed to fetch state';
@@ -47,7 +46,6 @@
 </script>
 
 <div class="flex flex-col overflow-hidden h-full" style="background: transparent;">
-  <!-- Header — glass effect -->
   <div
     class="flex items-center justify-between px-3 py-2.5 flex-shrink-0"
     style="
@@ -57,7 +55,7 @@
       -webkit-backdrop-filter: blur(16px) saturate(1.8);
     "
   >
-    <span class="text-[10px] text-text-muted uppercase tracking-wider font-semibold">State Variables</span>
+    <span class="text-[13px] text-text-light font-bold">State variables</span>
     <button
       class="bg-transparent border text-text-muted cursor-pointer text-xs px-2 py-0.5 leading-none transition-colors duration-150 hover:text-accent-hover hover:border-accent disabled:opacity-40 disabled:cursor-default"
       style="
@@ -72,20 +70,19 @@
     </button>
   </div>
 
-  <!-- Body -->
   <div class="panel-body flex-1 overflow-y-auto p-1.5">
     {#if loading && stateVars.length === 0}
-      <div class="text-[11px] text-text-dim py-6 px-2 text-center italic">Loading state...</div>
+      <div class="text-[12px] text-text-dim py-6 px-2 text-center italic">Loading state...</div>
     {:else if error && stateVars.length === 0}
-      <div class="text-[11px] text-danger py-4 px-2 text-center">{error}</div>
+      <div class="text-[12px] text-danger py-4 px-2 text-center">{error}</div>
     {:else if stateVars.length === 0}
-      <div class="text-[11px] text-text-dim py-8 px-3 text-center italic leading-relaxed">
+      <div class="text-[12px] text-text-dim py-8 px-3 text-center italic leading-relaxed">
         No state changes yet. Explore functions to see variable mutations.
       </div>
     {:else}
       {#each stateVars as v}
         <button
-          class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none text-text text-[11px] font-mono cursor-pointer text-left transition-all duration-150 hover:text-accent-hover"
+          class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none text-text text-[12px] font-mono cursor-pointer text-left transition-all duration-150 hover:text-accent-hover"
           style="
             border-radius: 8px;
             border-left: 2px solid {expandedVar === v.variable ? 'var(--color-accent)' : 'transparent'};
@@ -94,12 +91,12 @@
           onclick={() => toggleTimeline(v.variable)}
         >
           <span class="text-accent-hover font-semibold flex-shrink-0 max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap">{v.variable}</span>
-          <span class="flex-1 text-[10px] text-text-muted overflow-hidden text-ellipsis whitespace-nowrap">
+          <span class="flex-1 text-[12px] text-text-muted overflow-hidden text-ellipsis whitespace-nowrap">
             {#if v.changes?.length > 0}
               {v.changes[v.changes.length - 1]}
             {/if}
           </span>
-          <span class="text-[9px] text-text-dim flex-shrink-0 w-2.5 text-center">{expandedVar === v.variable ? '▾' : '▸'}</span>
+          <span class="text-[12px] text-text-dim flex-shrink-0 w-2.5 text-center">{expandedVar === v.variable ? '▾' : '▸'}</span>
         </button>
 
         {#if expandedVar === v.variable}
@@ -113,12 +110,12 @@
             {#if v.changes?.length > 0}
               {#each v.changes as change, i}
                 <div
-                  class="font-mono text-[10px] text-text-muted py-1"
+                  class="font-mono text-[12px] text-text-muted py-1"
                   style="border-bottom: {i < v.changes.length - 1 ? '1px solid color-mix(in srgb, var(--color-border) 20%, transparent)' : 'none'};"
                 >{change}</div>
               {/each}
             {:else}
-              <div class="text-[10px] text-text-dim py-1.5 italic">No changes recorded.</div>
+              <div class="text-[12px] text-text-dim py-1.5 italic">No changes recorded.</div>
             {/if}
           </div>
         {/if}

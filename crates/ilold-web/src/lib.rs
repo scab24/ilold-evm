@@ -21,9 +21,13 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/project", get(api::project::get_project))
         .route("/api/project/map", get(api::project::get_project_map))
         .route("/api/project/depgraph", get(api::depgraph::get_project_depgraph))
+        .route("/api/project/connections", get(api::project::get_project_connections))
+        .route("/api/project/value-flow", get(api::project::get_value_flow))
+        .route("/api/project/route", get(api::project::get_route))
         .route("/api/contract/{name}/depgraph", get(api::depgraph::get_contract_depgraph))
         .route("/api/contract/{name}", get(api::contract::get_contract))
         .route("/api/contract/{name}/callgraph", get(api::contract::get_callgraph))
+        .route("/api/contract/{name}/connections", get(api::contract::get_connections))
         .route("/api/contract/{name}/{func}/cfg", get(api::contract::get_cfg))
         .route("/api/contract/{name}/{func}/paths", get(api::contract::get_paths))
         .route("/api/contract/{name}/{func}/source", get(api::contract::get_function_source))
@@ -55,7 +59,6 @@ fn build_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-/// The directory itself, or a file's parent; never empty, even for `.`.
 pub fn contract_path_for(path: &Path) -> PathBuf {
     let absolute = std::fs::canonicalize(path)
         .or_else(|_| std::path::absolute(path))
@@ -69,7 +72,7 @@ pub fn contract_path_for(path: &Path) -> PathBuf {
     }
 }
 
-/// The URL a client on this machine uses; unspecified binds are reached through loopback.
+/// Unspecified binds are reached through loopback.
 pub fn local_url(addr: SocketAddr) -> String {
     let ip = match addr.ip() {
         IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),

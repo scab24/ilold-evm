@@ -12,7 +12,6 @@ use super::effects::{CfgSummary, Effects};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionBehavior {
     pub name: String,
-    /// Function keys are unique only within the declaring contract.
     #[serde(default)]
     pub owner: String,
     pub preconditions: Vec<String>,
@@ -49,7 +48,6 @@ pub struct FunctionBehavior {
 
     #[serde(default)]
     pub revert_sources: Vec<String>,
-    /// Normalised paths rooted at the parameter name.
     #[serde(default)]
     pub storage_param_writes: Vec<String>,
     #[serde(default)]
@@ -58,21 +56,16 @@ pub struct FunctionBehavior {
     pub transitive_effects: Vec<EffectTrace>,
     #[serde(default)]
     pub unresolved_modifiers: Vec<String>,
-    /// Assembly that may change state runs on some path, or the effects of a recursion whose written places keep growing were cut.
     #[serde(default)]
     pub effects_incomplete: bool,
-    /// Reads may be missing: assembly in a `view` function runs, or the effects are incomplete altogether.
     #[serde(default)]
     pub reads_incomplete: bool,
-    /// Assembly runs on some path: Yul can revert whatever the mutability, so the revert sources may miss some.
     #[serde(default)]
     pub reverts_incomplete: bool,
     #[serde(default)]
     pub guards: Vec<crate::classify::guards::GuardFact>,
-    /// A helper chain deeper than the guard walk follows was cut.
     #[serde(default)]
     pub guards_incomplete: bool,
-    /// Inline assembly in the function or its modifiers; its mutability tells what it may hide.
     #[serde(default)]
     pub assembly_blocks: Vec<SourceSpan>,
     #[serde(default)]
@@ -92,7 +85,6 @@ pub enum EffectKind {
     Revert,
 }
 
-/// `via` lists the callees from the analysed function to the one with the effect.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EffectTrace {
     pub kind: EffectKind,
@@ -176,7 +168,6 @@ pub fn analyze_sequences(
     SequenceAnalysis { functions, transitions }
 }
 
-/// From path trees, for callers without CFG summaries; see [`direct_behavior`].
 pub fn direct_behaviors(
     path_trees: &HashMap<(String, String), PathTree>,
     contract_name: &str,
@@ -196,7 +187,6 @@ pub fn direct_behaviors(
     behaviors
 }
 
-/// `annotations` covers every block the function may run.
 pub fn direct_behavior(owner: &str, key: &str, annotations: &PathAnnotations, returns: bool, reverts: bool) -> FunctionBehavior {
     let bases = |paths: &[String]| sorted(paths.iter().map(|p| base_name(p)));
     let state_writes = bases(&annotations.state_writes);
@@ -241,7 +231,6 @@ pub fn direct_behavior(owner: &str, key: &str, annotations: &PathAnnotations, re
     }
 }
 
-/// Pairs where the first function changes something the second one uses.
 pub fn transitions(behaviors: &[FunctionBehavior]) -> Vec<TransitionInfo> {
     behaviors.iter().flat_map(|a| behaviors.iter().filter_map(move |b| transition(a, b))).collect()
 }
@@ -296,7 +285,6 @@ fn sorted(items: impl IntoIterator<Item = String>) -> Vec<String> {
     set.into_iter().collect()
 }
 
-/// `effects` must be computed in the contract the behavior is listed under.
 pub fn apply_effects(behavior: &mut FunctionBehavior, summary: &CfgSummary, effects: &Effects, func: &FunctionDef) {
     let b = behavior;
     let reached = |map: &std::collections::BTreeMap<String, Vec<String>>| -> Vec<String> {

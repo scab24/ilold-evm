@@ -1,13 +1,14 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { onDestroy, tick, untrack } from 'svelte';
-  import { getContract, getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, getProjectMap, type ContractDetail, type CytoscapeGraph, type SequenceAnalysis, type MapContract } from '$lib/api/rest';
+  import { getCallGraph, getCfg, getPaths, getSequences, getSequenceAnalysis, getFunctionSource, type Connections, type ContractDetail, type ContractSummary, type CytoscapeGraph, type SequenceAnalysis } from '$lib/api/rest';
+  import { contractConnections, contractDetail, projectSummary } from '$lib/stores/project-data';
   import { goto } from '$app/navigation';
   import { toggleTerminal } from '$lib/stores/terminal.svelte';
   import { openInIde } from '$lib/utils/ide-links';
   import { setSearchContext, getSearchNavigate, setSearchNavigate } from '$lib/stores/search.svelte';
   import type { SearchNavigatePayload } from '$lib/api/types';
-  import { togglePalette, setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
+  import { setPaletteCommands, clearPaletteCommands } from '$lib/stores/palette.svelte';
   import type { Command } from '$lib/commands/registry';
   import { getHighlightedFunction, getScenarios, getActiveScenario, getForkOrigins, setSessionContract } from '$lib/stores/session.svelte';
   import { notifyError } from '$lib/components/ui/notifications.svelte';
@@ -16,14 +17,23 @@
   import { promptScenarioName } from '$lib/scenarios/name';
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
   import { postCommand } from '$lib/api/session';
-  import Legend from '$lib/components/contract/Legend.svelte';
+  import WorkbenchLegend from '$lib/components/contract/WorkbenchLegend.svelte';
+  import ConnectionsBoard from '$lib/components/contract/connections/ConnectionsBoard.svelte';
+  import { applyBoard, currentBoard, openMain } from '$lib/components/contract/connections/board-view.svelte';
+  import { contractOf, fnKey, keyParts, touch } from '$lib/components/contract/connections/board-state';
+  import { isBoardEdge } from '$lib/components/contract/connections/board-graph';
   import FunctionSidebar from '$lib/components/contract/FunctionSidebar.svelte';
   import TopBar from '$lib/components/contract/TopBar.svelte';
   import StatusBar from '$lib/components/contract/StatusBar.svelte';
   import ContextMenu from '$lib/components/contract/ContextMenu.svelte';
   import FunctionSourcePanel from '$lib/components/contract/FunctionSourcePanel.svelte';
   import GraphCanvasFlow from '$lib/components/contract/GraphCanvasFlow.svelte';
+  import BoxNode from '$lib/components/project/BoxNode.svelte';
+  import ChipEdge from '$lib/components/project/ChipEdge.svelte';
   import SessionSidebar from '$lib/components/session/SessionSidebar.svelte';
+  import AppHeader, { modeOf, modeParam, type Mode } from '$lib/components/chrome/AppHeader.svelte';
+  import { setQuery } from '$lib/utils/query';
+  import '$lib/components/chrome/chrome.css';
   import {
     getNodes, getEdges,
     setNodes, setEdges,
@@ -37,24 +47,24 @@
   import { ownEntry, runDagreLayout } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
   import { tryRoles } from '$lib/utils/trycatch';
-  import { splitRef } from '$lib/utils/links';
+  import { AMBIGUOUS_COLOR, splitRef } from '$lib/utils/links';
   import { MarkerType } from '@xyflow/svelte';
   import type { Node, Edge } from '@xyflow/svelte';
 
   let contract: ContractDetail | null = $state(null);
   const funcIndex = $derived.by(() => functionIndex(contract?.functions, contract?.inherited_functions));
-  // canvas, caches and API calls use the key, so overloads never collide
+  // keys keep overloads distinct
   function routeKey(ref: string): string {
     return funcIndex.get(ref)?.key ?? ref;
   }
   let error: string | null = $state(null);
   let selectedNode: any = $state(null);
   let selectedPath: any = $state(null);
-  // Raw, replaced on every update: a $state proxy hides inherited keys such as `constructor`
+  // a $state proxy hides inherited keys such as `constructor`
   let funcPaths: Record<string, any> = $state.raw({});
   let expandedFuncs: Set<string> = $state(new Set());
   let selectionCount: number = $state(0);
-  let mode: 'cfg' | 'sequences' | 'session' = $state('sequences');
+  const mode = $derived<Mode>(modeOf(page.url.searchParams.get('mode')));
   let seqTree: any = $state(null);
   let seqAnalysis: SequenceAnalysis | null = $state(null);
   let seqExpanded: Map<string, boolean> = $state(new Map());
@@ -69,9 +79,11 @@
     sessionStep?: { stepIndex: number };
   } | null = $state(null);
 
-  let canvasFuncs: Set<string> = $state(new Set()); // functions currently on canvas
+  let canvasFuncs: Set<string> = $state(new Set());
 
-  let projectMap: MapContract[] = $state([]);
+  let projectContracts: ContractSummary[] = $state([]);
+  let mainConnections: Connections | null = $state(null);
+  let sessionSidebar: SessionSidebar | null = $state(null);
 
   let sourcePanel: { contract?: string; func: string } | null = $state(null);
 
@@ -82,6 +94,7 @@
   let cfgCacheVersion = $state(0);
   let flowApi: { fitView: (opts?: any) => Promise<boolean> } | null = $state(null);
   let graphCanvas: GraphCanvasFlow;
+  let board: ConnectionsBoard | null = $state(null);
   const cfgCache = new Map<string, CytoscapeGraph>();
 
   function hasPaths(funcName: string): boolean {
@@ -112,10 +125,10 @@
     return null;
   }
 
-  const SEQ_NODE_W = 220;
+  const SEQ_NODE_W = 260;
   const SEQ_NODE_H = 80;
-  const SEQ_SIBLING_GAP = 30; // gap between siblings at the same level
-  const SEQ_LEVEL_GAP = 120;  // gap between parent and children rank
+  const SEQ_SIBLING_GAP = 30;
+  const SEQ_LEVEL_GAP = 120;
   const SEQ_MAX_PER_ROW = 8;  // wider levels wrap into several rows (columns in LR)
 
   function relayoutSeqTree(rootId: string) {
@@ -407,6 +420,7 @@
         return {
           id: cn.id,
           type: 'function',
+          hidden: mode === 'connections',
           position: {
             x: SESSION_BASE_X + cn.stepIndex * SESSION_STEP_WIDTH,
             y: SESSION_BASE_Y + cn.lane * SESSION_LANE_HEIGHT,
@@ -430,7 +444,7 @@
           } as GraphNodeData,
         } as Node<GraphNodeData>;
       });
-      // unchanged steps keep their node objects, so a new step does not re-render the others
+      // unchanged steps keep their node objects to avoid re-rendering them
       setNodes([...otherNodes, ...composedNodes.map((n) => {
         const previous = previousNodes.get(n.id);
         return previous && sameJson([previous.position, previous.data], [n.position, n.data]) ? previous : n;
@@ -455,6 +469,7 @@
           id: ce.id,
           source: ce.source,
           target: ce.target,
+          hidden: mode === 'connections',
           sourceHandle: 'r',
           targetHandle: 'l',
           type: 'default',
@@ -481,12 +496,12 @@
     untrack(() => {
       setNodes(getNodes().map((n) => {
         const isSessionNode = (n.data as any)._sessionStep === true;
-        const shouldHide = currentMode === 'session' && !isSessionNode;
+        const shouldHide = currentMode === 'connections' ? n.data._type !== 'box' : currentMode === 'session' && !isSessionNode;
         return n.hidden === shouldHide ? n : { ...n, hidden: shouldHide };
       }));
       setEdges(getEdges().map((e) => {
         const isSessionEdge = (e.data as any)?._type === 'session-path';
-        const shouldHide = currentMode === 'session' && !isSessionEdge;
+        const shouldHide = currentMode === 'connections' ? !isBoardEdge(e.id) : currentMode === 'session' && !isSessionEdge;
         return e.hidden === shouldHide ? e : { ...e, hidden: shouldHide };
       }));
     });
@@ -506,13 +521,18 @@
     untrack(() => {
       if (!contract) return;
       const visible = () => getNodes().find(n => n.data._type === 'function' && !n.hidden && n.data.funcKey === key);
+      if (mode === 'connections') {
+        shownMode = 'sequences';
+        clearModeNodes();
+        switchMode('sequences');
+      }
       if (!visible() && mode !== 'session') addFuncToCanvas(key);
       const node = visible();
       if (node) handleNodeTap(node);
     });
   });
 
-  // the page component is reused across contracts, so every load keys on the route param and drops stale responses
+  // the page component is reused across contracts
   let loadGen = 0;
 
   async function loadContract(contractName: string) {
@@ -522,6 +542,7 @@
     cfgCache.clear();
     cfgCacheVersion++;
     contract = null;
+    mainConnections = null;
     callgraphRaw = null;
     seqTree = null;
     seqAnalysis = null;
@@ -536,34 +557,40 @@
     sourcePanel = null;
     setSearchContext(contractName);
     try {
-      const detail = await getContract(contractName);
+      const detail = await contractDetail(contractName);
       const callgraphData = await getCallGraph(contractName);
       if (!current()) return;
       callgraphRaw = callgraphData;
       contract = detail;
-      const [seq, analysis, pm] = await Promise.allSettled([
+      const [seq, analysis, pm, links] = await Promise.allSettled([
         getSequences(contractName, { depth: 1, limit: 0 }),
         getSequenceAnalysis(contractName),
-        getProjectMap(),
+        projectSummary(),
+        contractConnections(contractName),
       ]);
       if (!current()) return;
       if (seq.status === 'fulfilled') seqTree = seq.value;
       else notifyError('load sequences', seq.reason);
       if (analysis.status === 'fulfilled') seqAnalysis = analysis.value;
       else notifyError('load sequence analysis', analysis.reason);
-      if (pm.status === 'fulfilled') projectMap = pm.value.contracts;
-      else notifyError('load project map', pm.reason);
+      if (pm.status === 'fulfilled') projectContracts = pm.value.contracts;
+      else notifyError('load project', pm.reason);
+      if (links.status === 'fulfilled') mainConnections = links.value;
+      else notifyError('load connections', links.reason);
     } catch (e) {
       if (current()) error = e instanceof Error ? e.message : `Contract "${contractName}" not found`;
     }
   }
 
+  let loadedName: string | null = null;
   $effect(() => {
     const contractName = page.params.name;
-    if (contractName) untrack(() => loadContract(contractName));
+    if (!contractName || contractName === loadedName) return;
+    loadedName = contractName;
+    untrack(() => loadContract(contractName));
   });
 
-  // a path search result opens once its contract shows; any other navigation in between drops it
+  // a path search result opens once its contract shows
   let navRequest: { nav: SearchNavigatePayload; gen: number } | null = null;
   $effect(() => {
     const nav = getSearchNavigate();
@@ -624,7 +651,54 @@
     if (name) untrack(() => setSessionContract(name));
   });
 
+  const boardEmpty = $derived.by(() => {
+    const c = mainConnections;
+    return mode === 'connections' && !!contract && !!c && !c.outgoing.length && !c.incoming.length && !c.unresolved.length && !currentBoard(contract.name).all;
+  });
+  const boardSelected = $derived.by(() => {
+    const fn = contract && mode === 'connections' ? currentBoard(contract.name).fn : null;
+    return new Set(fn && contractOf(fn) === contract?.name ? [keyParts(fn).member] : []);
+  });
+  const libraries = $derived(new Set(projectContracts.filter((c) => c.kind === 'Library').map((c) => c.name)));
+
+  const inspect = $derived.by(() => {
+    if (!contract) return null;
+    if (mode === 'connections') {
+      const fn = currentBoard(contract.name).fn;
+      return fn ? { contract: contractOf(fn), member: splitRef(keyParts(fn).member).member } : { contract: contract.name, member: null };
+    }
+    const funcKey = selectedNode?._type === 'function' && !selectedNode.is_external ? (selectedNode.funcKey ?? selectedNode.label) : null;
+    return { contract: contract.name, member: funcKey };
+  });
+
+  function showConnections() {
+    setQuery({ mode: modeParam('connections'), fn: null });
+    sessionSidebar?.showInspector();
+  }
+
+  function pickPhaseFunction(owner: string, member: string) {
+    if (!contract) return;
+    if (mode !== 'connections') {
+      handleSidebarAdd(routeKey(member));
+      return;
+    }
+    const board = currentBoard(contract.name);
+    if (board.open.includes(owner)) applyBoard({ ...touch(board, owner), fn: fnKey(owner, member) });
+    else openMain(owner, fnKey(owner, member));
+  }
+
+  function selectOnBoard(funcName: string | null) {
+    if (!contract) return;
+    const board = currentBoard(contract.name);
+    const key = funcName ? fnKey(contract.name, funcName) : null;
+    applyBoard({ ...board, fn: key === board.fn ? null : key });
+  }
+
   async function handleSidebarAdd(funcName: string) {
+    if (mode === 'connections') {
+      selectOnBoard(funcName);
+      return;
+    }
     if (mode === 'session') {
       try {
         await postCommand({ Call: { func: funcName } }, contract?.name);
@@ -638,7 +712,6 @@
 
   function addFuncToCanvas(funcName: string) {
     if (!callgraphRaw || canvasFuncs.has(funcName)) return;
-    // the contract's own or inherited function, not a same-named call target elsewhere
     const nodeData = callgraphRaw.nodes.find(n => n.data.key === funcName);
     if (!nodeData) return;
 
@@ -805,7 +878,6 @@
     }
   }
 
-  // a response for an earlier load of the page is dropped
   async function loadPaths(funcName: string) {
     if (!contract) return;
     const gen = loadGen;
@@ -898,6 +970,7 @@
 
   function handleContextMenu(event: MouseEvent, node: Node<GraphNodeData>) {
     const data = node.data;
+    if (data._type === 'box') return;
     let sessionStep: { stepIndex: number } | undefined;
     if (data._type === 'function' && data._sessionStep === true) {
       const { _scenariosPassingThrough: scns, _activeScenario: active, stepIndex: idx } = data;
@@ -1072,7 +1145,6 @@
     if (!contract) return null;
     const cached = cfgCache.get(funcName);
     if (cached) return cached;
-    // a response for an earlier load of the page (A → B → A included) is dropped
     const gen = loadGen;
     try {
       const cfg = await getCfg(contract.name, funcName);
@@ -1086,7 +1158,7 @@
     }
   }
 
-  // from the cached CFG when collapsed, so a collapsed CFG still shows the flow
+  // a collapsed CFG reads its blocks from the cache
   function lookupBlock(blockId: string): { statements: string[]; node_type: string } | null {
     const node = findNode(blockId);
     if (node && node.data._type === 'block') {
@@ -1177,7 +1249,20 @@
     seqExpanded = new Map(seqExpanded);
   }
 
-  function switchMode(newMode: 'cfg' | 'sequences' | 'session') {
+  function switchMode(newMode: Mode) {
+    setQuery({ mode: modeParam(newMode) });
+  }
+
+  let shownMode: Mode | null = null;
+  $effect(() => {
+    const current = mode;
+    untrack(() => {
+      if (shownMode !== null && shownMode !== current) clearModeNodes();
+      shownMode = current;
+    });
+  });
+
+  function clearModeNodes() {
     const toRemove = new Set<string>();
     for (const n of getNodes()) {
       if (n.data._type === 'block' || n.data._type === 'seq-next') {
@@ -1191,7 +1276,6 @@
     seqExpanded = new Map();
     selectedNode = null;
     selectedPath = null;
-    mode = newMode;
   }
 
   function highlightPath(funcName: string, path: any) {
@@ -1237,6 +1321,7 @@
       { id: 'mode:cfg', label: 'Mode: CFG', category: 'Mode', icon: '⊟', keywords: ['cfg', 'control flow'], run: () => switchMode('cfg') },
       { id: 'mode:sequences', label: 'Mode: Sequences', category: 'Mode', icon: '⇵', keywords: ['seq', 'calls'], run: () => switchMode('sequences') },
       { id: 'mode:session', label: 'Mode: Session', category: 'Mode', icon: '⎇', keywords: ['scenario', 'session'], run: () => switchMode('session') },
+      { id: 'mode:connections', label: 'Mode: Connections', category: 'Mode', icon: '⇄', keywords: ['links', 'calls', 'contracts'], run: () => switchMode('connections') },
     );
 
     cmds.push(
@@ -1303,7 +1388,7 @@
     });
 
     const seenContracts = new Set<string>([ctr.name]);
-    for (const c of projectMap) {
+    for (const c of projectContracts) {
       if (seenContracts.has(c.name)) continue;
       seenContracts.add(c.name);
       cmds.push({
@@ -1325,40 +1410,56 @@
   });
 </script>
 
-<div class="fixed inset-0 flex flex-col bg-dark">
+<div class="pj wb" style:--amber={AMBIGUOUS_COLOR}>
+  <AppHeader count={projectContracts.length || null} contract={contract?.name ?? page.params.name ?? ''} {mode} onmode={switchMode} />
   {#if error}
-    <div class="p-6 text-danger">{error}</div>
+    <div class="state-msg full err">{error}</div>
   {:else}
     <TopBar
-      contractName={contract?.name ?? '...'}
+      contract={contract?.name ?? page.params.name ?? ''}
       {mode}
       {seqDirection}
-      onmodechange={switchMode}
-      onsearch={togglePalette}
+      {boardEmpty}
       oncenter={() => flowApi?.fitView({ padding: 0.1 })}
       onseqdirection={(dir) => { seqDirection = dir; reorientAllSeqSubtrees(); }}
       onsessionback={handleSessionBack}
       onsessionclear={handleSessionClear}
     />
-    <div class="flex-1 flex overflow-hidden h-full">
+    <div class="wb-main">
       {#if contract}
-        <FunctionSidebar {contract} {canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={removeFuncFromCanvas} />
+        <FunctionSidebar {contract} canvasFuncs={mode === 'connections' ? boardSelected : canvasFuncs} {mode} onadd={handleSidebarAdd} onremove={mode === 'connections' ? () => selectOnBoard(null) : removeFuncFromCanvas} counts={mainConnections} onconnections={showConnections} />
       {/if}
 
+      <div class="wb-canvas">
+      {#if mode === 'connections' && contract}
+        <ConnectionsBoard bind:this={board} main={contract.name} {libraries} live={(id) => graphCanvas?.getLiveNode(id)} frame={(ids, fallback, zoom, duration) => graphCanvas?.frame(ids, fallback, zoom, duration)} reveal={(id) => graphCanvas?.reveal(id)} />
+      {/if}
+      <div class="wb-flow">
       <GraphCanvasFlow
         bind:this={graphCanvas}
-        onnodetap={(node, event) => handleNodeClick(node, event)}
-        onbackgroundtap={handleBackgroundTap}
+        extraNodeTypes={{ box: BoxNode } as any}
+        followStore={mode === 'connections'}
+        edgeTypes={{ chip: ChipEdge } as any}
+        onnodetap={(node, event) => (mode === 'connections' ? board?.tap(node, event) : handleNodeClick(node, event))}
+        onbackgroundtap={() => (mode === 'connections' ? board?.clear() : handleBackgroundTap())}
+        onedgemouseenter={(edge, event) => board?.hover(edge, event)}
+        onedgemouseleave={() => board?.hover(null)}
         oncontextmenu={handleContextMenu}
         onnodesdelete={handleNodesDelete}
-        canDeleteNodes={mode !== 'session'}
+        canDeleteNodes={mode !== 'session' && mode !== 'connections'}
         onselectionchange={(nodes) => { selectionCount = nodes.length; }}
         onready={(api) => { flowApi = api; }}
       />
+      </div>
+      </div>
 
       {#if contract}
         <SessionSidebar
+          bind:this={sessionSidebar}
           contract={contract.name}
+          {inspect}
+          onphase={pickPhaseFunction}
+          onopen={(c) => openMain(c)}
           {selectedNode}
           {selectedPath}
           {funcPaths}
@@ -1371,19 +1472,14 @@
           onpathselect={selectPath}
           onloadmorepaths={loadMorePaths}
           onexpandcfg={(funcName, nodeId) => toggleFuncExpand(funcName, nodeId)}
-          callgraph={callgraphRaw}
           onviewsource={(contract, func) => { sourcePanel = { contract, func }; }}
         />
       {/if}
     </div>
 
-    <StatusBar
-      {mode}
-      canvasCount={canvasFuncs.size}
-      expandedCount={expandedFuncs.size}
-      activeScenario={getActiveScenario()}
-      {selectionCount}
-    />
+    <WorkbenchLegend {mode} />
+
+    <StatusBar {mode} selectionCount={mode === 'connections' ? (contract && currentBoard(contract.name).fn ? 1 : 0) : selectionCount} />
 
     <ContextMenu
       menu={contextMenu}
@@ -1408,7 +1504,6 @@
       />
     {/if}
 
-    <Legend {mode} phases={contract?.phase_candidates} onfunction={(ref) => handleSidebarAdd(routeKey(splitRef(ref).member))} />
   {/if}
   <ErrorToasts />
 </div>

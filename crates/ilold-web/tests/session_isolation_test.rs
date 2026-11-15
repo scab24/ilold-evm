@@ -1,5 +1,3 @@
-//! Per-contract session isolation. Fixture: tests/fixtures/solc/cross.
-
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -110,7 +108,6 @@ async fn session_gets_resolve_explicit_contract_and_default_to_last_used() {
     let slice = get(&client, port, "/api/session/slice/supply/balances?contract=LendingPool").await;
     assert_eq!(slice.0, 200, "{}", slice.1);
 
-    // without a contract, the last contract named by /api/cmd is used
     let narrative = get_json(&client, port, "/api/session/step/0/narrative").await;
     assert_eq!(narrative["name"], "depositVia", "{narrative}");
     let all = get_json(&client, port, "/api/scenarios/all").await;

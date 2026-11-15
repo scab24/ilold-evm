@@ -360,8 +360,6 @@
   }
 </script>
 
-<!-- Reusable row markup — extracted as a snippet so the suggestion
-     sub-grouped path and the standard category path don't duplicate it. -->
 {#snippet commandRow(cmd: Command)}
   {@const idx = flatIndexOf(cmd)}
   {@const positions = query ? matchPositions(cmd.label, query) : []}
@@ -412,8 +410,6 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if paletteOpen}
-  <!-- Backdrop: click closes. Using a button with transparent styling
-       keeps the keyboard-activation story simple and a11y-clean. -->
   <div class="backdrop" role="presentation">
     <button
       type="button"
@@ -479,11 +475,6 @@
         {:else}
           {#each grouped as group (group.category)}
             {#if group.category === 'Suggestion'}
-              <!-- Suggestions get sub-headers per backend category
-                   (Functions / State Variables / Events / External Calls /
-                   Path Types) with the colour mapping from the old
-                   SearchPanel — the parent "Suggestions" header is
-                   suppressed because the sub-headers carry the meaning. -->
               {#each subgroupSuggestions(group.cmds) as sub (sub.label)}
                 <div
                   class="group-label sub"
@@ -545,7 +536,7 @@
   .palette {
     position: relative;
     z-index: 1;
-    width: clamp(280px, 90vw, 560px);
+    width: clamp(280px, 90vw, 640px);
     max-height: min(70vh, 520px);
     display: flex;
     flex-direction: column;
@@ -585,7 +576,7 @@
   .input::placeholder { color: var(--color-text-dim); }
   .input-status {
     color: var(--color-text-dim);
-    font-size: 10px;
+    font-size: 12px;
     font-family: var(--font-mono, monospace);
     min-width: 20px;
     text-align: right;
@@ -597,7 +588,7 @@
     cursor: pointer;
     padding: 4px 6px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1;
     transition: color 100ms ease, background 100ms ease;
   }
@@ -614,7 +605,7 @@
 
   .group-label {
     padding: 8px 14px 4px;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--color-text-dim);
     text-transform: uppercase;
@@ -664,7 +655,7 @@
     color: var(--color-accent-light);
   }
   .row-detail {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--color-text-dim);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -674,7 +665,7 @@
   .row.selected .row-detail { color: var(--color-text-muted); }
 
   .row-terminal {
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -685,24 +676,24 @@
   }
   .row-matches {
     display: inline-flex;
+    flex-wrap: wrap;
     gap: 4px;
-    overflow: hidden;
     flex: 1;
     min-width: 0;
   }
   .match-token {
-    font-size: 9px;
+    font-size: 12px;
     font-family: var(--font-mono, monospace);
     padding: 1px 5px;
     border-radius: 3px;
     background: color-mix(in srgb, currentColor 10%, transparent);
-    max-width: 140px;
+    max-width: 168px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .row-contract {
-    font-size: 9px;
+    font-size: 12px;
     color: var(--color-text-dim);
     white-space: nowrap;
     flex-shrink: 0;
@@ -719,7 +710,7 @@
   }
   .row-shortcut kbd {
     font-family: var(--font-mono, monospace);
-    font-size: 9px;
+    font-size: 12px;
     color: var(--color-text-muted);
     background: color-mix(in srgb, var(--color-border) 35%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
@@ -733,7 +724,7 @@
     border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
   }
   .shortcut-plus {
-    font-size: 9px;
+    font-size: 12px;
     color: var(--color-text-dim);
   }
 
@@ -742,11 +733,11 @@
     text-align: center;
     color: var(--color-text-dim);
     font-family: var(--font-mono, monospace);
-    font-size: 11px;
+    font-size: 12px;
   }
   .more-hint {
     padding: 8px 14px;
-    font-size: 10px;
+    font-size: 12px;
     color: var(--color-text-dim);
     text-align: center;
     font-style: italic;
@@ -761,14 +752,14 @@
     gap: 12px;
     padding: 8px 14px;
     border-top: 1px solid color-mix(in srgb, var(--color-border) 30%, transparent);
-    font-size: 9px;
+    font-size: 12px;
     color: var(--color-text-dim);
     background: rgba(16, 16, 22, 0.6);
     user-select: none;
   }
   .footer kbd {
     font-family: var(--font-mono, monospace);
-    font-size: 9px;
+    font-size: 12px;
     color: var(--color-text-muted);
     background: color-mix(in srgb, var(--color-border) 35%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
@@ -779,7 +770,7 @@
   .ws-offline {
     margin-left: auto;
     color: var(--color-warning);
-    font-size: 9px;
+    font-size: 12px;
     letter-spacing: 0.05em;
   }
 </style>

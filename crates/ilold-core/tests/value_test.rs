@@ -1,4 +1,3 @@
-//! Value transfers and balance reads from the recognizer table. Fixtures: tests/fixtures/solc/value, tests/fixtures/solc/call_resolution.
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -6,7 +5,7 @@ use std::sync::OnceLock;
 use ilold_core::analysis::{AnalysisParams, ProjectAnalysis};
 use ilold_core::model::project::Project;
 use ilold_core::parse::solc_frontend::SolcFrontend;
-use ilold_core::relations::{value_facts, value_flows, AssetKind, BalanceRead, Direction, Operation, Tag, ValueFacts, ValueReason, ValueTransfer};
+use ilold_core::relations::{value_flows, AssetKind, BalanceRead, Direction, Operation, Tag, ValueFacts, ValueReason, ValueTransfer};
 
 type Analysed = (Project, ProjectAnalysis);
 
@@ -25,7 +24,7 @@ fn facts_in(fixture: &str, contract: &str, func: &str) -> ValueFacts {
     let (project, analysis) = analysed(fixture);
     let c = project.lookup_contract(contract).unwrap();
     let f = c.functions.iter().find(|f| f.name == func).unwrap();
-    value_facts(project, c, c, f, &analysis.cfgs[&(c.key().to_string(), f.key.clone())])
+    analysis.relations.values(c.key(), &format!("{}::{}", c.key(), f.key))
 }
 
 fn transfers(func: &str) -> Vec<ValueTransfer> {
@@ -53,7 +52,7 @@ fn ether_sent_by_call_transfer_and_send() {
     assert_eq!(call.iter().map(moved).collect::<Vec<_>>(), [(AssetKind::Native, Operation::Call, None, None, s("to"), s("amount"), None)]);
     assert_eq!((call[0].tag, call[0].direction, call[0].reason, call[0].via_library.as_deref()), (Tag::Extracted, Direction::Out, None, None));
     assert_eq!((call[0].span.start_line, call[0].call.as_str(), call[0].id.as_str()), (35, "to.call", "Payments::payCall#0"));
-    // the model drops a literal's unit, so `1 ether` reads `1`
+    // the model drops a literal's unit (`1 ether` reads `1`)
     assert_eq!(transfers("payTransfer").iter().map(moved).collect::<Vec<_>>(), [(AssetKind::Native, Operation::Transfer, None, None, s("to"), s("1"), None)]);
     assert_eq!(transfers("paySend").iter().map(moved).collect::<Vec<_>>(), [(AssetKind::Native, Operation::Send, None, None, s("to"), s("1"), None)]);
 }
@@ -246,7 +245,7 @@ fn flows_add_up_by_direction_asset_and_counterparty() {
     let all: Vec<ValueTransfer> = c
         .functions
         .iter()
-        .flat_map(|f| value_facts(project, c, c, f, &analysis.cfgs[&(c.key().to_string(), f.key.clone())]).transfers)
+        .flat_map(|f| analysis.relations.values(c.key(), &format!("{}::{}", c.key(), f.key)).transfers)
         .collect();
     let flows = value_flows(&all);
     let to_sender = flows
@@ -261,4 +260,27 @@ fn flows_add_up_by_direction_asset_and_counterparty() {
     let mut sorted = flows.clone();
     sorted.sort_by(|a, b| (a.direction, a.asset_kind, &a.token_expr, &a.counterparty_expr).cmp(&(b.direction, b.asset_kind, &b.token_expr, &b.counterparty_expr)));
     assert_eq!(flows, sorted);
+}
+
+#[test]
+fn the_function_narrative_reads_the_value_facts_computed_once() {
+    use ilold_core::exploration::commands::{get_function_info, AnalysisData};
+    use ilold_core::relations::Relations;
+
+    let (project, analysis) = analysed("value");
+    let contract = project.lookup_contract("Payments").unwrap();
+    let data = |relations| AnalysisData {
+        project,
+        contract,
+        cfgs: &analysis.cfgs,
+        path_trees: &analysis.path_trees,
+        behaviors: &analysis.sequence_analyses["Payments"].functions,
+        all_sequence_analyses: &analysis.sequence_analyses,
+        relations,
+    };
+    let narrative = get_function_info("sendEth", &data(&analysis.relations), usize::MAX).unwrap();
+    assert_eq!(narrative.value_transfers, transfers("sendEth"));
+    assert!(!narrative.value_transfers.is_empty());
+    let empty = Relations::default();
+    assert!(get_function_info("sendEth", &data(&empty), usize::MAX).unwrap().value_transfers.is_empty(), "nothing is recomputed");
 }

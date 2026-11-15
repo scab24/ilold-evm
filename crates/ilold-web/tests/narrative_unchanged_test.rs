@@ -1,5 +1,4 @@
-//! Value facts are added beside the call statements, so narratives and path trees of calls that move value stay as they were.
-//! Golden files: tests/golden/call_resolution, recorded before value facts existed. Fixture: tests/fixtures/solc/call_resolution.
+//! Golden files recorded before value facts existed.
 use std::path::PathBuf;
 
 use serde_json::Value;

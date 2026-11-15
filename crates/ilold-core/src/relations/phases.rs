@@ -1,4 +1,3 @@
-//! State variables that gate which entry points can run: the phases of a contract.
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -17,36 +16,26 @@ use crate::sequence::effects::{resolve_call, CallSite};
 
 use super::Tag;
 
-/// A bool, an enum, or a uint compared with a constant, tested in the conditions of two or more entry points and written by one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhaseCandidate {
-    /// `<contract key>::<name>` of the declaration.
     pub state_var: String,
-    /// Key of the deployable contract whose entry points are counted.
     pub in_context: String,
-    /// The declared type, as solc writes it.
     pub type_name: String,
-    /// `<contract key>::<function key>` of each entry point whose code, modifiers or internal helpers test it.
     pub guarded_functions: Vec<String>,
-    /// Entry points that write it, directly or through internal helpers.
     pub writers: Vec<String>,
-    /// Every distinct condition that tests it, as the source writes it.
     pub condition_texts: Vec<String>,
-    /// The declaration.
     pub span: SourceSpan,
     pub tag: Tag,
 }
 
 impl PhaseCandidate {
-    /// `function` is `<contract key>::<function key>`.
     pub fn involves(&self, function: &str) -> bool {
         self.guarded_functions.iter().chain(&self.writers).any(|f| f == function)
     }
 }
 
-/// The phase candidates of a deployable project contract, by state variable; `behaviors` are the contract's own.
 pub fn phase_candidates(project: &Project, context: &ContractDef, behaviors: &[FunctionBehavior]) -> Vec<PhaseCandidate> {
-    if context.is_dependency || !context.is_deployable() {
+    if !context.is_project_deployable() {
         return Vec::new();
     }
     let entries: Vec<(&ContractDef, &FunctionDef)> =
@@ -62,7 +51,7 @@ pub fn phase_candidates(project: &Project, context: &ContractDef, behaviors: &[F
     }
     let mut out = Vec::new();
     for (state_var, (functions, texts)) in tested {
-        // a single function's own check is a precondition, not a phase
+        // one function's own check is a precondition
         if functions.len() < 2 {
             continue;
         }
@@ -96,13 +85,11 @@ fn label(owner: &ContractDef, func: &FunctionDef) -> String {
     format!("{}::{}", owner.key(), func.key)
 }
 
-/// What one function's code and modifiers test, and the internal functions it calls.
 struct Direct<'p> {
     tests: Vec<(String, String)>,
     callees: Vec<(&'p ContractDef, &'p FunctionDef)>,
 }
 
-/// The code functions run in `context`, read once per function.
 struct Code<'p> {
     project: &'p Project,
     context: &'p ContractDef,
@@ -110,7 +97,6 @@ struct Code<'p> {
 }
 
 impl<'p> Code<'p> {
-    /// Each state variable tested on the way through the function, its modifiers and its internal helpers, with the condition.
     fn reached(&mut self, owner: &'p ContractDef, func: &'p FunctionDef) -> BTreeSet<(String, String)> {
         let mut out = BTreeSet::new();
         let mut seen = HashSet::new();
@@ -171,14 +157,12 @@ impl<'p> Code<'p> {
     }
 }
 
-/// `<contract key>::<name>` and declaration of the state variable an identifier resolves to.
 fn declared_var<'p>(project: &'p Project, expr: &Expression) -> Option<(String, &'p StateVar)> {
     let ExpressionKind::Identifier { resolved: Some(id), .. } = &uncast(expr).kind else { return None };
     let (target, var) = project.state_var_by_id(*id)?;
     Some((format!("{}::{}", target.contract, target.name), var))
 }
 
-/// The state variables a condition tests by declaration: any bool or enum, a uint only where it is compared for equality with a constant.
 fn tested(project: &Project, cond: &Expression) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     cond.walk(&mut |e| match &e.kind {

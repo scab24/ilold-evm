@@ -1,12 +1,11 @@
-//! Nodes for declarations and edges for what each function does in every contract that runs it.
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::analysis::{function_behavior, overrides_modifiers, ProjectAnalysis};
-use crate::cfg::builder::{modifier_code, CfgBuilder};
+use crate::analysis::{context_cfg, function_behavior, ProjectAnalysis};
+use crate::cfg::builder::modifier_code;
 use crate::cfg::types::{CfgGraph, CfgStatement};
 use crate::classify::guards::{GuardFact, GuardScope, GuardTerm};
 use crate::model::common::{Param, SourceSpan};
@@ -19,7 +18,7 @@ use crate::model::source::ValueSource;
 use crate::parse::cache::digest;
 use crate::pathtree::walker::normalize_path;
 use crate::relations::{
-    call_target, phase_candidates, state_var_ref, storage_accesses, try_catches, value_facts, AccessKey, AccessKind, ContractLink, EffectSite, KeySite,
+    call_target, phase_candidates, state_var_ref, storage_accesses, try_catches, AccessKey, AccessKind, ContractLink, EffectSite, KeySite,
     RecordKeys, TryCatchFact, ValueTransfer,
 };
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior};
@@ -33,7 +32,7 @@ const TYPE_RESOLVED: &str = "TYPE_RESOLVED";
 const INFERRED: &str = "INFERRED";
 const AMBIGUOUS: &str = "AMBIGUOUS";
 
-/// Fields added to a kind after schema 1.0, as JSON pointers; ids leave them out so they stay what 1.0 gave.
+/// Ids leave these fields out so they stay as schema 1.0 gave them.
 const ADDED_FIELDS: &[(&str, &[&str])] = &[
     ("calls", &["/dispatch_candidates", "/unresolved_reason", "/target_source/assigned_at", "/in_try"]),
     ("reads", KEY_FIELDS),
@@ -41,7 +40,6 @@ const ADDED_FIELDS: &[(&str, &[&str])] = &[
 ];
 const KEY_FIELDS: &[&str] = &["/keys", "/keys_reason", "/key_sites"];
 
-/// The record as schema 1.0 wrote its kind.
 pub fn as_1_0(record: &Value) -> Value {
     let mut v1_0 = record.clone();
     let kind = record["kind"].as_str().unwrap_or_default();
@@ -54,7 +52,6 @@ pub fn as_1_0(record: &Value) -> Value {
     v1_0
 }
 
-/// A serde variant name in snake case: `LowLevelCall` is `low_level_call`.
 fn snake(value: impl Serialize) -> String {
     let name = serde_json::to_value(value).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
     let mut out = String::with_capacity(name.len() + 4);
@@ -67,7 +64,6 @@ fn snake(value: impl Serialize) -> String {
     out
 }
 
-/// `context` runs `func`, declared in `owner`.
 struct Unit<'p> {
     context: &'p ContractDef,
     owner: &'p ContractDef,
@@ -93,13 +89,9 @@ pub(super) struct Builder<'p> {
     project: &'p Project,
     analysis: &'p ProjectAnalysis,
     ids: Ids<'p>,
-    /// Distinct facts by id without its occurrence index.
     edges: BTreeMap<String, Vec<Pending>>,
-    /// Per function id, its flags in each context.
     flags: BTreeMap<String, BTreeMap<String, Value>>,
-    /// Try statements wait for the ids of the calls they guard.
     tries: Vec<AwaitingCalls<TryCatchFact>>,
-    /// Value transfers wait for the ids of the calls that make them.
     transfers: Vec<AwaitingCalls<ValueTransfer>>,
     truncation: Truncation,
 }
@@ -111,7 +103,6 @@ struct AwaitingCalls<F> {
     fact: F,
 }
 
-/// A fact about `function`, declared in `owner`, as `context` runs it.
 struct Site<'u> {
     function: &'u str,
     owner: &'u ContractDef,
@@ -119,13 +110,11 @@ struct Site<'u> {
     context_id: Option<&'u str>,
 }
 
-/// A fact before numbering; a direct read or write also collects the key sets it occurs with.
 struct Pending {
     record: Value,
     key_sites: Option<Vec<KeySite>>,
 }
 
-/// Where a fact is, the chain that reaches it and the pass that found it.
 #[derive(Clone)]
 struct Origin<'r> {
     span: SourceSpan,
@@ -142,12 +131,11 @@ impl<'p> Builder<'p> {
         self.project.contract_index.get(key).map(|&i| &self.project.contracts[i])
     }
 
-    /// Each declaration in every deployable contract that runs it, else in its own contract.
     fn units(&self) -> Vec<Unit<'p>> {
         let (project, analysis) = (self.project, self.analysis);
         let mut units = Vec::new();
         let mut covered = BTreeSet::new();
-        for context in project.project_contracts().filter(|c| c.is_deployable()) {
+        for context in project.contracts.iter().filter(|c| c.is_project_deployable()) {
             let Some(sequence) = analysis.sequence_analyses.get(context.key()) else { continue };
             for behavior in &sequence.functions {
                 let Some(owner) = self.contract(&behavior.owner) else { continue };
@@ -173,7 +161,6 @@ impl<'p> Builder<'p> {
             }
         }
         if !dependencies.is_empty() {
-            // dependency code outside every project contract is analysed in its own contract
             let summaries = analysis.cfgs.iter().map(|(key, cfg)| (key.clone(), summarize(cfg, project))).collect();
             let none = HashMap::new();
             let mut engine = EffectEngine::new(project, &summaries, &none);
@@ -192,7 +179,7 @@ impl<'p> Builder<'p> {
         }
         for c in self.project.contracts.iter().filter(|c| !c.is_free_functions()) {
             self.inherits(c);
-            if !c.is_dependency && c.is_deployable() {
+            if c.is_project_deployable() {
                 self.exposes(c);
                 self.phases(c);
             }
@@ -232,7 +219,7 @@ impl<'p> Builder<'p> {
         Graph { nodes, edges, truncation: self.truncation }
     }
 
-    /// The hash leaves out the position and later fields, so moving other code or extending a kind keeps the id; equal facts collapse.
+    /// Position and later fields stay out of the hash to keep ids stable when code moves or a kind grows.
     fn edge(&mut self, kind: &str, from: &str, mut record: Value, span: Option<SourceSpan>, tag: &str, rule: &str) -> &mut Pending {
         record["kind"] = Value::from(kind);
         let hash = digest(as_1_0(&record).to_string().as_bytes());
@@ -247,7 +234,6 @@ impl<'p> Builder<'p> {
         &mut same[at]
     }
 
-    /// Facts differing only in position are numbered from 0 in source order.
     fn numbered(&mut self) -> BTreeMap<String, Value> {
         let mut edges = BTreeMap::new();
         for (prefix, mut same) in std::mem::take(&mut self.edges) {
@@ -277,12 +263,7 @@ impl<'p> Builder<'p> {
         let site = Site { function: &function, owner, context, context_id: context_id.as_deref() };
         let b = unit.behavior.as_ref();
 
-        // a derived contract's modifier overrides change the code an inherited function runs
-        let cfg: Option<Cow<CfgGraph>> = if !std::ptr::eq(context, owner) && overrides_modifiers(project, context, owner, func) {
-            Some(Cow::Owned(CfgBuilder::build_with_project(func, context, Some(project))))
-        } else {
-            self.analysis.cfgs.get(&(owner.key().to_string(), func.key.clone())).map(Cow::Borrowed)
-        };
+        let cfg = context_cfg(project, &self.analysis.cfgs, context, owner, func);
         let mut call_spans = HashMap::new();
         if let Some(cfg) = &cfg {
             self.direct(&site, func, cfg, &mut call_spans);
@@ -306,7 +287,6 @@ impl<'p> Builder<'p> {
                     }
                 }
                 EffectKind::Revert => self.reverts(&site, &trace.item, origin),
-                // the call is an edge of the callee that makes it
                 EffectKind::ExternalCall => {}
             }
         }
@@ -341,7 +321,6 @@ impl<'p> Builder<'p> {
         self.flags.entry(function.clone()).or_default().insert(context_id.unwrap_or_default(), flags);
     }
 
-    /// What the function's own code and modifiers do, from every reachable block.
     fn direct(&mut self, site: &Site, func: &FunctionDef, cfg: &CfgGraph, call_spans: &mut HashMap<String, SourceSpan>) {
         let param_name = |index: Option<usize>| index.map(|i| func.params.get(i).map_or_else(|| i.to_string(), |p| p.name.clone()));
         for access in storage_accesses(self.project, site.context, site.owner, func, cfg) {
@@ -376,7 +355,7 @@ impl<'p> Builder<'p> {
             let via = self.in_modifier(site, fact.modifier.as_deref());
             self.tries.push(AwaitingCalls { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });
         }
-        let values = value_facts(self.project, site.context, site.owner, func, cfg);
+        let values = self.analysis.relations.values(site.context.key(), &format!("{}::{}", site.owner.key(), func.key));
         for fact in values.transfers {
             let via = self.in_modifier(site, fact.modifier.as_deref());
             self.transfers.push(AwaitingCalls { function: site.function.to_string(), context_id: site.context_id.map(str::to_string), via, fact });
@@ -397,7 +376,6 @@ impl<'p> Builder<'p> {
         }
     }
 
-    /// The call is found by function, context and span, as try statements find theirs.
     fn value_transfer(&mut self, pending: AwaitingCalls<ValueTransfer>, calls: &HashMap<(String, String, String), String>) {
         let AwaitingCalls { function, context_id, via, fact } = pending;
         let in_context = json!(context_id);
@@ -424,7 +402,7 @@ impl<'p> Builder<'p> {
         pending.record["reason"] = json!(fact.reason);
     }
 
-    /// Clauses and positions stay out of the id, so editing a catch keeps it.
+    /// Clauses and positions stay out of the id to survive catch edits.
     fn try_catch(&mut self, pending: AwaitingCalls<TryCatchFact>, calls: &HashMap<(String, String, String), String>) {
         let AwaitingCalls { function, context_id, via, fact } = pending;
         let in_context = json!(context_id);
@@ -543,7 +521,6 @@ impl<'p> Builder<'p> {
         self.edge("calls", site.function, record, Some(origin.span), tag, origin.rule);
     }
 
-    /// A call's receiver, with the assignments of the state variable holding it.
     fn target_source(&self, context: &ContractDef, source: &ValueSource) -> Value {
         let mut value = self.source(source);
         if let Some(var) = state_var_ref(self.project, context, source) {
@@ -562,13 +539,11 @@ impl<'p> Builder<'p> {
         value
     }
 
-    /// The id of a `<contract key>::<member key>` reference: a function, else a state variable.
     fn reference(&self, reference: &str) -> Option<String> {
         let (contract, member) = reference.rsplit_once("::")?;
         self.ids.function_by_key(contract, member).or_else(|| self.ids.member_by_key(reference))
     }
 
-    /// One edge per contract pair, listing the export's ids of the calls that make it.
     fn link(&mut self, link: &ContractLink, calls: &BTreeMap<(String, String), Vec<String>>) {
         let (Some(from), Some(to)) = (self.contract(&link.from_contract), self.contract(&link.to_contract)) else { return };
         let Some(from_id) = self.ids.contract(from) else { return };
@@ -590,7 +565,6 @@ impl<'p> Builder<'p> {
         self.edge("contract_link", &from_id, record, link.calls.first().map(|c| c.span), tag.as_str().unwrap_or_default(), "dispatch");
     }
 
-    /// Without a key site the access happens in a callee.
     fn access(&mut self, site: &Site, kind: &str, path: &str, param: Option<String>, origin: Origin, key_site: Option<KeySite>) {
         let state_var = if param.is_some() { None } else { self.state_var(site.context, path) };
         let tag = match (&param, &state_var) {
@@ -616,7 +590,6 @@ impl<'p> Builder<'p> {
         record["key_sites"] = keys.key_sites.iter().map(|s| json!({"keys": set(&s.keys), "span": self.ids.span(s.span)})).collect();
     }
 
-    /// The declarations `name` resolves to where the function keyed `func` in `contract` emits it; `None` stands for an emit without an id.
     fn emitted(&self, contract: &str, func: &str, name: &str) -> BTreeSet<Option<DeclId>> {
         let mut ids = BTreeSet::new();
         if let Some(cfg) = self.analysis.cfgs.get(&(contract.to_string(), func.to_string())) {
@@ -636,7 +609,6 @@ impl<'p> Builder<'p> {
         ids
     }
 
-    /// By the declaration solc resolved; without one, by name from the context, then from the contract that declares the emitting function.
     fn emits(&mut self, site: &Site, event_id: Option<DeclId>, declared_in: Option<&ContractDef>, name: &str, origin: Origin) {
         let (event, tag) = match event_id.and_then(|id| self.event_by_id(id)) {
             Some(event) => (Some(event), TYPE_RESOLVED),
@@ -689,7 +661,6 @@ impl<'p> Builder<'p> {
         modifier.map(|m| self.via(site.context, &[format!("modifier {m}")])).unwrap_or_default()
     }
 
-    /// Analysis labels (`modifier m`, `<contract key>::<function key>`) as ids; an unknown label stays as it is.
     fn via(&self, context: &ContractDef, labels: &[String]) -> Vec<Value> {
         labels
             .iter()
@@ -714,7 +685,6 @@ impl<'p> Builder<'p> {
         self.project.state_var_owner(context, name).map(|c| self.ids.member(c, name))
     }
 
-    /// Only a name: an overloaded event stays unresolved.
     fn event(&self, scope: &ContractDef, name: &str) -> Option<String> {
         let (contracts, short) = match name.rsplit_once('.') {
             Some((qualifier, short)) => (self.project.lookup_contract(qualifier).ok().into_iter().collect(), short),
@@ -771,7 +741,6 @@ impl<'p> Builder<'p> {
         }
     }
 
-    /// Everything a deployed contract answers: functions, inherited ones included, and public state getters.
     fn exposes(&mut self, c: &'p ContractDef) {
         let Some(contract) = self.ids.contract(c) else { return };
         let tag = Self::linearization_tag(c);
@@ -792,7 +761,7 @@ impl<'p> Builder<'p> {
         }
     }
 
-    /// Who tests and who writes the variable stay out of the id, so a new entry point keeps it.
+    /// Testers and writers stay out of the id to survive new entry points.
     fn phases(&mut self, c: &'p ContractDef) {
         let (Some(contract), Some(sequence)) = (self.ids.contract(c), self.analysis.sequence_analyses.get(c.key())) else { return };
         for phase in phase_candidates(self.project, c, &sequence.functions) {
@@ -817,7 +786,6 @@ impl<'p> Builder<'p> {
         (id, record)
     }
 
-    /// A dependency contract is a stub unless project code inherits it; its other members appear once an edge reaches them.
     fn nodes(&mut self, edges: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
         let project = self.project;
         let inherited: BTreeSet<&str> =

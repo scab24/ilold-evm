@@ -1,5 +1,3 @@
-//! Guard facts on the web API. Fixture: tests/fixtures/solc/access.
-
 use std::path::PathBuf;
 
 use serde_json::{json, Value};

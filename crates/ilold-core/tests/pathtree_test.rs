@@ -15,7 +15,6 @@ fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-// REQ-PT-5: set() must produce exactly 2 paths (1 happy + 1 revert)
 #[test]
 fn test_set_produces_2_paths() {
     let parser = SolcFrontend;
@@ -37,7 +36,6 @@ fn test_set_produces_2_paths() {
     assert_eq!(pt.stats.revert_paths, 1);
 }
 
-// REQ-PT-6: transferFrom() must produce exactly 5 paths (1 happy + 4 revert)
 #[test]
 fn test_transfer_from_produces_5_paths() {
     let parser = SolcFrontend;
@@ -59,7 +57,6 @@ fn test_transfer_from_produces_5_paths() {
     assert_eq!(pt.stats.revert_paths, 4);
 }
 
-// REQ-PT-4: paths should have annotations (external calls, state writes, events)
 #[test]
 fn test_path_annotations() {
     let parser = SolcFrontend;
@@ -70,7 +67,6 @@ fn test_path_annotations() {
 
     let pt = build_path_tree(&cfg, &contract.name, "set", &PruningConfig::default());
 
-    // The happy path should have: state write (value) + event (ValueChanged)
     let happy = pt.paths().find(|p| p.terminal == TerminalKind::Return).unwrap();
     println!("Happy path annotations: {:?}", happy.annotations);
 
@@ -78,12 +74,10 @@ fn test_path_annotations() {
     assert!(!happy.annotations.events_emitted.is_empty(), "Happy path should emit event");
     assert!(!happy.annotations.require_checks.is_empty(), "Happy path should have require check");
 
-    // The revert path should have: require check but no state write
     let revert = pt.paths().find(|p| p.terminal == TerminalKind::Revert).unwrap();
     assert!(revert.annotations.state_writes.is_empty(), "Revert path should NOT write state");
 }
 
-// REQ-PT-8: loops should be unrolled max 3 times
 #[test]
 fn test_loop_unrolling() {
     let parser = SolcFrontend;
@@ -100,15 +94,12 @@ fn test_loop_unrolling() {
         println!("  [{}] {:?} depth={}", p.id, p.terminal, p.depth);
     }
 
-    // Should have some LoopCutoff paths (loop was stopped)
     let loop_cutoffs = pt.paths().filter(|p| p.terminal == TerminalKind::LoopCutoff).count();
     println!("Loop cutoff paths: {loop_cutoffs}");
 
-    // _sqrt has a while loop — with max_unroll=3, we should get cutoffs
     assert!(loop_cutoffs > 0, "_sqrt should have loop cutoff paths");
 }
 
-// Interface functions should produce 0 paths
 #[test]
 fn test_interface_function_no_paths() {
     let parser = SolcFrontend;

@@ -1,4 +1,3 @@
-//! Guards read from code. Fixture: tests/fixtures/solc/access.
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -103,7 +102,6 @@ fn has_role_reached_with_the_caller_bound_to_a_parameter() {
     );
     assert_eq!(facts("Guards", "setByRole"), std::slice::from_ref(&expected));
     assert_eq!(access("Guards", "setByRole"), restricted("onlyRole"));
-    // inherited public function guarded in the base, classified in the derived contract
     assert_eq!(facts("Guards", "grantRole"), [expected]);
     assert_eq!(access("Guards", "grantRole"), restricted("onlyRole"));
 }
@@ -132,7 +130,6 @@ fn conditions_read_like_the_source() {
         facts("Guards", "setByProvider"),
         [fact(GuardKind::CallerEquals, "require(_msgSender() == address(provider))", &[])]
     );
-    // a long revert message is not part of the check
     assert_eq!(
         facts("Guards", "setWithMessage"),
         [fact(GuardKind::CallerEquals, "if (msg.sender != admin) revert(...)", &[])]
@@ -225,7 +222,6 @@ fn modifier_override_resolved_from_the_derived_contract() {
         [fact(GuardKind::CallerEquals, "require(msg.sender == keeper)", &["modifier onlyKeeperish"])]
     );
     assert_eq!(access("KeeperDerived", "baseSet"), restricted("onlyKeeperish"));
-    // inherited and guarded in its own body
     assert_eq!(
         facts("KeeperDerived", "ownerOnly"),
         [fact(GuardKind::CallerEquals, "require(msg.sender == keeper)", &[])]
@@ -246,7 +242,7 @@ fn a_modifier_without_code_falls_back_to_its_name() {
 fn guard_spans_point_at_the_check() {
     let source = |g: &GuardFact| {
         let span = g.span.as_ref().expect("span");
-        let file = &project().source_files[span.file_index];
+        let file = project().source_file(*span).unwrap();
         (file.path.rsplit('/').next().unwrap().to_string(), file.content.lines().nth(span.start_line as usize - 1).unwrap().trim().to_string())
     };
     let owner = &guards("Guards", "setByOwner")[0];
@@ -292,8 +288,6 @@ fn no_access_control_observation_follows_guard_facts() {
     assert_eq!(n.guards, guards("Guards", "setByAcl"));
 }
 
-// checks that must not be reported as access guards
-
 #[test]
 fn checks_after_an_early_return_are_conditional_guards() {
     assert_eq!(facts("Lookalikes", "setAfterEarlyReturn"), [fact(GuardKind::CallerEquals, "require(msg.sender == admin)", &[])]);
@@ -313,13 +307,11 @@ fn only_view_calls_taking_the_caller_are_role_checks() {
 
 #[test]
 fn negations_and_disjunctions_follow_what_must_hold() {
-    // a deny-list is reported, negated, and never restricts
     for (f, kind) in [("everyoneButAdmin", GuardKind::CallerEquals), ("adminReverts", GuardKind::CallerEquals), ("blockList", GuardKind::RoleCheck)] {
         let found: Vec<(GuardKind, bool, bool)> = guards("Lookalikes", f).iter().map(|g| (g.kind, g.negated, g.restricts())).collect();
         assert_eq!(found, [(kind, true, false)], "{f}");
         assert_eq!(access("Lookalikes", f), AccessLevel::Public, "{f}");
     }
-    // a branch any caller passes: reported, never restricting
     for f in ["adminOrOpen", "notAdminAndClosed"] {
         let found: Vec<(GuardKind, usize, bool)> = guards("Lookalikes", f).iter().map(|g| (g.kind, g.alternatives.len(), g.restricts())).collect();
         assert_eq!(found, [(GuardKind::CallerEquals, 2, false)], "{f}");
@@ -329,7 +321,6 @@ fn negations_and_disjunctions_follow_what_must_hold() {
         facts("Lookalikes", "openAndAdmin"),
         [fact(GuardKind::CallerEquals, "require(open && msg.sender == admin)", &[])]
     );
-    // every disjunct is about the caller
     assert_eq!(
         facts("Lookalikes", "adminOrOwner"),
         [fact(GuardKind::CallerEquals, "if (!(msg.sender == admin || tx.origin == admin)) revert Closed()", &[])]
@@ -343,7 +334,6 @@ fn session_lists_do_not_trust_behaviors_without_guards() {
 
     let a = analysis();
     let c = contract("Guards");
-    // a behavior whose guards were never computed (no summary)
     let mut behaviors = a.sequence_analyses["Guards"].functions.clone();
     for b in &mut behaviors {
         b.guards.clear();
@@ -355,6 +345,7 @@ fn session_lists_do_not_trust_behaviors_without_guards() {
         path_trees: &a.path_trees,
         behaviors: &behaviors,
         all_sequence_analyses: &a.sequence_analyses,
+        relations: &a.relations,
     };
     let mut session = ExplorationSession::new("Guards", "access");
     let CommandResult::FunctionList { functions } = execute_command(SessionCommand::Functions, &mut session, &data, "0") else {
@@ -369,7 +360,6 @@ fn session_lists_do_not_trust_behaviors_without_guards() {
     let entry = functions.iter().find(|f| f.name == "transferOwnership").unwrap();
     assert_eq!(entry.access, restricted("onlyOwner"));
 
-    // and the analysis computes guards for every behavior it lists
     for (name, sa) in &a.sequence_analyses {
         let Ok(c) = project().lookup_contract(name) else { continue };
         for b in &sa.functions {
@@ -385,13 +375,11 @@ fn narratives_never_borrow_guards_from_another_overload() {
     let over = contract("Overloads");
     let func = over.functions.iter().find(|f| f.key == "put(uint256)").unwrap();
     let key = (over.key().to_string(), func.key.clone());
-    // behaviors without `put(uint256)` but with a guarded function keyed `put`
     let others = &a.sequence_analyses["SinglePut"].functions;
     assert!(others.iter().any(|b| b.name == "put" && !b.guards.is_empty()));
     let n = build_function_narrative(over, func, &a.path_trees[&key], &a.cfgs[&key], others);
     assert_eq!(n.access, AccessLevel::Public);
     assert_eq!(n.guards, []);
-    // the guarded overload keeps its own guard
     let guarded = over.functions.iter().find(|f| f.key == "put(address)").unwrap();
     let key = (over.key().to_string(), guarded.key.clone());
     let n = build_function_narrative(over, guarded, &a.path_trees[&key], &a.cfgs[&key], &a.sequence_analyses["Overloads"].functions);

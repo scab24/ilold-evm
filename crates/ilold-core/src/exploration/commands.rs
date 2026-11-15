@@ -14,7 +14,7 @@ use crate::narrative::trace::{build_flow_tree, FlowConfig, FlowTree};
 use crate::narrative::types::{FunctionNarrative, MutationRef, SequenceNarrative};
 use crate::pathtree::types::PathTree;
 use crate::pathtree::walker::normalize_path;
-use crate::relations::{phase_candidates, storage_accesses, try_catches, value_facts, AccessKind, KeySite, RecordKeys};
+use crate::relations::{phase_candidates, storage_accesses, try_catches, AccessKind, KeySite, RecordKeys, Relations};
 use crate::journal::export::export_markdown;
 use crate::model::expression::AssignOperator;
 use crate::sequence::analysis::{find_behavior, EffectKind, FunctionBehavior, SequenceAnalysis};
@@ -46,10 +46,8 @@ pub struct AccessibleFunctionEntry {
     pub is_read_only: bool,
 }
 
-/// A function's reads or writes of one variable: the keys of its own code, or a record for what its callees do.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableAccess {
-    /// As `writers` and `readers` name it.
     pub function: String,
     pub kind: AccessKind,
     #[serde(flatten)]
@@ -73,6 +71,7 @@ pub struct AnalysisData<'a> {
     pub path_trees: &'a HashMap<(String, String), PathTree>,
     pub behaviors: &'a [FunctionBehavior],
     pub all_sequence_analyses: &'a HashMap<String, SequenceAnalysis>,
+    pub relations: &'a Relations,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,7 +315,7 @@ pub fn execute_command(
         SessionCommand::Who { variable } => execute_who(data, &variable),
         SessionCommand::Export => {
             let mut journal = session.journal.clone();
-            if let Some(name) = data.project.source_files.get(data.contract.span.file_index)
+            if let Some(name) = data.project.source_file(data.contract.span)
                 .and_then(|f| project_root_name(&f.path))
             {
                 journal.project = name;
@@ -335,7 +334,6 @@ pub fn execute_command(
     }
 }
 
-/// Nearest ancestor with foundry.toml.
 pub fn project_root_name(source_path: &str) -> Option<String> {
     std::path::Path::new(source_path)
         .ancestors()
@@ -362,7 +360,7 @@ fn execute_state_vars_all(data: &AnalysisData) -> CommandResult {
     CommandResult::StateVarListAll { state_vars }
 }
 
-/// An empty `guards` on a behavior may mean never computed, not unguarded.
+/// An empty `guards` on a behavior may mean the guards were left uncomputed.
 fn guarded(data: &AnalysisData, owner: &ContractDef, func: &crate::model::function::FunctionDef) -> (AccessLevel, Vec<GuardFact>) {
     classify_in(data.project, data.contract, owner, func)
 }
@@ -374,7 +372,6 @@ fn execute_functions_all(data: &AnalysisData) -> CommandResult {
         .map(|af| {
             let (access, guards) = guarded(data, af.owner, af.function);
 
-            // inherited functions are analysed as this contract runs them
             let owner = af.owner.key();
             let key = &af.function.key;
             let behavior = find_behavior(data.behaviors, owner, key).or_else(|| {
@@ -416,7 +413,6 @@ fn execute_call(
     use crate::model::function::Visibility;
     let internal = |f: &crate::model::function::FunctionDef| matches!(f.visibility, Visibility::Internal | Visibility::Private);
     let accessible = data.project.accessible_functions(data.contract);
-    // a bare name, a key or a signature; ambiguous names take the first callable overload
     let matches = || accessible.iter().filter(|a| {
         a.function.name == func || a.function.key == func || a.function.match_signature() == func
     });
@@ -497,7 +493,6 @@ fn execute_call(
     }
 }
 
-/// Writes made through calls the flow tree does not show, such as library delegatecalls.
 fn transitive_writes(shown: &[StateMutation], behavior: &FunctionBehavior, step_index: usize) -> Vec<StateMutation> {
     let last_callee = |chain: &str| {
         let callee = chain.rsplit(" -> ").next().unwrap_or(chain);
@@ -596,7 +591,7 @@ fn execute_status(
 fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     let var_lower = variable.to_lowercase();
 
-    // the contract's own analysis first: it lists inherited functions as this contract runs them
+    // the contract's own analysis lists inherited functions as this contract runs them
     let mut contract_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for af in data.project.accessible_functions(data.contract) {
         if af.is_inherited {
@@ -647,7 +642,6 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
 
         for b in behaviors {
             let owner = if b.owner.is_empty() { contract_name.as_str() } else { b.owner.as_str() };
-            // only functions this contract runs (a base function it overrides is not one)
             let Some(af) = function_of(owner, &b.name) else { continue };
 
             let touches = |paths: Vec<String>, names: Vec<String>| paths.iter().any(|p| path_matches(p)) || names_var(&names);
@@ -701,7 +695,6 @@ fn execute_who(data: &AnalysisData, variable: &str) -> CommandResult {
     CommandResult::VariableInfo { variable: variable.to_string(), writers, readers, accesses }
 }
 
-/// The contract's own analysis lists inherited functions too; the defining contract's is a fallback.
 fn behaviors_for<'a>(data: &AnalysisData<'a>, owning: &ContractDef, func: &crate::model::function::FunctionDef) -> &'a [FunctionBehavior] {
     if find_behavior(data.behaviors, owning.key(), &func.key).is_some() {
         return data.behaviors;
@@ -738,9 +731,9 @@ pub fn get_function_info(
     let mut narrative = build_function_narrative_capped(owning, func, pt, cfg, behaviors, max_paths);
     narrative.accesses = storage_accesses(data.project, owning, owning, func, cfg);
     narrative.try_catches = try_catches(data.project, owning, owning, func, cfg);
-    let values = value_facts(data.project, owning, owning, func, cfg);
-    (narrative.value_transfers, narrative.balance_reads) = (values.transfers, values.balance_reads);
     let function = format!("{}::{}", owning.key(), func.key);
+    let values = data.relations.values_in(data.contract, owning, func);
+    (narrative.value_transfers, narrative.balance_reads) = (values.transfers, values.balance_reads);
     narrative.phase_candidates = phase_candidates(data.project, data.contract, data.behaviors).into_iter().filter(|p| p.involves(&function)).collect();
     Ok(narrative)
 }

@@ -51,25 +51,17 @@ fn modifier_origin(entries: &[SliceEntry], substr: &str) -> Option<String> {
 
 #[test]
 fn backward_slice_picks_up_transitive_assignment() {
-    // deposit(): totalStaked += amount. The backward slice on totalStaked
-    // should include that line and the `require(amount > 0)` can be
-    // skipped (require is an ExpressionStmt/FunctionCall, not an
-    // assignment, so it's not a def of totalStaked — but it does USE
-    // `amount`, so it won't appear in backward slice).
     let res = slice("Staking", "deposit", "totalStaked", SliceDirection::Backward);
     let lines = texts(&res.backward);
     assert!(
         lines.iter().any(|l| l.contains("totalStaked")),
         "expected a totalStaked assignment, got {lines:?}"
     );
-    // Forward is not requested — must stay empty.
     assert!(res.forward.is_empty());
 }
 
 #[test]
 fn forward_slice_propagates_taint_across_assignments() {
-    // withdraw(): amount flows into balances[..] -= amount, totalStaked -=
-    // amount, stakingToken.transfer(..., amount), and emit Withdrawn(...).
     let res = slice("Staking", "withdraw", "amount", SliceDirection::Forward);
     let lines = texts(&res.forward);
     assert!(
@@ -85,17 +77,6 @@ fn forward_slice_propagates_taint_across_assignments() {
 
 #[test]
 fn backward_slice_pulls_in_control_dependency() {
-    // claimRewards():
-    //   uint256 reward = rewards[msg.sender];
-    //   if (reward > 0) {
-    //       rewards[msg.sender] = 0;   // ← def of `rewards` inside If
-    //       ...
-    //   }
-    // Backward slice on `rewards` should:
-    //   1. include `rewards[msg.sender] = 0` (direct def hit)
-    //   2. drag the enclosing `if (reward > 0)` via ancestor merge
-    //   3. propagate `reward` into the relevant set
-    //   4. pick up `uint256 reward = rewards[msg.sender]` (def of reward)
     let res = slice("Staking", "claimRewards", "rewards", SliceDirection::Backward);
     let lines = texts(&res.backward);
     assert!(
@@ -119,19 +100,11 @@ fn slice_on_unknown_variable_is_empty() {
 fn both_direction_populates_both_sides() {
     let res = slice("Staking", "withdraw", "amount", SliceDirection::Both);
     assert!(!res.forward.is_empty(), "forward should have entries");
-    // `amount` is a parameter, never reassigned inside withdraw → backward
-    // data-dep pass finds nothing, backward stays empty. This is the
-    // expected behavior for parameter slicing.
     assert!(res.backward.is_empty(), "backward on parameter should be empty");
 }
 
 #[test]
 fn backward_slice_pulls_writes_from_modifier() {
-    // deposit() applies updateReward(msg.sender), which writes
-    // lastUpdateTime, rewardPerTokenStored, rewards[account], and
-    // userRewardPerTokenPaid[account] before the function body runs.
-    // None of these are touched by deposit's body itself, so without
-    // modifier walking the slice would be empty.
     let res = slice("Staking", "deposit", "lastUpdateTime", SliceDirection::Backward);
     let lines = texts(&res.backward);
     assert!(
@@ -147,16 +120,9 @@ fn backward_slice_pulls_writes_from_modifier() {
 
 #[test]
 fn modifier_writes_appear_before_function_body_in_program_order() {
-    // updateReward writes happen BEFORE deposit's own writes in the
-    // execution timeline. Forward slice on the modifier-defined
-    // `rewardPerTokenStored` should put its def first, and any later
-    // function-body statements that read it (none in deposit, but the
-    // ordering invariant must hold for the entries that do exist).
     let res = slice("Staking", "deposit", "rewardPerTokenStored", SliceDirection::Forward);
     let lines = texts(&res.forward);
     if let Some(idx) = lines.iter().position(|l| l.contains("rewardPerTokenStored")) {
-        // Anything function-body that follows must come AFTER the
-        // modifier write in the flat order.
         let modifier_entry = &res.forward[idx];
         assert!(
             matches!(modifier_entry.origin, StatementOrigin::Modifier(ref n) if n == "updateReward"),
@@ -170,9 +136,6 @@ fn modifier_writes_appear_before_function_body_in_program_order() {
 
 #[test]
 fn slice_respects_program_order() {
-    // deposit() body order: require → transferFrom → balances += →
-    // totalStaked += → emit. Forward slice on `amount` should keep them
-    // in that program order inside the returned vec.
     let res = slice("Staking", "deposit", "amount", SliceDirection::Forward);
     let lines = texts(&res.forward);
     let find = |needle: &str| lines.iter().position(|l| l.contains(needle));

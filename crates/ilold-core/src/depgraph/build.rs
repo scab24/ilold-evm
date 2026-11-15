@@ -14,7 +14,6 @@ type Index = HashMap<String, NodeIndex>;
 pub fn build(project: &Project) -> ContractDeps {
     let (mut graph, index) = nodes(project);
     static_edges(project, &mut graph, &index);
-    // dependency contracts contribute inheritance and holds edges, not call edges
     for c in project.project_contracts() {
         if let Some(&from) = index.get(c.key()) {
             let cg = build_call_graph(project, c);
@@ -85,7 +84,7 @@ fn static_edges(project: &Project, graph: &mut DepGraph, index: &Index) {
 fn call_edges(graph: &mut DepGraph, index: &Index, from: NodeIndex, name: &str, cg: &CallGraph) {
     for eidx in cg.edge_indices() {
         let (s, t) = cg.edge_endpoints(eidx).unwrap();
-        // inherited bodies count for their own contract; calls into the own hierarchy are inheritance
+        // inheritance edges cover inherited bodies and hierarchy calls
         if cg[s].contract != name || !cg[t].is_external {
             continue;
         }

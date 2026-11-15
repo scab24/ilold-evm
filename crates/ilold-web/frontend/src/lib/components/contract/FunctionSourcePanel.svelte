@@ -21,7 +21,7 @@
 
   const STORAGE_KEY = 'ilold.codeViewer.fontSize';
   const DEFAULT_FONT = 13;
-  const MIN_FONT = 10;
+  const MIN_FONT = 12;
   const MAX_FONT = 22;
 
   function readStoredFont(): number {
@@ -143,8 +143,7 @@
 
 <DraggablePanel title={`${func} — ${fileLabel}:${startLine || '?'}`} x={60} y={80} width={initialWidth} {onclose}>
   <div class="viewer">
-    <!-- Toolbar -->
-    <div class="toolbar">
+    <div class="src-toolbar">
       <div class="tool-group" aria-label="Zoom controls">
         <button class="tool-btn icon" onclick={zoomOut} disabled={fontSize <= MIN_FONT} title="Zoom out (Cmd+-)">−</button>
         <span class="tool-value" title="Current font size">{fontSize}px</span>
@@ -169,12 +168,11 @@
       </div>
     </div>
 
-    <!-- Editor body -->
     <div class="source-container">
       {#if loading}
-        <div class="state-msg">Loading source…</div>
+        <div class="src-msg">Loading source…</div>
       {:else if error}
-        <div class="state-msg error">{error}</div>
+        <div class="src-msg error">{error}</div>
       {:else}
         <CodeMirror
           value={source}
@@ -187,7 +185,6 @@
       {/if}
     </div>
 
-    <!-- Status bar -->
     <div class="status-bar">
       <span class="status-file" title={filePath}>{fileLabel || '—'}</span>
       <span class="status-sep">·</span>
@@ -206,7 +203,7 @@
     min-height: 260px;
   }
 
-  .toolbar {
+  .src-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -229,7 +226,7 @@
     border: 1px solid transparent;
     color: var(--color-text-muted);
     font-family: inherit;
-    font-size: 11px;
+    font-size: 12px;
     padding: 4px 10px;
     border-radius: 6px;
     cursor: pointer;
@@ -267,7 +264,7 @@
     background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   }
   .tool-value {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--color-text-dim);
     min-width: 34px;
     text-align: center;
@@ -307,20 +304,20 @@
     background-clip: padding-box;
   }
 
-  .state-msg {
+  .src-msg {
     padding: 20px 18px;
     font-size: 12px;
     color: var(--color-text-muted);
     font-family: var(--font-mono, monospace);
   }
-  .state-msg.error { color: var(--color-danger); }
+  .src-msg.error { color: var(--color-danger); }
 
   .status-bar {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 5px 12px;
-    font-size: 10px;
+    font-size: 12px;
     color: var(--color-text-dim);
     font-family: var(--font-mono, monospace);
     font-variant-numeric: tabular-nums;

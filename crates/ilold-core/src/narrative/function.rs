@@ -21,7 +21,6 @@ pub fn build_function_narrative(
     build_function_narrative_capped(contract, function, path_tree, cfg, all_behaviors, usize::MAX)
 }
 
-/// `paths_omitted` counts the paths not narrated.
 pub fn build_function_narrative_capped(
     contract: &ContractDef,
     function: &FunctionDef,
@@ -31,7 +30,6 @@ pub fn build_function_narrative_capped(
     max_paths: usize,
 ) -> FunctionNarrative {
     let root_behavior = find_behavior(all_behaviors, contract.key(), &function.key);
-    // guards come from the analysis, which reads inherited modifiers and helpers
     let (access, guards) = match root_behavior {
         Some(b) => (access_level(function, &b.guards), b.guards.clone()),
         None => {
@@ -181,7 +179,6 @@ pub fn build_function_narrative_capped(
     }
 }
 
-// the origin is the contract of the last callee
 fn transitive_effects(behavior: &FunctionBehavior, kind: EffectKind) -> Vec<TransitiveEffect> {
     behavior
         .transitive_effects
@@ -339,7 +336,7 @@ fn generate_observations(
         }
     }
 
-    // sorted so the observation text is the same on every run
+    // keeps the observation text stable across runs
     let my_writes: BTreeSet<&str> = path_tree
         .block_annotations()
         .flat_map(|a| a.state_writes.iter().map(|s| s.as_str()))

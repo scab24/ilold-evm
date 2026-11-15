@@ -32,7 +32,6 @@ pub fn build_path_tree(
         paths: Vec::new(),
         stats: PathTreeStats::default(),
     };
-    // one table entry per CFG edge taken (the entry block has none)
     let mut node_ids: HashMap<Option<EdgeIndex>, u32> = HashMap::new();
 
     let Some(entry) = cfg.node_indices().find(|&n| cfg[n].kind == BlockKind::Entry) else {

@@ -13,6 +13,7 @@
   --color-text-light: #c8d0dc;
   --color-text-muted: #6b7a8d;
   --color-text-dim: #4a5568;
+  --color-root: #8b949e;
 
   --color-accent: #5b9bd5;
   --color-accent-hover: #8bb8e8;
@@ -59,4 +60,9 @@ a:hover {
 
 button {
   font-family: inherit;
+}
+
+.svelte-flow .svelte-flow__attribution,
+.svelte-flow .svelte-flow__edge-label {
+  font-size: 12px;
 }

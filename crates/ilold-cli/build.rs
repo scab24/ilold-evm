@@ -6,7 +6,6 @@ fn git(args: &[&str]) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// The build's commit and whether the build inputs differ from it; nothing outside a git checkout.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     let Some(commit) = git(&["rev-parse", "--verify", "--quiet", "HEAD"]) else { return };
@@ -19,7 +18,7 @@ fn main() {
     }
     let Some(top) = git(&["rev-parse", "--show-toplevel"]) else { return };
     let inputs = ["crates", "Cargo.toml", "Cargo.lock"];
-    // edits to tracked sources leave the index alone, so the sources themselves are watched
+    // edits to tracked sources leave the git index unchanged
     for input in inputs.iter().map(|i| Path::new(&top).join(i)).filter(|p| p.exists()) {
         println!("cargo:rerun-if-changed={}", input.display());
     }

@@ -1,4 +1,3 @@
-//! Value transfers, balance reads and value flows on the API. Fixture: tests/fixtures/solc/value.
 use std::path::PathBuf;
 
 use serde_json::{json, Value};

@@ -56,7 +56,7 @@
     const gen = ++narrativeGen;
     try {
       const res = await getStepNarrative(stepIndex, contract);
-      if (gen !== narrativeGen) return; // stale
+      if (gen !== narrativeGen) return;
       narrative = res;
     } catch (e: unknown) {
       if (gen !== narrativeGen) return;
@@ -102,7 +102,6 @@
 </script>
 
 <div class="flex flex-col max-h-full h-full overflow-hidden" style="background: transparent;">
-  <!-- Header — glass effect -->
   <div
     class="flex items-center justify-between px-3 py-2.5 flex-shrink-0"
     style="
@@ -112,17 +111,16 @@
       -webkit-backdrop-filter: blur(16px) saturate(1.8);
     "
   >
-    <span class="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Session Timeline</span>
+    <span class="text-[13px] text-text-light font-bold">Session timeline</span>
     <span
-      class="text-[10px] text-text-dim font-mono px-2 py-0.5"
+      class="text-[12px] text-root font-mono px-2 py-0.5"
       style="border-radius: 8px; background: color-mix(in srgb, var(--color-border) 30%, transparent);"
     >{steps.length}</span>
   </div>
 
-  <!-- Body -->
   <div class="timeline-body flex-1 overflow-y-auto py-1.5" bind:this={scrollContainer}>
     {#if steps.length === 0}
-      <div class="py-8 px-4 text-text-dim text-[11px] text-center leading-relaxed" style="font-style: italic;">
+      <div class="py-8 px-4 text-root text-[12px] text-center leading-relaxed" style="font-style: italic;">
         No steps yet. Click a function in the sidebar or run `c &lt;name&gt;` in the terminal.
       </div>
     {:else}
@@ -140,14 +138,14 @@
             "
           >
             <button
-              class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none text-text text-[11px] font-mono cursor-pointer text-left transition-colors duration-150 hover:text-accent-hover"
+              class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none text-text text-[12px] font-mono cursor-pointer text-left transition-colors duration-150 hover:text-accent-hover"
               style="border-radius: 8px;"
               onclick={() => toggleNarrative(step.step_index)}
             >
-              <span class="text-text-dim text-[9px] min-w-[16px] text-right">{step.step_index}</span>
+              <span class="text-text-dim text-[12px] min-w-[16px] text-right">{step.step_index}</span>
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{step.function}</span>
               <span class="badge {badge.cls}">{badge.text}</span>
-              <span class="text-text-dim text-[9px] flex-shrink-0">{isExpanded ? '▾' : '▸'}</span>
+              <span class="text-text-dim text-[12px] flex-shrink-0">{isExpanded ? '▾' : '▸'}</span>
             </button>
 
             {#if isExpanded}
@@ -160,11 +158,11 @@
                 "
               >
                 {#if loadingNarrative}
-                  <span class="text-text-dim text-[10px] italic">Loading...</span>
+                  <span class="text-text-dim text-[12px] italic">Loading...</span>
                 {:else if narrativeError}
-                  <span class="text-danger text-[11px]">{narrativeError}</span>
+                  <span class="text-danger text-[12px]">{narrativeError}</span>
                 {:else if narrative}
-                  <div class="narrative text-[11px] leading-relaxed" data-testid="step-narrative">
+                  <div class="narrative text-[12px] leading-relaxed" data-testid="step-narrative">
                     <div class="text-text">
                       <span class="font-mono">{narrative.name}</span>
                       <span class="text-text-muted">· {formatAccess(narrative.access)}</span>
@@ -206,11 +204,10 @@
     {/if}
   </div>
 
-  <!-- Footer -->
   {#if steps.length > 0}
     <div class="px-2.5 py-2 flex-shrink-0" style="border-top: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);">
       <button
-        class="w-full py-1.5 border text-text-muted text-[11px] font-mono cursor-pointer transition-colors duration-150 hover:text-text hover:border-accent"
+        class="w-full py-1.5 border text-text-muted text-[12px] font-mono cursor-pointer transition-colors duration-150 hover:text-text hover:border-accent"
         style="
           border-radius: 8px;
           border-color: color-mix(in srgb, var(--color-border) 50%, transparent);
@@ -228,7 +225,7 @@
 
 <style>
   .badge {
-    font-size: 9px;
+    font-size: 12px;
     padding: 2px 6px;
     border-radius: 8px;
     font-family: system-ui, sans-serif;
@@ -258,7 +255,7 @@
 
   .narr-label {
     margin-top: 6px;
-    font-size: 9px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--color-text-dim);

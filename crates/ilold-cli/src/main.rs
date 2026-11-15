@@ -6,6 +6,7 @@ use clap::Parser;
 
 mod analyze;
 mod colors;
+mod connections_view;
 mod context;
 mod deps_view;
 mod explore;
@@ -13,7 +14,7 @@ mod fmt;
 mod graph;
 mod interactive;
 
-/// Commands whose output does not depend on the sequence depth share the analysis cached at this one.
+/// Depth-independent commands share the analysis cached at this depth.
 const SHARED_SEQ_DEPTH: usize = 3;
 
 #[derive(Parser)]
@@ -40,7 +41,7 @@ enum Commands {
         verbose: bool,
         #[arg(long)]
         deps: bool,
-        /// Also list dependency contracts (libraries, vendored code) loaded for resolution
+        /// Also list the libraries and vendored code loaded for resolution
         #[arg(long)]
         include_dependencies: bool,
     },
@@ -59,7 +60,7 @@ enum Commands {
         path: PathBuf,
         #[arg(long, default_value = "8080")]
         port: u16,
-        /// Address to listen on; 0.0.0.0 exposes the server (and its terminal) to the network
+        /// Listen address (0.0.0.0 exposes the server and its terminal to the network)
         #[arg(long, default_value = "127.0.0.1")]
         host: IpAddr,
         #[arg(long, default_value = "3", value_parser = seq_depth)]
@@ -69,15 +70,15 @@ enum Commands {
         path: PathBuf,
         #[arg(long, default_value = "0")]
         port: u16,
-        /// Address to listen on; 0.0.0.0 exposes the server (and its terminal) to the network
+        /// Listen address (0.0.0.0 exposes the server and its terminal to the network)
         #[arg(long, default_value = "127.0.0.1")]
         host: IpAddr,
         #[arg(long, default_value = "3", value_parser = seq_depth)]
         max_seq_depth: usize,
-        /// Attach to an existing ilold server URL instead of starting one
+        /// URL of a running ilold server to attach to
         #[arg(long)]
         attach: Option<String>,
-        /// Contract to start on; defaults to the most derived deployable contract that is not a test, script or mock
+        /// Contract to open first (default: most derived deployable contract outside tests, scripts and mocks)
         #[arg(long)]
         contract: Option<String>,
     },
@@ -88,7 +89,7 @@ enum Commands {
     /// Write the project's code map as deterministic JSON Lines
     #[command(after_help = GRAPH_EXIT_CODES)]
     Graph {
-        /// Output file, replaced only once it is complete
+        /// Output file, replaced once complete
         #[arg(long = "json", value_name = "OUT")]
         json: PathBuf,
         #[arg(default_value = ".")]
@@ -152,7 +153,7 @@ fn seq_depth(raw: &str) -> Result<usize, String> {
     }
 }
 
-/// Canonical, so `.` and other relative inputs never yield an empty path.
+/// Canonicalized so `.` yields a non-empty path.
 pub fn foundry_root(path: &Path) -> Result<PathBuf> {
     let Ok(start) = path.canonicalize() else {
         anyhow::bail!("Path does not exist: {}", path.display());

@@ -16,9 +16,6 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Boot a server on an ephemeral port with the staking fixture and open a
-/// WS connection. Returns the HTTP client, port, and the connected WS
-/// stream.
 async fn start_with_ws() -> (
     reqwest::Client,
     u16,
@@ -112,7 +109,6 @@ async fn ws_event_scenario_switched_broadcasts_on_switch() {
     let (client, port, mut ws) = start_with_ws().await;
 
     post_cmd(&client, port, "Staking", scenario_new("alt1")).await;
-    // consume the `scenario_created` event so the next read is the switch
     let _created = next_ws_json(&mut ws).await;
 
     post_cmd(&client, port, "Staking", scenario_switch("alt1")).await;
@@ -133,7 +129,6 @@ async fn ws_event_scenario_deleted_broadcasts_on_delete() {
     post_cmd(&client, port, "Staking", scenario_new("alt1")).await;
     let _created = next_ws_json(&mut ws).await;
 
-    // Delete a non-active scenario (active is still "main")
     post_cmd(&client, port, "Staking", scenario_delete("alt1")).await;
 
     let payload = next_ws_json(&mut ws).await;
@@ -146,10 +141,6 @@ async fn ws_event_scenario_deleted_broadcasts_on_delete() {
 
 #[tokio::test]
 async fn canvas_patch_scenario_field_propagates_to_ws_handler() {
-    // Explicit check that the scenario field on a data event matches the
-    // active scenario at the moment the command was dispatched. We switch
-    // to a new scenario first, then `c deposit`; the `session_add_node`
-    // must carry `scenario: "alt1"`, not `"main"`.
     let (client, port, mut ws) = start_with_ws().await;
 
     post_cmd(&client, port, "Staking", scenario_new("alt1")).await;
@@ -173,11 +164,9 @@ async fn canvas_patch_scenario_field_propagates_to_ws_handler() {
 async fn ws_event_scenario_store_reloaded_broadcasts_after_load() {
     let (client, port, mut ws) = start_with_ws().await;
 
-    // Build a tiny state and save it so we have a valid v2 JSON to load back.
     post_cmd(&client, port, "Staking", call("deposit")).await;
-    let _added = next_ws_json(&mut ws).await; // session_add_node
+    let _added = next_ws_json(&mut ws).await;
 
-    // SaveSession does not broadcast — POST and read the JSON inline.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -190,7 +179,6 @@ async fn ws_event_scenario_store_reloaded_broadcasts_after_load() {
     let body: serde_json::Value = res.json().await.unwrap();
     let json = body["SessionSaved"]["json"].as_str().unwrap().to_string();
 
-    // LoadSession must broadcast scenario_store_reloaded with the active name.
     post_cmd(
         &client,
         port,

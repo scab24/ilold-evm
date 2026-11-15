@@ -61,7 +61,6 @@ async fn broadcast_clear_after_call_and_clear() {
 
     let client = reqwest::Client::new();
 
-    // First: call deposit
     client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -72,13 +71,11 @@ async fn broadcast_clear_after_call_and_clear() {
         .await
         .unwrap();
 
-    // Consume the add_node message
     let msg = tokio::time::timeout(Duration::from_secs(5), ws.next())
         .await.unwrap().unwrap().unwrap();
     let payload: serde_json::Value = serde_json::from_str(&msg.into_text().unwrap()).unwrap();
     assert_eq!(payload["type"], "session_add_node");
 
-    // Then: clear
     client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -107,7 +104,6 @@ async fn no_broadcast_on_non_mutating_command() {
 
     let client = reqwest::Client::new();
 
-    // Functions command does NOT produce a CanvasPatch
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -120,7 +116,6 @@ async fn no_broadcast_on_non_mutating_command() {
 
     assert!(res.status().is_success());
 
-    // WS should NOT receive anything — timeout is expected
     let result = tokio::time::timeout(Duration::from_millis(500), ws.next()).await;
     assert!(result.is_err(), "Should have timed out — no broadcast expected");
 }

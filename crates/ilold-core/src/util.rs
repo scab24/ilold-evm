@@ -1,4 +1,3 @@
-// `Type(expr)` is a cast; a bare name is a call
 pub fn is_type_cast(name: &str) -> bool {
     let name = name.trim();
     if let Some((head, _)) = name.split_once('(') {
@@ -24,7 +23,7 @@ fn is_user_type_name(head: &str) -> bool {
         && head.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
-// fallback when solc types are absent
+// used when solc types are absent
 pub fn is_builtin_function(name: &str) -> bool {
     matches!(
         name,

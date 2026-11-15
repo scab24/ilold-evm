@@ -23,12 +23,10 @@ fn test_parse_simple_storage() {
     let parser = SolcFrontend;
     let project = parser.parse(&[fixture_path("simple_storage/src/simple_storage.sol")]).unwrap();
 
-    // Should have 1 contract
     assert_eq!(project.contracts.len(), 1);
     let contract = &project.contracts[0];
     assert_eq!(contract.name, "SimpleStorage");
 
-    // Should have 2 functions: get and set
     assert_eq!(contract.functions.len(), 2);
 
     let get_fn = contract.functions.iter().find(|f| f.name == "get").unwrap();
@@ -45,11 +43,9 @@ fn test_parse_simple_storage() {
     assert_eq!(set_fn.params[0].name, "newValue");
     assert_eq!(set_fn.params[0].type_name, "uint256");
 
-    // Should have 1 state variable
     assert_eq!(contract.state_vars.len(), 1);
     assert_eq!(contract.state_vars[0].name, "value");
 
-    // Should have 1 event
     assert_eq!(contract.events.len(), 1);
     assert_eq!(contract.events[0].name, "ValueChanged");
 }
@@ -63,11 +59,9 @@ fn test_cfg_simple_get() {
 
     let cfg = CfgBuilder::build(get_fn, contract);
 
-    // get() just returns — should have Entry + Return (2 nodes minimum)
     let node_count = cfg.node_count();
     assert!(node_count >= 2, "Expected at least 2 nodes, got {node_count}");
 
-    // Should have exactly one Entry and one Return
     let entries: Vec<_> = cfg.node_weights().filter(|b| b.kind == BlockKind::Entry).collect();
     let returns: Vec<_> = cfg.node_weights().filter(|b| b.kind == BlockKind::Return).collect();
     assert_eq!(entries.len(), 1);
@@ -83,21 +77,15 @@ fn test_cfg_set_with_require() {
 
     let cfg = CfgBuilder::build(set_fn, contract);
 
-    // set() has require(newValue > 0) which creates a branch:
-    // Entry → [require check] → True path (assignment + emit + return)
-    //                          → False path (revert)
     let node_count = cfg.node_count();
     assert!(node_count >= 4, "Expected at least 4 nodes, got {node_count}");
 
-    // Must have at least one Revert node (from require failing)
     let reverts: Vec<_> = cfg.node_weights().filter(|b| b.kind == BlockKind::Revert).collect();
     assert!(!reverts.is_empty(), "Expected at least one Revert node");
 
-    // Must have at least one Return node
     let returns: Vec<_> = cfg.node_weights().filter(|b| b.kind == BlockKind::Return).collect();
     assert!(!returns.is_empty(), "Expected at least one Return node");
 
-    // Must have branch edges (from require)
     let edge_count = cfg.edge_count();
     assert!(edge_count >= 3, "Expected at least 3 edges, got {edge_count}");
 }
@@ -268,15 +256,12 @@ fn value_call_options_resolve_the_real_callee() {
 fn is_type_cast_distinguishes_casts_from_calls() {
     use ilold_core::util::is_type_cast;
 
-    // Elementary type casts (bare or with args)
     for c in ["uint256", "uint256(x)", "int", "address", "address(0)", "bytes32", "bool", "string"] {
         assert!(is_type_cast(c), "{c} should be a type cast");
     }
-    // User-defined casts in Type(expr) form
     for c in ["IERC20(addr)", "MyContract(addr)"] {
         assert!(is_type_cast(c), "{c} should be a type cast");
     }
-    // Real calls the old starts_with heuristic wrongly dropped
     for f in ["internalTransfer", "intMax", "uintToString", "addressOf", "stringify", "IMint", "IExecute", "foo(bar)"] {
         assert!(!is_type_cast(f), "{f} is a real call, not a type cast");
     }

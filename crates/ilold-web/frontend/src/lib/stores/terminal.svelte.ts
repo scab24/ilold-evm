@@ -1,4 +1,4 @@
-let visible = $state(true);
+let visible = $state(false);
 
 export function isTerminalVisible(): boolean {
   return visible;

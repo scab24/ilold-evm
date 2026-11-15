@@ -69,7 +69,7 @@ fn compute_layer(sid: usize, succ: &[BTreeSet<usize>], memo: &mut [Option<usize>
     if let Some(l) = memo[sid] {
         return l;
     }
-    memo[sid] = Some(0); // guard against re-entry; condensation is a DAG
+    memo[sid] = Some(0);
     let mut max = 0;
     for &t in &succ[sid] {
         max = max.max(1 + compute_layer(t, succ, memo));

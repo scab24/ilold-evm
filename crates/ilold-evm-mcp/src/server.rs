@@ -97,6 +97,20 @@ pub async fn dispatch(
             let c = need!(arg_str(arguments, "contract"), "contract");
             client.get(&format!("/api/contract/{}", encode_component(&c))).await
         }
+        "ilold_connections" => match arg_str(arguments, "contract") {
+            Some(c) => client.get(&format!("/api/contract/{}/connections", encode_component(&c))).await,
+            None => client.get("/api/project/connections").await,
+        },
+        "ilold_route" => {
+            let from = need!(arg_str(arguments, "from"), "from");
+            let to = need!(arg_str(arguments, "to"), "to");
+            let reads = arg_bool(arguments, "include_reads");
+            client.get(&format!("/api/project/route?from={}&to={}&reads={reads}", encode_component(&from), encode_component(&to))).await
+        }
+        "ilold_value_flow" => {
+            let query = arg_str(arguments, "contract").map(|c| format!("?contract={}", encode_component(&c))).unwrap_or_default();
+            client.get(&format!("/api/project/value-flow{query}")).await
+        }
         "ilold_callgraph" => {
             let c = need!(arg_str(arguments, "contract"), "contract");
             client.get(&format!("/api/contract/{}/callgraph", encode_component(&c))).await
@@ -264,7 +278,7 @@ pub async fn dispatch(
     }
 }
 
-// the analysis is the answer; selecting the function on open canvases is best effort
+// selecting the function on open canvases is best effort
 async fn highlight<T, E>(client: &IloldClient, contract: &str, function: &str, read: &Result<T, E>) {
     if read.is_ok() {
         client.post("/api/session/highlight", json!({ "contract": contract, "function": function })).await.ok();

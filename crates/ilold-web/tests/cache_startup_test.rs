@@ -38,7 +38,6 @@ fn startup_child() {
     derived.hash(&mut hasher);
     println!("STARTUP scenarios={scenarios:?} annotations={annotations} derived={}:{:x} end",
         derived.len(), hasher.finish());
-    // Mutate runtime state before exit; a later startup must not observe it.
     state.annotations.write().unwrap().push(Annotation { id: "a1".into(), contract: "Staking".into(),
         function: None, path_id: None, block_id: None, text: "note".into(),
         severity: AnnotationSeverity::Info, status: AnnotationStatus::Open });

@@ -1,5 +1,5 @@
-// Responses written by crates/ilold-web/tests/ts_fixtures_test.rs; `npm run check` fails when a type drifts from them.
-import type { ContractDetail, CytoscapeGraph, ProjectDepGraph, ProjectMap, VariableInfo } from '../rest';
+// crates/ilold-web/tests/ts_fixtures_test.rs writes these responses
+import type { Connections, ContractDetail, CytoscapeGraph, ProjectConnections, ProjectDepGraph, ProjectMap, Routes, ValueFlowPairs, VariableInfo } from '../rest';
 import type { FunctionNarrative } from '../types';
 import projectMap from './project_map.json';
 import projectDepgraph from './project_depgraph.json';
@@ -17,8 +17,13 @@ import valueFunction from './value_function.json';
 import valueBalancesFunction from './value_balances_function.json';
 import phasesContractDetail from './phases_contract_detail.json';
 import phasesFunction from './phases_function.json';
+import connections from './connections.json';
+import connectionsHook from './connections_hook.json';
+import route from './route.json';
+import valueFlow from './value_flow.json';
+import projectConnections from './project_connections.json';
 
-// imported JSON widens string literals, so unions of literals are compared as strings
+// imported JSON widens string literals to `string`
 type Json<T> = T extends string ? string : T extends (infer U)[] ? Json<U>[] : T extends object ? { [K in keyof T]: Json<T[K]> } : T;
 
 projectMap satisfies Json<ProjectMap>;
@@ -37,3 +42,8 @@ valueFunction satisfies Json<FunctionNarrative>;
 valueBalancesFunction satisfies Json<FunctionNarrative>;
 phasesContractDetail satisfies Json<ContractDetail>;
 phasesFunction satisfies Json<FunctionNarrative>;
+connections satisfies Json<Connections>;
+connectionsHook satisfies Json<Connections>;
+route satisfies Json<Routes>;
+valueFlow satisfies Json<ValueFlowPairs>;
+projectConnections satisfies Json<ProjectConnections>;

@@ -1,10 +1,10 @@
 <script lang="ts">
+  import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   import Collapsible from '$lib/Collapsible.svelte';
   import { ownEntry } from '$lib/utils/graph-helpers';
   import { functionIndex } from '$lib/utils/function-keys';
   import { formatAccess, isConditional } from '$lib/utils/access';
-  import type { CytoscapeGraph, FunctionSummary } from '$lib/api/rest';
-  import { BASIS_LABEL, splitRef, tagColor } from '$lib/utils/links';
+  import type { FunctionSummary } from '$lib/api/rest';
   import AccessList from './AccessList.svelte';
   import CatchClauseView from './CatchClauseView.svelte';
   import TryCatchList from './TryCatchList.svelte';
@@ -17,15 +17,13 @@
     funcPaths: Record<string, any>;
     expandedFuncs: Set<string>;
     seqExpanded: Map<string, boolean>;
-    mode: 'cfg' | 'sequences' | 'session';
+    mode: Mode;
     seqAnalysis: any;
     contract: { name: string; functions?: FunctionSummary[]; inherited_functions?: FunctionSummary[] };
     lookupBlock: (blockId: string) => { statements: string[]; node_type: string } | null;
     onpathselect: (funcName: string, path: any) => void;
     onloadmorepaths: (funcName: string) => void;
     onexpandcfg: (funcName: string, nodeId?: string) => void;
-    callgraph: CytoscapeGraph | null;
-    onviewsource: (contract: string, func: string) => void;
   }
 
   let {
@@ -41,8 +39,6 @@
     onpathselect,
     onloadmorepaths,
     onexpandcfg,
-    callgraph,
-    onviewsource,
   }: Props = $props();
 
   function termColor(t: string): string {
@@ -59,14 +55,6 @@
     return node.visibility ?? summary?.visibility ?? null;
   }
 
-  // external calls of the selected function, with what may answer each
-  const externalCalls = $derived.by(() => {
-    const node = funcKey ? callgraph?.nodes.find((n) => n.data.key === funcKey) : undefined;
-    if (!node || !callgraph) return [];
-    return callgraph.edges.filter((e) => e.data.source === node.data.id && e.data.dispatch_candidates !== undefined).map((e) => e.data);
-  });
-
-  // the variable whose readers and writers are shown, cleared with each new selection
   let whoVar = $state<string | null>(null);
   $effect(() => {
     selectedNode;
@@ -132,39 +120,6 @@
         {/if}
         {#if selectedNode.is_external}
           <div class="d-row"><span class="d-label">Contract</span><span>{selectedNode.contractName ?? 'other contract'} (external call target)</span></div>
-        {/if}
-        {#if externalCalls.length > 0}
-          <Collapsible title="External calls" count={externalCalls.length} open={true}>
-            {#each externalCalls as call}
-              <div class="ext-call" data-testid="external-call">
-                <div class="ext-target" title="Static target">{call.target}{call.call_count > 1 ? ` ×${call.call_count}` : ''}</div>
-                {#each call.dispatch_candidates ?? [] as candidate}
-                  <div class="ext-candidate">
-                    <span class="ext-dot" style="background:{tagColor(candidate.tag)}"></span>
-                    <span>{candidate.function}</span>
-                    <span class="ext-basis">{BASIS_LABEL[candidate.basis]}</span>
-                    <span class="ext-tag" style="color:{tagColor(candidate.tag)}">{candidate.tag}</span>
-                  </div>
-                {/each}
-                {#if call.unresolved_reason}
-                  <div class="ext-unresolved">unresolved: {call.unresolved_reason.replaceAll('_', ' ')}</div>
-                {/if}
-                {#each call.assigned_at ?? [] as site}
-                  {@const fn = site.function ? splitRef(site.function) : null}
-                  <div class="ext-site">
-                    <span class="ext-site-kind">{site.kind.replaceAll('_', ' ')}</span>
-                    <span>{splitRef(site.state_var).member} = {site.expr_text}</span>
-                    <span class="ext-basis">line {site.span.start_line}</span>
-                    {#if fn}
-                      <button class="ext-go" title="Go to source" onclick={() => onviewsource(fn.contract, fn.member)}>{fn.member} ↗</button>
-                    {:else}
-                      <span class="ext-basis">declaration</span>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-            {/each}
-          </Collapsible>
         {/if}
         {#if !selectedNode.is_external}
           <div class="d-actions">
@@ -478,43 +433,6 @@
 {/if}
 
 <style>
-  .ext-call { padding: 4px 0 6px; border-bottom: 1px solid var(--color-border-subtle); font-size: 11px; }
-  .ext-target { color: var(--color-text); font-weight: 600; margin-bottom: 2px; }
-  .ext-candidate, .ext-site { display: flex; align-items: center; gap: 5px; padding-left: 6px; flex-wrap: wrap; }
-  .ext-dot { width: 6px; height: 6px; border-radius: 3px; display: inline-block; }
-  .ext-basis { color: var(--color-text-dim); font-size: 10px; }
-  .ext-tag { font-size: 9px; }
-  .ext-unresolved { padding-left: 6px; color: var(--color-warning); }
-  .ext-site-kind { font-size: 9px; text-transform: uppercase; color: var(--color-text-muted); }
-  .ext-go { background: transparent; border: 1px solid var(--color-border); color: var(--color-accent-hover); border-radius: 4px; font-size: 10px; padding: 0 4px; cursor: pointer; }
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 48px 16px;
-    text-align: center;
-  }
-  .empty-icon {
-    font-size: 28px;
-    color: var(--color-text-dim);
-    opacity: 0.6;
-  }
-  .empty-title {
-    font-family: var(--font-mono, monospace);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--color-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .empty-hint {
-    font-size: 11px;
-    color: var(--color-text-dim);
-    max-width: 220px;
-    line-height: 1.5;
-  }
-
   .inspector {
     padding: 8px 10px;
   }
@@ -539,7 +457,7 @@
   }
   .inspector-kind {
     font-family: var(--font-mono, monospace);
-    font-size: 9px;
+    font-size: 12px;
     text-transform: uppercase;
     color: var(--color-text-dim);
     letter-spacing: 0.1em;
@@ -552,15 +470,15 @@
     display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; color: var(--color-text);
     font-family: 'JetBrains Mono', monospace;
   }
-  .d-label { color: var(--color-text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .d-hint { font-size: 11px; color: var(--color-accent); padding: 6px 0; font-style: italic; }
+  .d-label { color: var(--color-text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .d-hint { font-size: 12px; color: var(--color-accent); padding: 6px 0; font-style: italic; }
   .d-actions { padding: 6px 0; display: flex; flex-direction: column; gap: 5px; }
   .d-action-btn {
     background: color-mix(in srgb, var(--color-accent) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
     color: var(--color-accent-hover);
     padding: 7px 12px; border-radius: 8px; cursor: pointer;
-    font-size: 11px; font-family: 'JetBrains Mono', monospace; text-align: left;
+    font-size: 12px; font-family: 'JetBrains Mono', monospace; text-align: left;
     transition: border-color 150ms, background 150ms;
   }
   .d-action-btn:hover {
@@ -568,28 +486,28 @@
     background: color-mix(in srgb, var(--color-accent) 14%, transparent);
   }
   .d-section {
-    font-size: 10px; color: var(--color-text-muted); text-transform: uppercase;
+    font-size: 12px; color: var(--color-text-muted); text-transform: uppercase;
     letter-spacing: 0.08em; margin: 10px 0 5px; font-weight: 600;
   }
   .d-chain-step {
-    font-size: 11px; color: var(--color-accent-hover); font-weight: 600; margin: 6px 0 2px;
+    font-size: 12px; color: var(--color-accent-hover); font-weight: 600; margin: 6px 0 2px;
     padding-top: 5px; border-top: 1px solid color-mix(in srgb, var(--color-border) 30%, transparent);
   }
   .d-path-chain {
-    font-size: 10px; color: var(--color-text-dim); padding: 4px 0;
+    font-size: 12px; color: var(--color-text-dim); padding: 4px 0;
     font-family: 'JetBrains Mono', monospace; word-break: break-all;
   }
 
-  .d-section-label { font-size: 10px; color: var(--color-text-dim); margin: 8px 0 4px; }
+  .d-section-label { font-size: 12px; color: var(--color-text-dim); margin: 8px 0 4px; }
 
   .narrative { margin-top: 8px; }
   .narr-label {
-    font-size: 10px; color: var(--color-text-muted); font-weight: 600;
+    font-size: 12px; color: var(--color-text-muted); font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 5px;
   }
-  .narr-sub { font-size: 9px; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin: 8px 0 3px; }
+  .narr-sub { font-size: 12px; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin: 8px 0 3px; }
   .narr-condition {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
     padding: 4px 10px; margin: 3px 0;
     background: color-mix(in srgb, var(--color-warning) 7%, transparent);
     border-left: 2px solid var(--color-warning);
@@ -597,9 +515,9 @@
   }
 
   .flow-list { display: flex; flex-direction: column; gap: 0; }
-  .flow-arrow { color: var(--color-border); font-size: 10px; padding-left: 6px; line-height: 1; }
+  .flow-arrow { color: var(--color-border); font-size: 12px; padding-left: 6px; line-height: 1; }
   .flow-step {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--color-text);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--color-text);
     padding: 5px 10px; border-radius: 6px;
     display: flex; align-items: center; gap: 5px;
     border-left: 2px solid var(--color-border);
@@ -613,7 +531,7 @@
   .flow-step.flow-write { color: var(--color-text-muted); border-left-color: var(--color-accent); }
   .flow-step.flow-here { background: color-mix(in srgb, var(--color-accent) 7%, transparent); border-left-color: var(--color-accent); }
   .flow-badge {
-    font-size: 9px; width: 16px; height: 16px;
+    font-size: 12px; width: 18px; height: 18px;
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 4px; flex-shrink: 0;
   }
@@ -621,18 +539,18 @@
   .flow-badge.fail { background: color-mix(in srgb, var(--color-danger) 13%, transparent); color: var(--color-danger); }
   .flow-badge.call { background: color-mix(in srgb, var(--color-danger) 8%, transparent); color: var(--color-danger); }
   .flow-badge.write { background: color-mix(in srgb, var(--color-accent) 8%, transparent); color: var(--color-accent); }
-  .flow-here-tag { color: var(--color-accent); font-size: 9px; margin-left: auto; }
+  .flow-here-tag { color: var(--color-accent); font-size: 12px; margin-left: auto; }
   .d-path {
     display: flex; align-items: center; gap: 5px; padding: 4px 6px;
-    border-radius: 6px; font-size: 11px; color: inherit;
+    border-radius: 6px; font-size: 12px; color: inherit;
     background: transparent; border: 1px solid transparent; cursor: pointer;
     width: 100%; text-align: left; font: inherit;
     transition: background 150ms, border-color 150ms;
   }
   .d-path:hover { background: color-mix(in srgb, var(--color-accent) 5%, transparent); }
   .pid { color: var(--color-text-dim); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-  .pdepth { color: var(--color-text-dim); font-size: 10px; }
-  .pb { font-size: 9px; padding: 2px 6px; border-radius: 8px; }
+  .pdepth { color: var(--color-text-dim); font-size: 12px; }
+  .pb { font-size: 12px; padding: 2px 6px; border-radius: 8px; }
   .pb.ext { background: color-mix(in srgb, var(--color-danger) 9%, transparent); color: var(--color-danger-light); }
   .d-path-selected {
     background: color-mix(in srgb, var(--color-accent) 8%, transparent);
@@ -640,7 +558,7 @@
   }
 
   .pd-item {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
     padding: 3px 8px; border-radius: 6px; margin-bottom: 3px;
   }
   .pd-item.check { background: color-mix(in srgb, var(--color-warning) 9%, transparent); color: var(--color-warning); }
@@ -648,6 +566,6 @@
   .pd-item.wr { background: color-mix(in srgb, var(--color-accent) 9%, transparent); color: var(--color-accent-hover); }
   .pd-item.ev { background: color-mix(in srgb, var(--color-success) 9%, transparent); color: var(--color-success-light); }
   .guard-kind { font-weight: 600; }
-  .guard-via { font-size: 10px; color: var(--color-text-dim); }
-  .guard-conditional { font-size: 10px; color: var(--color-text-dim); font-style: italic; }
+  .guard-via { font-size: 12px; color: var(--color-text-dim); }
+  .guard-conditional { font-size: 12px; color: var(--color-text-dim); font-style: italic; }
 </style>

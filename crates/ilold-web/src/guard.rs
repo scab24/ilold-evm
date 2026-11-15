@@ -7,7 +7,6 @@ use axum::http::{header, Request, Response, StatusCode, Uri};
 use axum::serve::IncomingStream;
 use tokio::net::TcpListener;
 
-/// Names this machine when the server listens on every interface.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LocalAddr(Option<IpAddr>);
 
@@ -17,7 +16,7 @@ impl Connected<IncomingStream<'_, TcpListener>> for LocalAddr {
     }
 }
 
-/// Stops other web pages from driving the API or the terminal: DNS rebinding through Host, cross-site requests through Origin.
+/// Blocks DNS rebinding through Host and cross-site requests through Origin.
 #[derive(Clone, Debug)]
 pub(crate) struct RequestGuard {
     bound: SocketAddr,
@@ -37,7 +36,7 @@ impl RequestGuard {
             .any(|name| headers.get_all(*name).iter().count() > 1);
         let local = request.extensions().get::<ConnectInfo<LocalAddr>>().and_then(|info| info.0 .0);
         let host = headers.get(header::HOST).and_then(|value| value.to_str().ok());
-        // browsers label subresource requests; WebSocket upgrades rely on the Origin check
+        // Sec-Fetch-Site covers subresource requests, the Origin check covers WebSocket upgrades
         let cross_site = headers.get("sec-fetch-site")
             .is_some_and(|site| matches!(site.as_bytes(), b"cross-site" | b"same-site"));
         let allowed = !repeated && !cross_site && host.is_some_and(|host| {

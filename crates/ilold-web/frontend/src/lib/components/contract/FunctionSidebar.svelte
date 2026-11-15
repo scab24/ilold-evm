@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { ContractDetail, FunctionSummary } from '$lib/api/rest';
-  import LinksPanel from './LinksPanel.svelte';
-  import ValueFlowsPanel from './ValueFlowsPanel.svelte';
+  import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
+  import type { Connections, ContractDetail, FunctionSummary } from '$lib/api/rest';
+  import Icon from '$lib/components/chrome/Icon.svelte';
   import { visibilityLabel } from '$lib/utils/visibility';
   import { describeGuard, formatAccess, isAccessGuard, isConditional, restricts } from '$lib/utils/access';
   import { describeTries } from '$lib/utils/trycatch';
@@ -13,15 +13,19 @@
     mode,
     onadd,
     onremove,
+    counts,
+    onconnections,
   }: {
     contract: ContractDetail;
     canvasFuncs: Set<string>;
-    mode: 'cfg' | 'sequences' | 'session';
+    mode: Mode;
     onadd: (func: string) => void;
     onremove: (func: string) => void;
+    counts: Pick<Connections, 'outgoing_contracts' | 'incoming_contracts' | 'outgoing_calls' | 'incoming_calls'> | null;
+    onconnections: () => void;
   } = $props();
 
-  let sidebarOpen = $state(true);
+  let sidebarOpen = $state(typeof window === 'undefined' || window.innerWidth >= 1200);
   let query = $state('');
 
   type Visibility = 'Public' | 'External' | 'Internal' | 'Private';
@@ -37,10 +41,8 @@
     guarded: string | null;
     conditionallyGuarded: string | null;
     stateGuarded: string | null;
-    /** Tooltip of its try statements. */
     tries: string | null;
     swallows: boolean;
-    /** Tooltip of its value transfers. */
     transfers: string | null;
     source: 'own' | 'inherited';
   };
@@ -85,7 +87,7 @@
   const totalCount = $derived(allRows.length);
   const visibleCount = $derived(filtered.length);
   const canvasCount = $derived(canvasFuncs.size);
-  const canClear = $derived(mode !== 'session' && canvasCount > 0);
+  const canClear = $derived(mode !== 'session' && mode !== 'connections' && canvasCount > 0);
 
   function toggleVisibility(v: Visibility) {
     const next = new Set(visFilter);
@@ -112,24 +114,20 @@
 </script>
 
 <div
-  class="sidebar flex flex-col shrink-0 transition-[width] duration-200 {sidebarOpen ? 'w-[240px]' : 'w-8'}"
+  class="sidebar flex flex-col shrink-0 transition-[width] duration-200 {sidebarOpen ? 'w-[260px]' : 'w-8'}"
 >
-  <!-- Header -->
   <div class="header flex items-center justify-between px-2.5 py-2">
     {#if sidebarOpen}
-      <span class="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
-        Functions <span class="text-text-dim font-normal">· {visibleCount}/{totalCount}</span>
-      </span>
+      <h2 class="title">Functions <span class="count">{visibleCount}/{totalCount}</span></h2>
     {/if}
     <button
-      class="collapse-btn bg-transparent border-none text-text-muted cursor-pointer text-[11px] px-1 py-0.5 transition-colors duration-150 hover:text-accent-hover"
+      class="collapse-btn"
       onclick={() => sidebarOpen = !sidebarOpen}
       aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
     >{sidebarOpen ? '◂' : '▸'}</button>
   </div>
 
   {#if sidebarOpen}
-    <!-- Search input -->
     <div class="px-2 pt-2 pb-1">
       <div class="search-wrap">
         <span class="search-icon" aria-hidden="true">⌕</span>
@@ -151,26 +149,26 @@
       </div>
     </div>
 
-    <!-- Filter chips + canvas clear -->
     <div class="filters px-2 pb-2">
       {#each ALL_VISIBILITIES as v}
         <button
           class="chip"
-          class:active={visFilter.has(v)}
+          class:on={visFilter.has(v)}
+          aria-pressed={visFilter.has(v)}
           onclick={() => toggleVisibility(v)}
           title="Toggle {v} visibility"
         >{visShort(v)}</button>
       {/each}
       <button
         class="chip"
-        class:active={onlyAccessControl}
+        class:on={onlyAccessControl}
         onclick={() => onlyAccessControl = !onlyAccessControl}
         title="Only access-controlled functions (caller or role checks on every path)"
         aria-pressed={onlyAccessControl}
       >🔒</button>
       {#if canClear}
         <button
-          class="chip chip-clear"
+          class="chip clear"
           onclick={clearCanvas}
           title="Remove every function from the canvas"
           aria-label="Clear canvas"
@@ -178,7 +176,6 @@
       {/if}
     </div>
 
-    <!-- Function list -->
     <div class="flex-1 overflow-y-auto p-1.5">
       {#if visibleCount === 0}
         <div class="empty-state">
@@ -206,8 +203,9 @@
         {/if}
       {/if}
     </div>
-    <LinksPanel name={contract.name} outgoing={contract.outgoing_links} incoming={contract.incoming_links} />
-    <ValueFlowsPanel flows={contract.value_flows} />
+    <button type="button" class="conn" data-testid="connections-line" onclick={onconnections} title={counts ? `Other contracts it calls or reads → ${counts.outgoing_contracts} · that call or read it ← ${counts.incoming_contracts}\nCalls and reads behind them → ${counts.outgoing_calls} · ← ${counts.incoming_calls}\nLibraries and ${contract.name} itself not counted. Opens Connections` : 'Opens Connections'}>
+      <Icon name="call" /><span>Connections · <b>{counts?.outgoing_contracts ?? '…'}</b> → · <b>{counts?.incoming_contracts ?? '…'}</b> ←</span>
+    </button>
   {/if}
 </div>
 
@@ -225,6 +223,7 @@
       onclick={() => onadd(row.key)}
       title={inSession
         ? 'Add step to active scenario'
+        : mode === 'connections' ? (onCanvas ? 'Selected on the board' : 'Select on the board')
         : (onCanvas ? 'On canvas — click ✕ to remove' : 'Add to canvas')}
     >
       <span class="row-name" title={row.key}>{row.name}{#if row.key !== row.name}<span class="row-sig">{row.key.slice(row.name.length)}</span>{/if}</span>
@@ -262,16 +261,26 @@
 
 <style>
   .sidebar {
-    background: linear-gradient(180deg, rgba(30, 30, 40, 0.9) 0%, rgba(20, 20, 28, 0.95) 100%);
-    border-right: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border-subtle);
   }
   .header {
-    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
-    background: linear-gradient(180deg, rgba(30, 30, 40, 0.85) 0%, rgba(24, 24, 30, 0.9) 100%);
-    backdrop-filter: blur(16px) saturate(1.8);
-    -webkit-backdrop-filter: blur(16px) saturate(1.8);
+    min-height: 46px;
+    border-bottom: 1px solid var(--color-border-subtle);
   }
-  .collapse-btn { border-radius: 6px; }
+  .title { margin: 0; font-size: 13px; font-weight: 700; color: var(--color-text-light); }
+  .count { margin-left: 4px; font-weight: 600; color: var(--root); }
+  .collapse-btn {
+    background: none; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px;
+    color: var(--root); cursor: pointer; font-size: 12px;
+  }
+  .conn {
+    display: flex; align-items: center; gap: 8px; flex: none; padding: 12px 14px; border: 0;
+    border-top: 1px solid var(--color-border-subtle); background: none; color: var(--color-text); font: 13px var(--font-sans); cursor: pointer; text-align: left;
+  }
+  .conn:hover { background: var(--color-hover); color: var(--color-accent-hover); }
+  .conn b { color: var(--color-text-light); font-variant-numeric: tabular-nums; }
+  .collapse-btn:hover { color: var(--color-accent-hover); border-color: var(--color-border-subtle); }
 
   .search-wrap {
     position: relative;
@@ -295,7 +304,7 @@
     border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
     color: var(--color-text);
     font-family: var(--font-mono, monospace);
-    font-size: 11px;
+    font-size: 12px;
     padding: 5px 24px 5px 24px;
     border-radius: 6px;
     outline: none;
@@ -317,7 +326,7 @@
     cursor: pointer;
     padding: 2px 5px;
     border-radius: 4px;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1;
     transition: color 120ms ease, background 120ms ease;
   }
@@ -331,43 +340,12 @@
     flex-wrap: wrap;
     gap: 4px;
   }
-  .chip {
-    appearance: none;
-    background: color-mix(in srgb, var(--color-surface) 70%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
-    color: var(--color-text-dim);
-    font-family: var(--font-mono, monospace);
-    font-size: 9px;
-    font-weight: 600;
-    padding: 2px 7px;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
-  }
-  .chip:hover { color: var(--color-text-muted); }
-  .chip.active {
-    color: var(--color-accent-light);
-    background: color-mix(in srgb, var(--color-accent) 18%, transparent);
-    border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
-  }
-  .chip-clear {
-    margin-left: auto;
-    color: var(--color-danger);
-    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  }
-  .chip-clear:hover {
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 22%, transparent);
-    border-color: color-mix(in srgb, var(--color-danger) 70%, transparent);
-  }
+  .chip.clear { margin-left: auto; color: var(--color-danger-light); border-color: color-mix(in srgb, var(--color-danger) 50%, transparent); }
 
   .section-divider {
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
-    color: var(--color-text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    color: var(--root);
     padding: 10px 8px 4px;
   }
 
@@ -380,7 +358,7 @@
     text-align: center;
   }
   .empty-title {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--color-text-muted);
     font-family: var(--font-mono, monospace);
   }
@@ -390,7 +368,7 @@
     border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
     color: var(--color-accent-hover);
     font-family: inherit;
-    font-size: 10px;
+    font-size: 12px;
     padding: 3px 10px;
     border-radius: 6px;
     cursor: pointer;
@@ -426,7 +404,7 @@
     border: none;
     color: var(--color-text-muted);
     font-family: var(--font-mono, monospace);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     text-align: left;
     border-radius: 6px;
@@ -443,10 +421,10 @@
   .row-sig { color: var(--color-text-dim); font-weight: normal; }
 
   .row-vis {
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 600;
-    padding: 1px 5px;
-    border-radius: 3px;
+    padding: 0 6px;
+    border-radius: 999px;
     text-transform: lowercase;
     font-family: inherit;
   }
@@ -457,21 +435,21 @@
     color: var(--color-text-muted);
   }
 
-  .row-lock { font-size: 10px; line-height: 1; }
+  .row-lock { font-size: 12px; line-height: 1; }
   .row-conditional { opacity: 0.6; }
   .row-try {
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 700;
-    padding: 0 3px;
-    border-radius: 3px;
+    padding: 0 6px;
+    border-radius: 999px;
     color: var(--color-warning);
     background: color-mix(in srgb, var(--color-warning) 18%, transparent);
   }
   .row-value {
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
-    padding: 0 3px;
-    border-radius: 3px;
+    padding: 0 6px;
+    border-radius: 999px;
     color: var(--color-success-light);
     background: color-mix(in srgb, var(--color-success) 22%, transparent);
   }
@@ -481,8 +459,8 @@
   }
 
   .row-paths {
-    font-size: 9px;
-    color: var(--color-text-dim);
+    font-size: 12px;
+    color: var(--color-root);
     padding: 0 5px;
     border-radius: 8px;
     background: color-mix(in srgb, var(--color-border) 35%, transparent);
@@ -501,8 +479,8 @@
     color: var(--color-accent);
     transition: color 120ms ease, background 120ms ease;
   }
-  .row-toggle .icon-check { font-size: 10px; text-shadow: 0 0 6px var(--color-accent); }
-  .row-toggle .icon-remove { display: none; font-size: 10px; }
+  .row-toggle .icon-check { font-size: 12px; text-shadow: 0 0 6px var(--color-accent); }
+  .row-toggle .icon-remove { display: none; font-size: 12px; }
   .row-wrap:hover .row-toggle .icon-check { display: none; }
   .row-wrap:hover .row-toggle .icon-remove { display: inline; }
   .row-toggle:hover {

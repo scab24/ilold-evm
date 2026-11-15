@@ -1,0 +1,156 @@
+import type { Basis, Connections, ContractCall, DispatchCandidate } from '$lib/api/rest';
+import { itemOf, itemState, shortName, weakest, LIBRARIES, OUTSIDE, type Item, type Line, type LineState } from '../../project/map-graph.ts';
+import { splitRef } from '../../../utils/links.ts';
+import { collapsed, expanded, fnKey, keyParts, type Board } from './board-state.ts';
+
+export interface Link extends Item {
+  row: ContractCall;
+  callee: DispatchCandidate | null;
+  self: boolean;
+  fromKey: string;
+  toKey: string;
+}
+
+export function linksOf(all: Connections[], libraries: Set<string>): Link[] {
+  const seen = new Set<string>();
+  const found: Link[] = [];
+  const keyOf = (contract: string, ref: string) => {
+    const decl = splitRef(ref).contract;
+    return libraries.has(decl) && decl !== contract ? fnKey(contract, ref) : fnKey(contract, splitRef(ref).member);
+  };
+  const add = (row: ContractCall, to: string) => {
+    const id = `${row.in_context}|${row.function}|${row.span.start_line}:${row.span.start_col}|${to}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    const item = itemOf(row, to);
+    const callee = row.callees.find((d) => d.contract === to) ?? null;
+    found.push({
+      ...item,
+      row,
+      callee,
+      self: row.kind === 'self',
+      fromKey: keyOf(row.in_context, row.function),
+      toKey: callee ? (item.line === 'library' ? fnKey(LIBRARIES, callee.function) : keyOf(to, callee.function)) : fnKey(OUTSIDE, row.target ?? ''),
+    });
+  };
+  for (const c of all) {
+    for (const group of [...c.outgoing, ...c.incoming]) {
+      for (const row of group.calls) {
+        const to = row.kind === 'self' ? row.in_context : group.contract === row.in_context ? c.contract : group.contract;
+        if (row.kind !== 'self' && to === row.in_context) continue;
+        add(row, to);
+      }
+    }
+    for (const row of c.unresolved) add(row, OUTSIDE);
+  }
+  return found;
+}
+
+export interface BoardRow {
+  key: string;
+  label: string;
+  title: string;
+  amb?: boolean;
+}
+
+export interface BoardNode {
+  id: string;
+  type: 'open' | 'collapsed' | 'folded' | 'group';
+  c: string;
+  col: number;
+  owner?: string;
+  roles: Set<'caller' | 'callee'>;
+  rows: Map<string, BoardRow>;
+  n: number;
+}
+
+export interface BoardEdge {
+  a: string;
+  ar: string;
+  b: string;
+  br: string;
+  self?: boolean;
+  links: Link[];
+}
+
+export interface Built {
+  nodes: BoardNode[];
+  edges: BoardEdge[];
+  dimmed: BoardEdge[];
+}
+
+export function rowLabel(key: string, box: string): string {
+  const { contract, member: m } = keyParts(key);
+  const ref = splitRef(m);
+  const name = ref.member.split('(')[0];
+  if (contract === OUTSIDE || contract === LIBRARIES || (ref.contract && ref.contract !== box)) return `${shortName(ref.contract)}.${name}`;
+  return name;
+}
+
+export function build(b: Board, links: Link[], lines: Record<Line, LineState>, functions: (c: string) => string[]): Built {
+  const open = expanded(b);
+  const shut = new Set(collapsed(b));
+  const nodes = new Map<string, BoardNode>();
+  const edges = new Map<string, BoardEdge>();
+  const dimmed = new Map<string, BoardEdge>();
+  const node = (id: string, o: Omit<BoardNode, 'id' | 'rows' | 'n' | 'roles'>) => {
+    if (!nodes.has(id)) nodes.set(id, { id, rows: new Map(), n: 0, roles: new Set(), ...o });
+    return nodes.get(id)!;
+  };
+  for (const c of b.open) if (open.has(c)) node(`O:${c}`, { type: 'open', c, col: b.col[c] });
+  for (const c of shut) node(`O:${c}`, { type: 'collapsed', c, col: b.col[c] });
+  const addRow = (n: BoardNode, key: string, extra: Partial<BoardRow> = {}) => {
+    if (n.type !== 'collapsed' && !n.rows.has(key)) n.rows.set(key, { key, label: rowLabel(key, n.c), title: keyParts(key).member, ...extra });
+  };
+  const outCol = (o: string, callee: boolean) => {
+    const k = b.col[o];
+    return k === 0 ? (callee ? 1 : -1) : k + Math.sign(k);
+  };
+  const folded = (p: string, col: number, owner: string, role: 'caller' | 'callee') => {
+    if (shut.has(p)) return nodes.get(`O:${p}`)!;
+    const n = node(`C:${p}@${col}`, { type: p.startsWith('#') ? 'group' : 'folded', c: p, col, owner });
+    n.roles.add(role);
+    return n;
+  };
+  const push = (into: Map<string, BoardEdge>, key: string, e: BoardEdge) => {
+    const found = into.get(key);
+    if (found) found.links.push(...e.links);
+    else into.set(key, e);
+  };
+  for (const l of links) {
+    const state = itemState(l, lines);
+    if (!state) continue;
+    if (l.self) {
+      if (!open.has(l.from) || state === 1) continue;
+      const n = nodes.get(`O:${l.from}`)!;
+      addRow(n, l.fromKey);
+      addRow(n, l.toKey);
+      push(edges, `S|${l.fromKey}|${l.toKey}`, { a: n.id, ar: l.fromKey, b: n.id, br: l.toKey, self: true, links: [l] });
+      continue;
+    }
+    const target = l.line === 'library' ? LIBRARIES : l.to;
+    const ao = open.has(l.from);
+    const bo = open.has(target);
+    if ((!ao && !bo) || (!bo && b.dir === 'callers') || (!ao && b.dir === 'callees')) continue;
+    const A = ao ? nodes.get(`O:${l.from}`)! : folded(l.from, outCol(target, false), target, 'caller');
+    const Z = bo ? nodes.get(`O:${target}`)! : folded(target, outCol(l.from, true), l.from, 'callee');
+    A.n++;
+    Z.n++;
+    if (state === 1) {
+      push(dimmed, `${A.id}>${Z.id}`, { a: A.id, ar: '', b: Z.id, br: '', links: [l] });
+      continue;
+    }
+    const ar = A.type === 'collapsed' ? '' : l.fromKey;
+    const br = Z.type === 'collapsed' ? '' : l.toKey;
+    if (ar) addRow(A, ar);
+    if (br) addRow(Z, br, { amb: target === OUTSIDE || l.ambiguous });
+    push(edges, `${A.id}|${ar}>${Z.id}|${br}`, { a: A.id, ar, b: Z.id, br, links: [l] });
+  }
+  if (b.fn && open.has(keyParts(b.fn).contract)) addRow(nodes.get(`O:${keyParts(b.fn).contract}`)!, b.fn);
+  if (b.all) for (const c of open) for (const m of functions(c)) addRow(nodes.get(`O:${c}`)!, fnKey(c, m));
+  return { nodes: [...nodes.values()], edges: [...edges.values()], dimmed: [...dimmed.values()] };
+}
+
+export function edgeBasis(e: BoardEdge): Basis | null {
+  return weakest(e.links.map((l) => l.basis).filter((x): x is Basis => x !== null));
+}

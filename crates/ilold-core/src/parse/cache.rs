@@ -1,4 +1,3 @@
-//! Content-addressed parsed-project snapshot; never stores compiler artifacts.
 use std::collections::{BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -22,7 +21,6 @@ const MAX_SOURCES: usize = 20_000;
 const MAX_ENTRIES: usize = 1_000_000;
 const MAX_DECLARATIONS: usize = 262_144;
 const MAX_INPUT: u64 = 256 * 1024 * 1024;
-/// Pruned only inside library and remapping trees; the import preflight bypasses the cache on imports into them.
 pub(crate) const NON_SOURCE_DIRS: &[&str] = &[".git", ".codegraph", "node_modules", "target", "out", "cache",
     "broadcast", "artifacts", "zkout", "coverage"];
 const MAX_COMPILER: u64 = 128 * 1024 * 1024;
@@ -56,7 +54,6 @@ fn hash_file(path: &Path, max: u64) -> Result<String, String> {
     Ok(digest(&bytes))
 }
 
-/// Only Solidity sources and their bytes are limited; other entries bound the walk itself.
 struct Walk { files: BTreeSet<PathBuf>, dirs: HashSet<PathBuf>, entries: usize, bytes: u64 }
 
 impl Walk {
@@ -88,7 +85,6 @@ impl Walk {
     }
 }
 
-/// A bounded import preflight proves every transitive import is within the enumerated closure.
 pub(super) fn fingerprint(
     root: &Path, paths: &ProjectPathsConfig<SolcLanguage>,
     settings: &impl Serialize, profile: &str, solc: &Solc,
@@ -102,7 +98,7 @@ pub(super) fn fingerprint(
     let compiler_path = solc.solc.canonicalize().map_err(|e| e.to_string())?;
     let compiler = hash_file(&compiler_path, MAX_COMPILER)?;
     let mut walk = Walk { files: BTreeSet::new(), dirs: HashSet::new(), entries: 0, bytes: 0 };
-    // Foundry compiles every source under these roots, so nothing is pruned there
+    // Foundry compiles all sources under these roots
     for dir in [&paths.sources, &paths.tests, &paths.scripts] {
         walk.walk(dir, false)?;
     }
@@ -111,7 +107,7 @@ pub(super) fn fingerprint(
         walk.walk(dir, true)?;
     }
     let files = walk.files;
-    // Foundry's graph resolver reads dependencies before returning, so it cannot enforce this byte budget
+    // Foundry's graph resolver reads dependencies past this byte budget
     let mut total = 0u64;
     let mut sources = Vec::new();
     for file in &files {
@@ -121,7 +117,6 @@ pub(super) fn fingerprint(
         let content = read_bounded(file, MAX_INPUT - (total - len))?;
         sources.push((file.clone(), content));
     }
-    // unreachable library files are hashed but never parsed
     let index = sources.iter().enumerate().map(|(i, (file, _))| (file.as_path(), i))
         .collect::<std::collections::HashMap<_, _>>();
     let mut pending = sources.iter().enumerate()
@@ -208,7 +203,6 @@ impl Store {
 
     pub(crate) fn cache_dir(&self, root: &Path) -> Result<PathBuf, String> {
         let base = &self.base;
-    // symlinked cache ancestors, the override included, are rejected instead of followed
     for ancestor in base.ancestors().take_while(|p| p != &Path::new("")) {
         if let Ok(meta) = fs::symlink_metadata(ancestor) {
             if meta.file_type().is_symlink() { return Err("symlinked cache path".into()); }
@@ -311,7 +305,6 @@ pub(crate) fn write_envelope(path: &Path, version: &str, key: &str, max: u64,
     result
 }
 
-/// The compile closure is never called on a validated hit; the flag reports whether the project matches `key`.
 pub(super) fn reuse_or_compile<E>(
     target: Result<(&Store, &Path, &str), String>,
     mut unchanged: impl FnMut() -> bool, compile: impl FnOnce() -> Result<Project, E>,
@@ -494,7 +487,7 @@ mod tests {
         fs::write(root.join("src/cache/Kept.sol"), "pragma solidity ^0.8.0; contract Kept {}\n").unwrap();
         fs::write(root.join("lib/dep/src/Dep.sol"), "pragma solidity ^0.8.0; contract Dep {}\n").unwrap();
         fs::write(root.join("lib/dep/node_modules/pkg/Pruned.sol"), "pragma solidity ^0.8.0; contract Pruned {}\n").unwrap();
-        // Library files outside the import closure are hashed, but their imports need not resolve.
+        // Library files outside the import closure are hashed with unresolved imports allowed.
         fs::write(root.join("lib/dep/src/Unused.sol"), "pragma solidity ^0.8.0; import 'missing/X.sol';\n").unwrap();
         for i in 0..5000 { fs::write(root.join(format!("lib/dep/docs/{i}.md")), "doc").unwrap(); }
         let compiler_path = root.join("solc-fixture");
@@ -510,7 +503,6 @@ mod tests {
         // Foundry compiles every file under the source roots, whatever the directory name.
         fs::write(root.join("src/cache/Kept.sol"), "pragma solidity ^0.8.0; contract Kept { uint x; }\n").unwrap();
         assert_ne!(original, fingerprint(&root, &paths, &settings, "default", &compiler).unwrap());
-        // An import into a pruned directory is outside the enumerated closure: bypass.
         fs::write(root.join("lib/dep/src/Dep.sol"),
             "pragma solidity ^0.8.0; import '../node_modules/pkg/Pruned.sol'; contract Dep {}\n").unwrap();
         assert_eq!(fingerprint(&root, &paths, &settings, "default", &compiler).unwrap_err(),

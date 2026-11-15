@@ -6,13 +6,12 @@ use crate::cfg::builder::CfgBuilder;
 use crate::cfg::types::CfgStatement;
 use crate::model::contract::ContractDef;
 use crate::model::decl_id::DeclId;
-use crate::model::function::{FunctionDef, FunctionKind, Mutability, Visibility};
+use crate::model::function::{FunctionDef, Mutability, Visibility};
 use crate::model::project::Project;
 use crate::util::is_type_cast;
 
 use super::types::*;
 
-/// As the most derived contract; names are only a fallback for models without solc ids.
 pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph {
     let linearization = project.linearization(contract);
     let mut builder = Builder {
@@ -24,20 +23,7 @@ pub fn build_call_graph(project: &Project, contract: &ContractDef) -> CallGraph 
         queued: HashSet::new(),
     };
 
-    let visible: Vec<(&ContractDef, &FunctionDef)> = builder
-        .linearization
-        .iter()
-        .flat_map(|c| c.functions.iter().map(move |f| (*c, f)))
-        .filter(|(c, f)| {
-            // constructors are not inherited or overridden; each base constructor runs
-            f.kind == FunctionKind::Constructor
-                || builder
-                    .project
-                    .implementation(&builder.linearization, f.match_signature(), None)
-                    .is_some_and(|(ic, i_f)| std::ptr::eq(ic, *c) && std::ptr::eq(i_f, *f))
-        })
-        .collect();
-    for (c, f) in visible {
+    for (c, f) in project.running_functions(contract) {
         builder.function_node(c, f);
     }
 
@@ -53,7 +39,6 @@ struct Builder<'a> {
     linearization: Vec<&'a ContractDef>,
     graph: CallGraph,
     index: HashMap<String, NodeIndex>,
-    // hierarchy functions whose bodies still have to be scanned
     queue: VecDeque<(&'a ContractDef, &'a FunctionDef, NodeIndex)>,
     queued: HashSet<String>,
 }
@@ -116,7 +101,6 @@ impl<'a> Builder<'a> {
                 idx
             }
         };
-        // bodies of hierarchy functions are part of this contract's code
         if let Some((owner, func)) = target.def {
             if self.in_hierarchy(owner.key()) && self.queued.insert(id) {
                 self.queue.push_back((owner, func, idx));
@@ -178,7 +162,6 @@ impl<'a> Builder<'a> {
                 return self.defined(c, f, None);
             }
         } else if kind == CallKind::Internal && qualifier.is_none() {
-            // virtual dispatch from the most derived contract
             match declared_def {
                 Some((c, f)) if f.is_virtual && self.in_hierarchy(c.key()) => {
                     if let Some((ic, i_f)) =
@@ -189,7 +172,7 @@ impl<'a> Builder<'a> {
                         return self.defined(ic, i_f, static_target);
                     }
                 }
-                // without a declaration id, first implementation by name; a function-pointer id must not match by name
+                // a function-pointer id skips the by-name fallback
                 None if resolved.is_none() => {
                     let by_name = self.linearization.iter().find_map(|c| {
                         c.functions.iter().find(|f| f.name == function && f.body.is_some()).map(|f| (*c, f))

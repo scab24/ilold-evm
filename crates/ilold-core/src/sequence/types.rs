@@ -3,12 +3,11 @@ use serde::{Deserialize, Serialize};
 use crate::model::function::Visibility;
 use crate::util::Page;
 
-/// The sequences are generated per request: there are `n + n^2 + ... + n^depth` of them.
+/// Generated per request because there are `n + n^2 + ... + n^depth` sequences.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SequenceTree {
     pub contract: String,
     pub functions: Vec<SequenceFunction>,
-    /// Depth served when a request names none.
     pub max_depth: usize,
 }
 
@@ -28,7 +27,6 @@ pub struct TransactionSequence {
     pub has_state_change: bool,
 }
 
-/// Shortest first, each depth in lexicographic order.
 #[derive(Debug, Clone, Serialize)]
 pub struct SequencePage {
     pub contract: String,
@@ -58,7 +56,7 @@ impl SequenceTree {
         u32::try_from(depth).map_or(usize::MAX, |d| self.functions.len().saturating_pow(d))
     }
 
-    // the index-th sequence: its depth, then its steps as base-n digits
+    // steps are the base-n digits of the index
     fn sequence(&self, mut index: usize) -> TransactionSequence {
         let mut depth = 1;
         while index >= self.at_depth(depth) {

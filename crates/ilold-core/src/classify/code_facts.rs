@@ -1,4 +1,3 @@
-//! Builtins and unchecked arithmetic a function runs, modifiers included.
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::builder::modifier_code;
@@ -56,7 +55,6 @@ pub struct CodeFacts {
     pub unchecked_blocks: Vec<SourceSpan>,
 }
 
-/// In source order: each modifier with its arguments as `context` resolves it, then the body.
 pub fn code_facts(project: Option<&Project>, context: &ContractDef, func: &FunctionDef) -> CodeFacts {
     let mut builtin_uses = Vec::new();
     let mut unchecked_blocks = Vec::new();
@@ -74,7 +72,6 @@ pub fn code_facts(project: Option<&Project>, context: &ContractDef, func: &Funct
     CodeFacts { builtin_uses, unchecked_blocks }
 }
 
-/// In source order: each modifier's arguments and code as `context` resolves it, then the body; expressions come with the modifier whose code holds them.
 pub(crate) fn walk_function<'a>(
     project: Option<&'a Project>,
     context: &'a ContractDef,

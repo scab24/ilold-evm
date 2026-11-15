@@ -66,7 +66,7 @@ Explore prints a local URL; enter `browser` to open it, or visit it manually. CL
 | --- | --- |
 | Session | `call`, `back`, `clear`, `state`, `sequence`, `step`, `session` |
 | Analysis | `who` (reads/writes of a variable), `info` (function detail), `trace` (execution tree), `timeline` (mutations across steps), `slice` (data flow) |
-| Contract | `functions`, `vars`, `contracts`, `deps`, `usedby`, `use` |
+| Contract | `functions`, `vars`, `contracts`, `deps`, `usedby`, `links` (calls to and from other contracts), `route` (how one contract reaches another), `value` (who pays whom), `use` |
 | Findings | `finding`, `note`, `scenario`, `status`, `findings`, `export` |
 | Workspace | `save`, `load`, `browser`, `quit` |
 

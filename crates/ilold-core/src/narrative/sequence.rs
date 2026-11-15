@@ -12,7 +12,6 @@ struct SequenceInput<'a> {
     behavior: Option<&'a FunctionBehavior>,
 }
 
-/// `behaviors` are those of `contract` itself.
 pub fn build_sequence_narrative(
     project: &Project,
     contract: &ContractDef,

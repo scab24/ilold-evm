@@ -71,7 +71,6 @@ async fn info_endpoint_returns_narrative_with_tree_data() {
 
     let client = reqwest::Client::new();
 
-    // Need an active session first
     client.post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": {"Call": {"func": "deposit"}}}))
         .send().await.unwrap();
@@ -97,7 +96,6 @@ async fn sequence_endpoint_with_two_steps() {
 
     let client = reqwest::Client::new();
 
-    // Build 2-step sequence
     client.post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": {"Call": {"func": "deposit"}}}))
         .send().await.unwrap();
@@ -153,46 +151,37 @@ async fn full_explore_workflow() {
         }
     };
 
-    // 1. Functions
     let res = cmd(serde_json::json!({"contract": "Staking", "command": "Functions"})).await;
     let funcs = res["FunctionList"]["functions"].as_array().unwrap();
     assert!(funcs.len() >= 8);
 
-    // 2. Call deposit
     let res = cmd(serde_json::json!({"contract": "Staking", "command": {"Call": {"func": "deposit"}}})).await;
     assert_eq!(res["StepAdded"]["function"], "deposit");
     assert_eq!(res["StepAdded"]["step_index"], 0);
 
-    // 3. State after 1 step
     let res = cmd(serde_json::json!({"contract": "Staking", "command": "State"})).await;
     let summary = res["StateView"]["summary"].as_array().unwrap();
     assert!(!summary.is_empty());
 
-    // 4. Who balances
     let res = cmd(serde_json::json!({"contract": "Staking", "command": {"Who": {"variable": "balances"}}})).await;
     let writers = res["VariableInfo"]["writers"].as_array().unwrap();
     assert!(writers.len() >= 2, "balances should have at least 2 writers");
 
-    // 5. Call withdraw
     let res = cmd(serde_json::json!({"contract": "Staking", "command": {"Call": {"func": "withdraw"}}})).await;
     assert_eq!(res["StepAdded"]["function"], "withdraw");
     assert_eq!(res["StepAdded"]["step_index"], 1);
 
-    // 6. Back
     let res = cmd(serde_json::json!({"contract": "Staking", "command": "Back"})).await;
     assert_eq!(res["StepRemoved"]["remaining"], 1);
 
-    // 7. Session
     let res = cmd(serde_json::json!({"contract": "Staking", "command": "Session"})).await;
     assert_eq!(res["SessionView"]["contract"], "Staking");
     let steps = res["SessionView"]["steps"].as_array().unwrap();
     assert_eq!(steps.len(), 1);
 
-    // 8. Clear
     let res = cmd(serde_json::json!({"contract": "Staking", "command": "Clear"})).await;
     assert_eq!(res, serde_json::json!("Cleared"));
 
-    // 9. Session after clear
     let res = cmd(serde_json::json!({"contract": "Staking", "command": "Session"})).await;
     assert_eq!(res["SessionView"]["steps"].as_array().unwrap().len(), 0);
 }
@@ -241,7 +230,6 @@ async fn trace_swap_shows_external_call_before_update_writes() {
         "Expected inlined write to reserve0",
     );
 
-    // CEI order: a reserve0 write must exist after the first external transfer.
     let ext_idx = first_external.unwrap();
     assert!(
         events[ext_idx..].iter().any(|e| {
@@ -255,8 +243,6 @@ async fn trace_swap_shows_external_call_before_update_writes() {
 
 #[tokio::test]
 async fn trace_getreserves_has_no_empty_target_writes() {
-    // Regression for classify_expression catchall emitting fake Assignments
-    // for tuple returns. getReserves must have zero Write events.
     let paths = vec![fixture("uniswap_v2_pair")];
     let (_, port) = ilold_web::start_server(paths, 0, 2).await.unwrap();
 
@@ -299,14 +285,12 @@ async fn trace_update_has_no_internal_calls_and_shows_state_writes() {
         })
     };
 
-    // _update has 3 writes + 1 emit, no internal calls
     assert!(has_write_to("reserve0"), "expected write to reserve0");
     assert!(has_write_to("reserve1"), "expected write to reserve1");
     assert!(events.iter().any(|e| e.variant == "EmitEvent"));
     assert!(!events.iter().any(|e| e.variant == "InternalCall"));
 }
 
-/// Collect (step_id, variant) pairs from a FlowTree in pre-order.
 fn collect_step_ids(node: &serde_json::Value, out: &mut Vec<(u64, String)>) {
     let step_id = node.get("step_id").and_then(|v| v.as_u64()).unwrap_or(0);
     let variant = match node.get("kind") {
@@ -324,9 +308,6 @@ fn collect_step_ids(node: &serde_json::Value, out: &mut Vec<(u64, String)>) {
     }
 }
 
-/// Canonical step_ids must be stable across configs that only differ
-/// in max_depth and expand_set. For every step_id present in BOTH trees,
-/// the FlowKind variant must match.
 #[tokio::test]
 async fn step_ids_are_stable_across_max_depth_configs() {
     let paths = vec![fixture("uniswap_v2_pair")];
@@ -354,19 +335,16 @@ async fn step_ids_are_stable_across_max_depth_configs() {
     let mut deep: Vec<(u64, String)> = Vec::new();
     collect_step_ids(&tree_deep["root"], &mut deep);
 
-    // Both walks must visit a non-trivial tree.
     assert!(shallow.len() > 5, "shallow tree too small: {}", shallow.len());
     assert!(deep.len() > shallow.len(),
         "deep tree should have at least as many nodes as shallow (deep={}, shallow={})",
         deep.len(), shallow.len());
 
-    // Build maps keyed by step_id.
     let shallow_map: std::collections::HashMap<u64, &str> =
         shallow.iter().map(|(id, v)| (*id, v.as_str())).collect();
     let deep_map: std::collections::HashMap<u64, &str> =
         deep.iter().map(|(id, v)| (*id, v.as_str())).collect();
 
-    // Every step_id that exists in both trees must map to the same variant.
     let mut common_ids = 0usize;
     for (id, shallow_variant) in &shallow_map {
         if let Some(deep_variant) = deep_map.get(id) {
@@ -381,9 +359,6 @@ async fn step_ids_are_stable_across_max_depth_configs() {
     assert!(common_ids > 5, "expected meaningful overlap, got {}", common_ids);
 }
 
-/// After `c <func>`, the persisted session must contain a non-null
-/// flow_tree on the new step AND every harvested mutation must carry a
-/// flow_step_id resolving to a Write/StateWrite node in that tree.
 #[tokio::test]
 async fn session_step_persists_flow_tree_with_populated_flow_step_ids() {
     let paths = vec![fixture("staking")];
@@ -391,14 +366,12 @@ async fn session_step_persists_flow_tree_with_populated_flow_step_ids() {
 
     let client = reqwest::Client::new();
 
-    // 1. Add deposit to the session.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": {"Call": {"func": "deposit"}}}))
         .send().await.unwrap();
     assert!(res.status().is_success());
 
-    // 2. Save the session via the SaveSession command to get its JSON form.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": "SaveSession"}))
@@ -409,9 +382,6 @@ async fn session_step_persists_flow_tree_with_populated_flow_step_ids() {
         .expect("SaveSession should return a JSON string");
     let session: serde_json::Value = serde_json::from_str(json_str).unwrap();
 
-    // 3. Inspect the persisted step. Save format is v2: scenarios are
-    //    keyed under `scenarios.<name>` and the active scenario name
-    //    sits at the top level — drill in to reach the bare session.
     assert_eq!(session["version"], 2);
     let main = &session["scenarios"]["main"];
     assert!(!main.is_null(), "scenarios.main must be present in v2 save");
@@ -419,7 +389,6 @@ async fn session_step_persists_flow_tree_with_populated_flow_step_ids() {
     assert_eq!(steps.len(), 1);
     let step = &steps[0];
 
-    // 3a. flow_tree must be non-null.
     assert!(
         !step["flow_tree"].is_null(),
         "step.flow_tree must be persisted (not null) after c <func>"
@@ -430,10 +399,8 @@ async fn session_step_persists_flow_tree_with_populated_flow_step_ids() {
     assert!(root["children"].as_array().unwrap().len() > 0,
         "persisted flow_tree must have non-empty root.children");
 
-    // 3b. trace_config must be persisted with default depth.
     assert_eq!(step["trace_config"]["depth"], 2);
 
-    // 3c. Every mutation must have flow_step_id = Some(_).
     let mutations = step["mutations"].as_array().unwrap();
     assert!(!mutations.is_empty(), "deposit should produce at least one mutation");
     for m in mutations {
@@ -444,8 +411,6 @@ async fn session_step_persists_flow_tree_with_populated_flow_step_ids() {
         );
     }
 
-    // 3d. Each flow_step_id must resolve to a Write or StateWrite node in the
-    //     persisted flow_tree.
     let mut tree_step_ids: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
     collect_step_id_kinds(root, &mut tree_step_ids);
     for m in mutations {
@@ -460,10 +425,6 @@ async fn session_step_persists_flow_tree_with_populated_flow_step_ids() {
     }
 }
 
-/// Session steps must model real external transactions — an internal
-/// function like `_update` should be rejected with a clear error because
-/// it cannot be called from outside the contract. Letting it in would
-/// build an execution sequence that is impossible on-chain.
 #[tokio::test]
 async fn call_rejects_internal_function_as_session_entry() {
     let paths = vec![fixture("uniswap_v2_pair")];
@@ -488,7 +449,6 @@ async fn call_rejects_internal_function_as_session_entry() {
     assert!(msg.contains("tr") || msg.contains("view"),
         "error should suggest an alternative: {}", msg);
 
-    // Public entry points must still work — sanity check the happy path.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -501,9 +461,6 @@ async fn call_rejects_internal_function_as_session_entry() {
     assert_eq!(body["StepAdded"]["function"], "swap");
 }
 
-/// `?expand=N` forces a specific InternalCall to be inlined regardless
-/// of `depth`. Verifies the new query parameter wires through to the
-/// walker's expand_set.
 #[tokio::test]
 async fn tr_swap_expand_inlines_update() {
     let paths = vec![fixture("uniswap_v2_pair")];
@@ -511,14 +468,12 @@ async fn tr_swap_expand_inlines_update() {
 
     let client = reqwest::Client::new();
 
-    // 1. Build the trace at depth 2 — _update should appear depth_limited.
     let res = client
         .get(format!("http://127.0.0.1:{port}/api/session/trace/UniswapV2Pair/swap?depth=2"))
         .send().await.unwrap();
     assert!(res.status().is_success());
     let tree: serde_json::Value = res.json().await.unwrap();
 
-    // 2. Find the first InternalCall to _update with depth_limited=true.
     let mut update_step_id: Option<u64> = None;
     fn find_depth_limited_update(node: &serde_json::Value, out: &mut Option<u64>) {
         if out.is_some() { return; }
@@ -545,8 +500,6 @@ async fn tr_swap_expand_inlines_update() {
     let target_id = update_step_id
         .expect("expected at least one depth_limited _update at depth=2");
 
-    // 3. Re-fetch with ?expand=<id>. Now _update at that step_id should be
-    //    inlined (depth_limited=false) AND have non-empty children.
     let res = client
         .get(format!(
             "http://127.0.0.1:{port}/api/session/trace/UniswapV2Pair/swap?depth=2&expand={target_id}"
@@ -555,8 +508,6 @@ async fn tr_swap_expand_inlines_update() {
     assert!(res.status().is_success());
     let tree2: serde_json::Value = res.json().await.unwrap();
 
-    // 4. Walk the new tree, find the node with target_id, and assert it's
-    //    no longer depth_limited and has children.
     fn find_node_by_id<'a>(
         node: &'a serde_json::Value,
         target: u64,
@@ -590,7 +541,6 @@ async fn tr_swap_expand_inlines_update() {
     assert!(!children.is_empty(),
         "expanded _update must have inlined children");
 
-    // 5. Bonus: those children should include writes to reserve0 / reserve1.
     let has_reserve_write = children.iter().any(|c| {
         c.get("kind")
             .and_then(|k| k.as_object())
@@ -604,9 +554,6 @@ async fn tr_swap_expand_inlines_update() {
         "expanded _update children should include reserve* writes");
 }
 
-/// `GET /api/session/timeline/{var}` returns every mutation of `var`
-/// across the session, ordered by session step then flow_step_id, with
-/// path conditions populated for each entry.
 #[tokio::test]
 async fn timeline_balances_across_multiple_steps() {
     let paths = vec![fixture("staking")];
@@ -638,11 +585,9 @@ async fn timeline_balances_across_multiple_steps() {
     assert!(state.len() >= 2,
         "expected at least 2 entries (deposit + withdraw), got {}", state.len());
 
-    // Locals always empty in Phase 2a-2 (walker doesn't emit locals yet).
     let locals = tl["local_entries"].as_array().unwrap();
     assert!(locals.is_empty());
 
-    // Entries are ordered by session_step_index then flow_step_id.
     let mut prev_key: Option<(u64, u64)> = None;
     for entry in state {
         let session_idx = entry["session_step_index"].as_u64().unwrap();
@@ -653,23 +598,15 @@ async fn timeline_balances_across_multiple_steps() {
         }
         prev_key = Some(key);
 
-        // Each entry must point to its source function and carry a flow_step_id.
         assert!(!entry["function"].as_str().unwrap().is_empty());
         assert!(entry["flow_step_id"].as_u64().is_some(),
             "non-legacy mutation should have flow_step_id");
-        // Target should start with 'balances' (our base-name match).
         let target = entry["target"].as_str().unwrap();
         assert!(target.starts_with("balances"),
             "target should be a balances variant, got {:?}", target);
     }
 }
 
-/// A pre-Phase-2a session JSON (no flow_tree, no flow_step_id, no scope,
-/// no trace_config) must load cleanly and the existing commands must
-/// still work in a degraded mode:
-///   - `s` (state) renders mutations using the legacy `step N` format
-///   - `seq` works without flow_summary entries
-///   - `tr step <N>` returns the documented 404 for legacy sessions
 #[tokio::test]
 async fn legacy_session_loads_and_degrades_gracefully() {
     let paths = vec![fixture("staking")];
@@ -677,8 +614,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
 
     let client = reqwest::Client::new();
 
-    // 1. Build a real session with two steps so we get a valid AuditJournal
-    //    serialized form, then save it.
     for func in ["deposit", "withdraw"] {
         let res = client
             .post(format!("http://127.0.0.1:{port}/api/cmd"))
@@ -693,10 +628,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
     let body: serde_json::Value = res.json().await.unwrap();
     let json_str = body["SessionSaved"]["json"].as_str().unwrap().to_string();
 
-    // 2. Extract the bare `main` ExplorationSession out of the v2 wrapper
-    //    and strip Phase-2a fields from its steps. Sending it back as a
-    //    bare session (no `version`/`scenarios` wrapper) exercises the v1
-    //    fallback path in `ScenarioStore::load_from_json`.
     let v2: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     let mut session = v2["scenarios"]["main"].clone();
     assert!(!session.is_null(), "v2 save must contain scenarios.main");
@@ -718,7 +649,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
     }
     let stripped = serde_json::to_string(&session).unwrap();
 
-    // 3. Load the stripped session — must succeed thanks to #[serde(default)].
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -728,8 +658,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
         .send().await.unwrap();
     assert!(res.status().is_success(), "load failed: {}", res.status());
 
-    // 4. `s` (state) — change lines should NOT have a `:N` flow ref because
-    //    the legacy mutations have flow_step_id = None.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": "State"}))
@@ -742,7 +670,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
         for change in var["changes"].as_array().unwrap() {
             let s = change.as_str().unwrap();
             assert!(s.contains("(step "), "missing step ref: {:?}", s);
-            // Legacy format: 'step N,' (comma after digit) — NOT 'step N:M'
             assert!(
                 !s.contains(":") || !s.split("step ").nth(1).map(|r| r.starts_with(|c: char| c.is_ascii_digit())).unwrap_or(false)
                 || s.split("(step ").nth(1).and_then(|r| r.split(',').next())
@@ -752,7 +679,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
         }
     }
 
-    // 5. `seq` — must work but flow_summary must be null on every step.
     let res = client
         .get(format!("http://127.0.0.1:{port}/api/session/sequence"))
         .send().await.unwrap();
@@ -765,7 +691,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
             "legacy step should have null flow_summary: {:?}", step);
     }
 
-    // 6. `tr step 0` — must return 404 with the documented legacy message.
     let res = client
         .get(format!("http://127.0.0.1:{port}/api/session/step/0/trace"))
         .send().await.unwrap();
@@ -777,9 +702,6 @@ async fn legacy_session_loads_and_degrades_gracefully() {
     );
 }
 
-/// After 2 `c <func>` calls, `seq` must return a SequenceNarrative whose
-/// every step has a populated `flow_summary` with sane counts. Verifies
-/// Task 1.9 enrichment is wired through the API.
 #[tokio::test]
 async fn sequence_narrative_includes_flow_summary_per_step() {
     let paths = vec![fixture("staking")];
@@ -816,10 +738,8 @@ async fn sequence_narrative_includes_flow_summary_per_step() {
         assert!(summary["total_steps"].as_u64().unwrap() > 0);
         assert!(summary["mutation_count"].as_u64().unwrap() > 0,
             "expected at least one mutation in {:?}", step["function"]);
-        // mutation_refs is a list mirroring mutation_count
         let refs = summary["mutation_refs"].as_array().unwrap();
         assert_eq!(refs.len() as u64, summary["mutation_count"].as_u64().unwrap());
-        // Each ref carries variable + flow_step_id + session_step_index
         for r in refs {
             assert!(!r["variable"].as_str().unwrap().is_empty());
             assert!(r["flow_step_id"].as_u64().is_some());
@@ -827,9 +747,6 @@ async fn sequence_narrative_includes_flow_summary_per_step() {
     }
 }
 
-/// `GET /api/session/step/{N}/trace` returns the persisted FlowTree of
-/// the session step. Verifies the new endpoint is wired correctly and
-/// that the persisted tree round-trips through HTTP.
 #[tokio::test]
 async fn tr_step_endpoint_returns_persisted_flow_tree() {
     let paths = vec![fixture("staking")];
@@ -837,14 +754,12 @@ async fn tr_step_endpoint_returns_persisted_flow_tree() {
 
     let client = reqwest::Client::new();
 
-    // Add a step to the session.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": {"Call": {"func": "deposit"}}}))
         .send().await.unwrap();
     assert!(res.status().is_success());
 
-    // GET the persisted trace.
     let res = client
         .get(format!("http://127.0.0.1:{port}/api/session/step/0/trace"))
         .send().await.unwrap();
@@ -857,7 +772,6 @@ async fn tr_step_endpoint_returns_persisted_flow_tree() {
     assert!(root["children"].as_array().unwrap().len() > 0);
 }
 
-/// Requesting an out-of-range step index returns 404.
 #[tokio::test]
 async fn tr_step_endpoint_404_on_unknown_step() {
     let paths = vec![fixture("staking")];
@@ -865,16 +779,12 @@ async fn tr_step_endpoint_404_on_unknown_step() {
 
     let client = reqwest::Client::new();
 
-    // No steps added — index 0 doesn't exist.
     let res = client
         .get(format!("http://127.0.0.1:{port}/api/session/step/0/trace"))
         .send().await.unwrap();
     assert_eq!(res.status(), reqwest::StatusCode::NOT_FOUND);
 }
 
-/// After `c <func>`, the `s` (state) command's variable summaries must
-/// include `step N:flow_id` references in each change line, proving the
-/// new walker's flow_step_id is propagating through to the render layer.
 #[tokio::test]
 async fn state_view_renders_flow_step_refs() {
     let paths = vec![fixture("staking")];
@@ -882,14 +792,12 @@ async fn state_view_renders_flow_step_refs() {
 
     let client = reqwest::Client::new();
 
-    // Add a step.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": {"Call": {"func": "deposit"}}}))
         .send().await.unwrap();
     assert!(res.status().is_success());
 
-    // Fetch the state view.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({"contract": "Staking", "command": "State"}))
@@ -899,9 +807,6 @@ async fn state_view_renders_flow_step_refs() {
     let summary = body["StateView"]["summary"].as_array().unwrap();
     assert!(!summary.is_empty(), "deposit should produce state changes");
 
-    // Every change line must carry a `step 0:` prefix followed by a digit
-    // (the new format — `0:` is the session step, the digit is the
-    // flow_step_id from the canonical walker).
     for var in summary {
         let changes = var["changes"].as_array().unwrap();
         for change in changes {
@@ -918,7 +823,6 @@ async fn state_view_renders_flow_step_refs() {
     }
 }
 
-/// Collect (step_id, FlowKind variant) pairs from a serialized FlowTree.
 fn collect_step_id_kinds(
     node: &serde_json::Value,
     out: &mut std::collections::HashMap<u64, String>,

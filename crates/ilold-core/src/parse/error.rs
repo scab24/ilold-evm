@@ -8,7 +8,6 @@ pub enum ParseError {
         path: String,
         message: String,
         span: Option<SourceSpan>,
-        /// Every compiler error, by file.
         failures: Vec<CompileFailure>,
     },
 

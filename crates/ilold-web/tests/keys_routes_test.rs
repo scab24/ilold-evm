@@ -1,4 +1,3 @@
-//! Mapping keys of reads and writes on the API. Fixture: tests/fixtures/solc/keys.
 use std::path::PathBuf;
 
 use serde_json::{json, Value};

@@ -1,5 +1,3 @@
-//! The PTY child (an attached REPL in production) must end with its socket.
-
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::WebSocketUpgrade;

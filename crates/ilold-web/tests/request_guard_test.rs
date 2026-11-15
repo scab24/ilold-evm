@@ -11,7 +11,7 @@ fn fixture() -> PathBuf {
 const FOREIGN: &str = "http://evil.example";
 const COMMAND: &str = r#"{"contract":"Staking","command":{"Call":{"func":"deposit"}}}"#;
 
-// Raw requests, because HTTP clients do not let a test forge Host the way a rebinding browser does.
+// Raw requests, because HTTP clients cannot forge Host like a rebinding browser.
 async fn status(port: u16, method: &str, path: &str, host: &str, extra: &[(&str, &str)], body: &str) -> u16 {
     let mut request = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {}\r\n", body.len());
     if !body.is_empty() {
@@ -83,7 +83,7 @@ async fn foreign_origin_cannot_change_state() {
     assert_eq!(status(port, "POST", "/api/cmd", &host, &[("Origin", FOREIGN)], COMMAND).await, 403);
     assert_eq!(status(port, "POST", "/api/annotations", &host, &[("Origin", FOREIGN)], "{}").await, 403);
     assert_eq!(status(port, "DELETE", "/api/annotations/x", &host, &[("Origin", FOREIGN)], "").await, 403);
-    // same host, other port: a different origin
+    // another port on the same host is a different origin
     let other_port = format!("http://127.0.0.1:{}", port.wrapping_add(1));
     assert_eq!(status(port, "POST", "/api/cmd", &host, &[("Origin", &other_port)], COMMAND).await, 403);
     assert_eq!(status(port, "POST", "/api/cmd", &host, &[("Origin", &same)], COMMAND).await, 200);

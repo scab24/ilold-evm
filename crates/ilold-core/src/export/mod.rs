@@ -1,4 +1,3 @@
-//! A deterministic JSON Lines map of a project: an envelope, then nodes, then edges, each part sorted by id.
 mod facts;
 mod ids;
 mod inventory;
@@ -19,15 +18,13 @@ pub use facts::as_1_0;
 use ids::{Ids, Paths};
 use inventory::Repo;
 
-/// Changes whenever a record kind or field changes meaning.
+/// Bump when a record kind or field changes meaning.
 pub const SCHEMA_VERSION: &str = "1.1.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Complete,
-    /// Files outside the sources failed to compile; the rest is exported.
     CompleteWithWarnings,
-    /// The sources failed to compile: only the envelope and its file inventory.
     NoFacts,
 }
 
@@ -41,11 +38,9 @@ impl Status {
     }
 }
 
-/// The ilold build an export comes from; unknown outside a git checkout.
 #[derive(Debug, Clone, Default)]
 pub struct Build {
     pub git_commit: Option<String>,
-    /// The build inputs differ from `git_commit`.
     pub dirty: Option<bool>,
 }
 
@@ -54,7 +49,6 @@ pub struct GraphExport {
     pub jsonl: String,
 }
 
-/// `root` is the Foundry root; an error means nothing could be exported.
 pub fn export_graph(root: &Path, params: &AnalysisParams, build: &Build) -> Result<GraphExport, String> {
     let layout = project_layout(root).map_err(|e| e.to_string())?;
     let repo = Repo::locate(&layout.root);

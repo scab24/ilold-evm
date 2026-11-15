@@ -1,4 +1,3 @@
-//! State and revert flow across calls and storage pointers. Fixture: tests/fixtures/solc/state_flow.
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -91,7 +90,6 @@ fn written(stmts: &[CfgStatement]) -> Vec<&str> {
 #[test]
 fn external_library_writes_land_on_the_bound_state_variables() {
     let b = behavior("Pool", "supply");
-    // passing `_reserves` by reference is not a read of it
     assert!(b.state_reads.is_empty(), "{:?}", b.state_reads);
     assert!(b.state_writes.is_empty(), "{:?}", b.state_writes);
     assert_eq!(b.external_calls, strings(&["SupplyLib.executeSupply"]));
@@ -417,7 +415,6 @@ fn constants_and_immutables_are_not_storage() {
     assert!(b.state_writes.is_empty(), "{:?}", b.state_writes);
     assert!(b.state_write_paths.is_empty(), "{:?}", b.state_write_paths);
 
-    // an immutable used as a call target is not a read either
     let b = behavior("Aliases", "viewExternal");
     assert!(b.state_reads.is_empty(), "{:?}", b.state_reads);
 }
@@ -538,6 +535,7 @@ fn session_state_lists_writes_made_through_library_calls() {
         path_trees: &a.path_trees,
         behaviors: &a.sequence_analyses["Pool"].functions,
         all_sequence_analyses: &a.sequence_analyses,
+        relations: &a.relations,
     };
     let mut session = ExplorationSession::new("Pool", "state_flow");
     let call = |func: &str| SessionCommand::Call { func: func.into(), trace_config: None };
@@ -556,7 +554,6 @@ fn session_state_lists_writes_made_through_library_calls() {
     assert_eq!(tl.state_entries.len(), 1);
     assert_eq!(tl.state_entries[0].via.as_deref(), Some("SupplyLib::executeSupply"));
 
-    // a direct write keeps its operator and value
     execute_command(call("setAdmin"), &mut session, &data, "0");
     let CommandResult::StateView { summary } = execute_command(SessionCommand::State, &mut session, &data, "0") else {
         panic!("StateView")
@@ -583,6 +580,7 @@ fn session_state_does_not_repeat_call_writes_the_flow_tree_shows() {
             path_trees: &a.path_trees,
             behaviors: &a.sequence_analyses[name].functions,
             all_sequence_analyses: &a.sequence_analyses,
+            relations: &a.relations,
         };
         let mut session = ExplorationSession::new(name, "state_flow");
         let call = SessionCommand::Call { func: func.into(), trace_config: None };
@@ -590,7 +588,6 @@ fn session_state_does_not_repeat_call_writes_the_flow_tree_shows() {
         session.steps[0].mutations.iter().map(|m| (m.variable.clone(), m.flow_step_id.is_some(), m.via.clone())).collect::<Vec<_>>()
     };
 
-    // the flow tree inlines `_store`; its writes are not repeated
     let nested = mutations("Aliases", "nested");
     assert!(nested.iter().all(|(_, shown, _)| *shown), "{nested:?}");
     assert!(nested.iter().any(|(v, _, via)| v.starts_with("slots[") && via.as_deref() == Some("_store")), "{nested:?}");

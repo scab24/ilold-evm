@@ -1,11 +1,3 @@
-//! Integration tests verifying existing `/api/session/*` endpoints target the
-//! ACTIVE scenario after the ScenarioStore refactor.
-//!
-//! These are regression tests: the behavior with the single (auto-seeded)
-//! "main" scenario must be unchanged. The spec S12 case "switching active
-//! scenario flips endpoint output" lands in Phase S2 when the switch command
-//! exists.
-
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -18,16 +10,12 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// Fresh server with no auto-seeded steps. Mirrors `start()` in
-/// `scenario_commands_test.rs` — duplicated because integration test files
-/// cannot share helper modules without extra plumbing.
 async fn start() -> (reqwest::Client, u16) {
     let paths = vec![fixture("staking")];
     let (_state, port) = ilold_web::start_server(paths, 0, 2).await.unwrap();
     (reqwest::Client::new(), port)
 }
 
-/// POST /api/cmd helper. Same shape as `cmd()` in `scenario_commands_test.rs`.
 async fn cmd(
     client: &reqwest::Client,
     port: u16,
@@ -53,7 +41,6 @@ async fn start_with_staking() -> (reqwest::Client, u16) {
     let (_state, port) = ilold_web::start_server(paths, 0, 2).await.unwrap();
     let client = reqwest::Client::new();
 
-    // Add a step to the auto-seeded active "main" scenario.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -92,7 +79,6 @@ async fn existing_state_endpoint_targets_active_scenario() {
         body.is_array(),
         "response should be a JSON array of VariableSummary, got: {body}"
     );
-    // `deposit` mutates `balances` and `totalStaked` on the active scenario.
     let arr = body.as_array().unwrap();
     assert!(
         !arr.is_empty(),
@@ -104,7 +90,6 @@ async fn existing_state_endpoint_targets_active_scenario() {
 async fn existing_sequence_endpoint_targets_active_scenario() {
     let (client, port) = start_with_staking().await;
 
-    // `sequence` requires at least two steps in the active scenario.
     let res = client
         .post(format!("http://127.0.0.1:{port}/api/cmd"))
         .json(&serde_json::json!({
@@ -142,7 +127,6 @@ async fn existing_sequence_endpoint_targets_active_scenario() {
 async fn existing_timeline_endpoint_targets_active_scenario() {
     let (client, port) = start_with_staking().await;
 
-    // `deposit` writes `balances[msg.sender]`.
     let res = client
         .get(format!(
             "http://127.0.0.1:{port}/api/session/timeline/balances"
@@ -208,10 +192,6 @@ async fn existing_trace_endpoint_targets_active_scenario() {
         "response should be a FlowTree object, got: {body}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Phase S3: GET /api/scenarios and GET /api/scenarios/all
-// ---------------------------------------------------------------------------
 
 fn scenario_new(name: &str) -> serde_json::Value {
     serde_json::json!({ "Scenario": { "sub": { "New": { "name": name } } } })
@@ -312,8 +292,6 @@ async fn get_scenarios_all_returns_ordered_snapshot() {
         .unwrap_or_else(|| panic!("scenarios should be an array, got: {body}"));
     assert_eq!(scenarios.len(), 3, "expected 3 scenarios, got: {scenarios:?}");
 
-    // Insertion order: main, alt1, alt2. Each entry is a ScenarioSnapshot
-    // object with `name`, `steps`, `forked_from` fields.
     let names: Vec<&str> = scenarios
         .iter()
         .map(|entry| entry.get("name").and_then(|v| v.as_str()).expect("name"))
@@ -336,8 +314,6 @@ async fn get_scenarios_all_returns_ordered_snapshot() {
         "SessionStepView must serialize an `access` field, got: {step0}"
     );
 
-    // main was never forked; alt1/alt2 were created with `scenario new`, not
-    // `scenario fork`, so none of the three carry a forked_from marker.
     for idx in 0..3 {
         assert!(
             scenarios[idx].get("forked_from").map(|v| v.is_null()).unwrap_or(true),
@@ -379,7 +355,6 @@ async fn get_scenarios_all_tracks_active_after_switch() {
 async fn get_scenarios_all_exposes_fork_origin() {
     let (client, port) = start().await;
 
-    // Build main with 3 steps, fork alt1 at step 2.
     cmd(&client, port, "Staking", call("deposit")).await;
     cmd(&client, port, "Staking", call("deposit")).await;
     cmd(&client, port, "Staking", call("withdraw")).await;
@@ -443,9 +418,6 @@ async fn get_scenarios_access_level_resolves_correctly() {
     let access = main_steps[0]
         .get("access")
         .expect("access field");
-    // `AccessLevel::Public` is a unit variant, so serde serializes it as the
-    // bare string "Public" (non-unit variants like `Restricted { role }`
-    // would serialize as an object).
     assert_eq!(
         access.as_str(),
         Some("Public"),

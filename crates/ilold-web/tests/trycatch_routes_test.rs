@@ -1,4 +1,3 @@
-//! Try statements on the API. Fixture: tests/fixtures/solc/trycatch.
 use std::path::PathBuf;
 
 use serde_json::Value;

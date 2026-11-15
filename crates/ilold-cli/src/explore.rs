@@ -227,7 +227,7 @@ fn repl_loop(
     };
 
     loop {
-        // other clients share the server session: refresh it before every prompt
+        // other clients share the server session
         if let Some(snapshot) = sync_session(&handle, &client, &base_url, &contract) {
             steps = snapshot.steps;
             scenario_name = snapshot.active;
@@ -315,7 +315,6 @@ impl ContractNames {
     }
 }
 
-/// Overloads of a shared name are listed by signature without spaces.
 fn function_names(functions: &[(String, String)]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (name, signature) in functions.iter().filter(|(n, _)| !n.is_empty()) {
@@ -528,6 +527,13 @@ fn handle_input(
             show_deps(handle, client, base_url, state, target, true);
             InputResult::Continue
         }
+        "links" | "route" | "value" => {
+            match connection_view(handle, client, base_url, state.as_deref(), &cmd, arg, contract) {
+                Ok(text) => print!("{text}"),
+                Err(e) => eprintln!("  {}", c_danger(&e)),
+            }
+            InputResult::Continue
+        }
         "use" => {
             if arg.is_empty() {
                 println!("  Usage: use <contract>");
@@ -551,9 +557,8 @@ fn handle_input(
                         }
                         InputResult::SwitchContract(name)
                     }
-                    Err(ContractLookupError::Ambiguous(ids)) => {
-                        eprintln!("  {}", c_danger(&format!(
-                            "Contract name '{arg}' is ambiguous; use one of: {}", ids.join(", "))));
+                    Err(e @ ContractLookupError::Ambiguous(_)) => {
+                        eprintln!("  {}", c_danger(&e.message(arg)));
                         InputResult::Continue
                     }
                     Err(ContractLookupError::NotFound) => {
@@ -643,7 +648,6 @@ fn handle_input(
             match send_command(handle, client, base_url, &body) {
                 Ok(result) => {
                     print_result(&result, steps);
-                    // an Error keeps the local view
                     if matches!(result, CommandResult::Cleared) {
                         steps.clear();
                         return InputResult::UpdatePrompt;
@@ -817,7 +821,7 @@ fn handle_input(
                         return InputResult::Continue;
                     }
                     if parsed.has_render_flags() {
-                        // the persisted trace has a fixed shape, so flags rebuild it from the function
+                        // flags rebuild the persisted trace from the function
                         let func_name = &steps[*idx];
                         println!("  {}", c_muted(&format!("step {idx} ({func_name}) rebuilt with the given flags")));
                         (
@@ -1045,7 +1049,6 @@ struct SessionSnapshot {
     scenarios: Vec<String>,
 }
 
-/// Read without changing which contract the server considers current.
 fn sync_session(
     handle: &tokio::runtime::Handle,
     client: &reqwest::Client,
@@ -1076,7 +1079,7 @@ fn send_command(
     serde_json::from_value(value).map_err(|e| format!("Parse failed: {e}"))
 }
 
-// the answer is already shown; selecting it on open canvases is best effort
+// selecting the answer on open canvases is best effort
 fn highlight(handle: &tokio::runtime::Handle, client: &reqwest::Client, base_url: &str, target: serde_json::Value) {
     handle.block_on(json_body(client.post(format!("{base_url}/api/session/highlight")).json(&target))).ok();
 }
@@ -1090,12 +1093,78 @@ fn send_get(
     handle.block_on(json_body(client.get(url)))
 }
 
+fn fetch<T>(
+    handle: &tokio::runtime::Handle,
+    client: &reqwest::Client,
+    url: &str,
+    parse: fn(serde_json::Value) -> serde_json::Result<T>,
+) -> Result<T, String> {
+    send_get(handle, client, url).and_then(|v| parse(v).map_err(|e| format!("Parse failed: {e}")))
+}
+
+fn connection_view(
+    handle: &tokio::runtime::Handle,
+    client: &reqwest::Client,
+    base_url: &str,
+    state: Option<&ilold_web::state::AppState>,
+    cmd: &str,
+    arg: &str,
+    contract: &str,
+) -> Result<String, String> {
+    let key = |name: &str| state.map(|s| s.project.find_contract(Some(name)).map(|c| c.key().to_string())).transpose();
+    let one = || match extra_args(arg) {
+        Some(extra) => Err(format!("{cmd} takes one contract name; unexpected: '{extra}'")),
+        None => Ok(arg),
+    };
+    match cmd {
+        "links" if arg.trim() == "--all" => {
+            let project = match state {
+                Some(state) => state.relations.project_connections(&state.classifications),
+                None => fetch(handle, client, &format!("{base_url}/api/project/connections"), serde_json::from_value)?,
+            };
+            Ok(crate::connections_view::project_links(&project))
+        }
+        "links" => {
+            let target = Some(one()?).filter(|a| !a.is_empty()).unwrap_or(contract);
+            let connections = match (state, key(target)?) {
+                (Some(state), Some(key)) => state.relations.connections(&key),
+                _ => fetch(handle, client, &format!("{base_url}/api/contract/{}/connections", enc(target)), serde_json::from_value)?,
+            };
+            Ok(crate::connections_view::links(&connections))
+        }
+        "route" => {
+            let words: Vec<&str> = arg.split_whitespace().collect();
+            let reads = words.contains(&"--reads");
+            let [from, to] = words.iter().filter(|w| **w != "--reads").copied().collect::<Vec<_>>()[..] else {
+                return Ok("  Usage: route <from> <to> [--reads]\n".into());
+            };
+            let routes = match (state, key(from)?, key(to)?) {
+                (Some(state), Some(from), Some(to)) => ilold_core::relations::routes(&state.relations, &state.call_graphs, &from, &to, reads),
+                _ => fetch(handle, client, &format!("{base_url}/api/project/route?from={}&to={}&reads={reads}", enc(from), enc(to)), serde_json::from_value)?,
+            };
+            Ok(crate::connections_view::route(reads, &routes))
+        }
+        _ => {
+            let target = Some(one()?).filter(|a| !a.is_empty());
+            let flow = match (state, target.map(key).transpose()?.flatten()) {
+                (Some(state), resolved) => state.relations.value_flow(resolved.as_deref()),
+                (None, _) => {
+                    let query = target.map(|t| format!("?contract={}", enc(t))).unwrap_or_default();
+                    fetch(handle, client, &format!("{base_url}/api/project/value-flow{query}"), serde_json::from_value)?
+                }
+            };
+            Ok(crate::connections_view::value(&flow))
+        }
+    }
+}
+
 async fn json_body(request: reqwest::RequestBuilder) -> Result<serde_json::Value, String> {
     let resp = request.send().await.map_err(|e| format!("Request failed: {e}"))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(if body.is_empty() { format!("Server error: {status}") } else { body });
+        let error = serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string));
+        return Err(error.unwrap_or(if body.is_empty() { format!("Server error: {status}") } else { body }));
     }
     resp.json().await.map_err(|e| format!("Parse failed: {e}"))
 }
@@ -1151,7 +1220,7 @@ struct TraceArgs {
 }
 
 impl TraceArgs {
-    /// Flags that change what the trace contains, not just how it is shown.
+    /// Flags that change the trace content.
     fn has_render_flags(&self) -> bool {
         self.depth.is_some() || self.reverts || !self.expand.is_empty()
     }
@@ -1248,7 +1317,7 @@ fn unknown_name(kind: &str, name: &str, contract: &str, known: &[String]) -> Str
     }
 }
 
-/// An empty name list means the contract's names are unknown, so nothing is rejected.
+/// An empty name list means the contract's names are unknown.
 fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
     if let Some(extra) = extra_args(name) {
         return Err(format!("Expected one state variable; unexpected: '{extra}'"));
@@ -1261,7 +1330,6 @@ fn check_state_var(name: &str, contract: &str, names: &ContractNames) -> Result<
     }
 }
 
-/// A bare name also matches its overloads; the server picks the first.
 fn check_function(name: &str, contract: &str, names: &ContractNames) -> Result<(), String> {
     let query = compact(name);
     let known = names.functions.iter()
@@ -1348,7 +1416,7 @@ fn read_prompt(label: &str) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
-/// Reads through crossterm: keys typed right after the command may already sit in its queue, out of reach of stdin.
+/// Keys typed right after the command may already sit in crossterm's queue.
 fn read_answer() -> Option<String> {
     use std::io::Write;
     let mut out = std::io::stdout();
@@ -1360,7 +1428,6 @@ fn read_answer() -> Option<String> {
     answer
 }
 
-/// Enter accepts the line; Esc, Ctrl-C, Ctrl-D and read errors cancel.
 fn collect_answer(
     events: impl Iterator<Item = std::io::Result<crossterm::event::Event>>,
     echo: &mut impl std::io::Write,
@@ -2170,10 +2237,8 @@ fn print_sequence_narrative(val: &serde_json::Value) {
     println!();
 }
 
-// (shortcut, usage, description)
 type HelpEntry = (&'static str, &'static str, &'static str);
 
-/// Every entry has inline help (`cmd?`).
 const HELP_GROUPS: &[(&str, &[HelpEntry])] = &[
     ("Session", &[
         ("c",      "call <func>",      "Add function to sequence"),
@@ -2202,6 +2267,9 @@ const HELP_GROUPS: &[(&str, &[HelpEntry])] = &[
         ("ct",     "contracts [all]",  "List project contracts (`all`: with dependencies)"),
         ("",       "deps [contract]",  "What this contract depends on"),
         ("",       "usedby [contract]","What depends on it (blast radius)"),
+        ("",       "links [contract | --all]", "Calls to and from other contracts, function to function"),
+        ("",       "route <from> <to> [--reads]", "Shortest chains of calls between two contracts"),
+        ("",       "value [contract]", "Who pays whom"),
         ("",       "use <contract>",   "Switch active contract (its steps are kept)"),
     ]),
     ("Findings", &[
@@ -2246,6 +2314,9 @@ const INLINE_HELP: &[(&[&str], &str, &str)] = &[
     (&["ct", "contracts"],"contracts [all]",                 "List the project contracts; `all` adds dependency contracts (lib/)."),
     (&["deps", "dep"],    "deps [contract]",                 "Contracts the current (or named) contract depends on, with the ones that may answer its interface calls. Example: deps Vault"),
     (&["usedby", "rdeps"],"usedby [contract]",               "Contracts that depend on it or may be called through an interface — the blast radius. Example: usedby IPool"),
+    (&["links"],          "links [contract | --all]",        "Calls the code of the current (or named) contract makes to other contracts, inherited code included, grouped by the contract that may answer, then the calls into it, unresolved calls and where the called addresses are set; the first line counts the other deployed contracts it calls or reads and that call or read it (libraries and the contract itself not counted), then the calls and reads; --all lists every pair of deployed contract and contract answering it with its calls, reads and library calls. Example: links Vault"),
+    (&["route"],          "route <from> <to> [--reads]",     "Shortest chains of calls from one contract to another, function to function; --reads also follows view calls. Example: route Router Vault"),
+    (&["value"],          "value [contract]",                "Who pays whom: value moves per running contract, by the two sides and asset; a side is a contract only where the call resolves to it. With a contract, the moves it runs or is a side of. Example: value Vault"),
     (&["use"],            "use <contract>",                  "Switch the active contract; each contract keeps its own steps. Example: use Staking"),
     (&["status"],         "status <func> <status>",          "Change review status (reviewed, suspicious, vulnerable, clean, inprogress, notreviewed). Example: status deposit reviewed"),
     (&["save"],           "save <name>",                     "Save the contract's scenarios to ~/.ilold/sessions/<name>.json. Names are plain (letters, digits, - _ .). Example: save my-audit"),
@@ -2260,6 +2331,7 @@ fn print_help() {
     println!("  {}  {}", c_bright("ilold explore"), c_muted("— append ? to any command for inline help (e.g. sl?)"));
     println!("  {}", c_muted("Tab completes commands and names · Ctrl-C clears the line · Ctrl-D or q exits"));
     println!();
+    let width = HELP_GROUPS.iter().flat_map(|(_, cmds)| cmds.iter()).map(|(_, name, _)| name.chars().count()).max().unwrap_or(0);
     for (group_name, cmds) in HELP_GROUPS {
         println!("  {}", c_warn(group_name));
         for (shortcut, name, desc) in *cmds {
@@ -2268,7 +2340,7 @@ fn print_help() {
             } else {
                 format!("  {} {}", c_accent(&fmt::pad_right(shortcut, 3)), c_muted("|"))
             };
-            println!("  {} {}  {}", sc, c_accent(&fmt::pad_right(name, 22)), c_muted(desc));
+            println!("  {} {}  {}", sc, c_accent(&fmt::pad_right(name, width)), c_muted(desc));
         }
         println!();
     }
@@ -2345,9 +2417,9 @@ struct IloldCompleter {
 
 const COMMAND_WORDS: &[&str] = &[
     "back", "browser", "call", "clear", "contracts", "deps", "exit", "export", "finding", "findings",
-    "funcs-all", "functions", "help", "info", "load", "note", "quit", "save", "scenario", "sequence",
-    "session", "slice", "state", "status", "step", "timeline", "trace", "use", "usedby", "vars",
-    "vars-all", "who",
+    "funcs-all", "functions", "help", "info", "links", "load", "note", "quit", "route", "save", "scenario",
+    "sequence", "session", "slice", "state", "status", "step", "timeline", "trace", "use", "usedby", "value",
+    "vars", "vars-all", "who",
 ];
 const SCENARIO_SUBCOMMANDS: &[&str] = &["new", "list", "switch", "fork", "delete"];
 const SEVERITIES: &[&str] = &["critical", "high", "medium", "low", "info"];
@@ -2375,7 +2447,14 @@ impl IloldCompleter {
                 ("w" | "who" | "tl" | "timeline", []) => owned(&self.state_vars),
                 ("sl" | "slice", []) => owned(&self.functions),
                 ("sl" | "slice", [_]) => owned(&self.state_vars),
-                ("use" | "deps" | "dep" | "usedby" | "rdeps", []) => owned(&self.contracts),
+                ("links", []) => {
+                    let mut v = owned(&self.contracts);
+                    v.push("--all".into());
+                    v
+                }
+                ("use" | "deps" | "dep" | "usedby" | "rdeps" | "value" | "route", []) => owned(&self.contracts),
+                ("route", [_]) => owned(&self.contracts),
+                ("route", [_, _]) => fixed(&["--reads"]),
                 ("sc" | "scen" | "scenario", []) => fixed(SCENARIO_SUBCOMMANDS),
                 ("sc" | "scen" | "scenario", [sub]) if matches!(*sub, "switch" | "fork" | "delete" | "rm") => {
                     owned(&self.scenarios)
@@ -2446,6 +2525,147 @@ mod tests {
         (rt, state, format!("http://127.0.0.1:{port}"))
     }
 
+    fn local_and_attached(fixture: &str, lines: &[&str]) -> Vec<(Result<String, String>, Result<String, String>)> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(fixture);
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let (state, port) = rt.block_on(ilold_web::start_server(vec![root], 0, 2)).unwrap();
+        let (url, client) = (format!("http://127.0.0.1:{port}"), reqwest::Client::new());
+        colored::control::set_override(false);
+        let answer = |line: &str, state: Option<&ilold_web::state::AppState>| {
+            let (cmd, arg) = line.split_once(' ').unwrap_or((line, ""));
+            connection_view(rt.handle(), &client, &url, state, cmd, arg, "Curve")
+        };
+        lines.iter().map(|line| (answer(line, Some(&state)), answer(line, None))).collect()
+    }
+
+    #[test]
+    fn links_route_and_value_read_the_same_locally_and_attached() {
+        let links = "
+  Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←
+
+  Curve → calls
+    DenA  1 call
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
+    DenB  1 call
+      buy → 2 possible: DenA::deliver, DenB::deliver  line 36  via CurveBase::den  AMBIGUOUS
+    Hook  2 calls
+      CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook  moves native address(this).balance
+      CurveBase::_graduate → Hook::fee  read  line 27  via CurveBase::hook
+    Payout  1 call
+      buy → Payout::pay  library  line 41
+    Token  2 calls
+      buy → Token::mint  line 35  via CurveBase::token  moves erc20 token msg.value
+      Payout::pay → Token::transfer  line 8  moves erc20 token amount
+
+  Curve ← called by
+    Router  2 calls
+      Router::buyWith → Curve::buy  line 14  via Router::curve  moves native msg.value
+      Router::quote → CurveBase::price  read  line 18  via Router::curve
+
+  Addresses set at
+      CurveBase::den = den_  constructor_param  CurveBase::constructor  line 15
+      CurveBase::hook = hook_  constructor_param  CurveBase::constructor  line 13
+      CurveBase::token = token_  constructor_param  CurveBase::constructor  line 14
+
+";
+        let hook = "
+  Hook  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←
+
+  Hook → calls
+    PoolMath  1 call
+      fee → PoolMath::half  library  line 40
+
+  Hook ← called by
+    Curve  2 calls
+      CurveBase::_graduate → Hook::migrate  line 27  via CurveBase::hook  moves native address(this).balance
+      CurveBase::_graduate → Hook::fee  read  line 27  via CurveBase::hook
+
+  Unresolved
+      migrate → IPoolManager::unlock  line 35  via Hook::manager  out_of_scope_interface
+      migrate → IPoolManager::settle  line 36  via Hook::manager  moves native amount  out_of_scope_interface
+
+  Addresses set at
+      Hook::manager = manager_  constructor_param  Hook::constructor  line 31
+
+";
+        let route = "
+  Router → Hook  1 shortest route(s) following calls and reads
+
+  route 1 Router → Curve → Hook
+    Router → Curve
+      Router::buyWith → Curve::buy  line 14  moves value
+      Router::quote → CurveBase::price  read  line 18
+    Curve → Hook
+      CurveBase::_graduate → Hook::migrate  line 27  moves value
+      CurveBase::_graduate → Hook::fee  read  line 27
+
+";
+        let value = "
+  Value flow of Hook  2 pair(s), 2 transfer(s)
+    as Curve runs
+      Curve → Hook  native  ×1  CurveBase::_graduate
+    as Hook runs
+      Hook → IPoolManager (outside the project)  native  ×1  migrate
+
+";
+        let project = "
+  Project connections  7 pair(s)
+    in all  5 calls, 2 reads, 2 library calls  7 via interface  moves value ×4
+    Curve → DenA  1 call  1 via interface  AMBIGUOUS
+    Curve → DenB  1 call  1 via interface  AMBIGUOUS
+    Curve → Hook  1 call, 1 read  2 via interface  moves value ×1
+    Curve → Payout  1 library call
+    Curve → Token  2 calls  2 via interface  moves value ×2
+    Hook → PoolMath  1 library call
+    Router → Curve  1 call, 1 read  2 via interface  moves value ×1
+
+  Unresolved
+    Hook → IPoolManager  2 calls
+    in all 2 calls
+
+  Deployed contracts
+    Curve  contracts 4 → · 1 ←  calls and reads 5 → · 2 ←  3 entry · 0 restricted  moves value
+    DenA  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    DenB  contracts 0 → · 1 ←  calls and reads 0 → · 1 ←  1 entry · 0 restricted
+    Hook  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  2 entry · 0 restricted  moves value
+    Router  contracts 1 → · 0 ←  calls and reads 2 → · 0 ←  2 entry · 0 restricted  moves value
+    Token  contracts 0 → · 1 ←  calls and reads 0 → · 2 ←  3 entry · 0 restricted
+
+";
+        let library = "
+  Payout  contracts 1 → · 0 ←  calls and reads 1 → · 0 ←
+
+  Payout → calls
+    Token  1 call
+      pay → Token::transfer  line 8  moves erc20 token amount
+
+  Payout ← called by
+    Curve  1 call
+      Curve::buy → Payout::pay  library  line 41
+
+";
+        let expected: [(&str, Result<&str, &str>); 10] = [
+            ("links", Ok(links)),
+            ("links --all", Ok(project)),
+            ("links Hook", Ok(hook)),
+            ("links Payout", Ok(library)),
+            ("route Router Hook --reads", Ok(route)),
+            ("route Router", Ok("  Usage: route <from> <to> [--reads]\n")),
+            ("value Hook", Ok(value)),
+            ("links Curve Hook", Err("links takes one contract name; unexpected: 'Hook'")),
+            ("route Router Nope", Err("Contract 'Nope' not found")),
+            ("value Nope", Err("Contract 'Nope' not found")),
+        ];
+        let lines: Vec<&str> = expected.iter().map(|(line, _)| *line).collect();
+        for ((line, text), (local, attached)) in expected.iter().zip(local_and_attached("../ilold-web/tests/fixtures/connections", &lines)) {
+            assert_eq!(local, attached, "{line}");
+            assert_eq!(local.as_deref().map_err(String::as_str), *text, "{line}");
+        }
+        let [(local, attached)] = &local_and_attached("../../tests/fixtures/solc/model/project", &["links Token"])[..] else { unreachable!() };
+        assert_eq!(local, attached);
+        assert_eq!(local.as_deref().unwrap_err(), "Contract name 'Token' is ambiguous; use one of: src/core/Token.sol:Token, src/ext/Token.sol:Token");
+    }
+
     #[test]
     fn send_command_surfaces_server_error_text() {
         let (rt, _state, url) = server();
@@ -2490,7 +2710,6 @@ mod tests {
             sync_session(rt.handle(), &client, &url, "Vault"),
             Some(SessionSnapshot { active: "main".into(), steps: vec!["depositVia".to_string()], scenarios: vec!["main".into()] }),
         );
-        // syncing is a read: it does not take the session over
         assert_eq!(state.scenarios.read().unwrap().current_contract(), "LendingPool");
     }
 
@@ -2651,6 +2870,11 @@ mod tests {
         }
         assert!(inline_help("q").is_some());
         assert!(inline_help("nope").is_none());
+        let usages: Vec<&str> = HELP_GROUPS.iter().flat_map(|(_, cmds)| cmds.iter()).map(|(_, usage, _)| *usage).collect();
+        for word in ["links", "route", "value"] {
+            let (inline, _) = inline_help(word).unwrap();
+            assert!(usages.contains(&inline), "the short help of {word} reads {inline}");
+        }
         let (usage, _) = inline_help("sc").unwrap();
         assert!(usage.contains("new <name>") && usage.contains("fork <name> [at N]") && usage.contains("delete <name>"), "{usage}");
     }
@@ -2680,6 +2904,12 @@ mod tests {
         assert_eq!(values("sl w"), vec!["withdraw".to_string()]);
         assert_eq!(values("sl withdraw bal"), vec!["balances".to_string()]);
         assert_eq!(values("use L"), vec!["LendingPool".to_string()]);
+        assert_eq!(values("links V"), vec!["Vault".to_string()]);
+        assert_eq!(values("links --"), vec!["--all".to_string()]);
+        assert_eq!(values("value L"), vec!["LendingPool".to_string()]);
+        assert_eq!(values("route Vault L"), vec!["LendingPool".to_string()]);
+        assert_eq!(values("route Vault LendingPool --"), vec!["--reads".to_string()]);
+        assert_eq!(values("ro"), vec!["route".to_string()]);
         assert_eq!(values("sc s"), vec!["switch".to_string()]);
         assert_eq!(values("sc switch a"), vec!["attack".to_string()]);
         assert_eq!(values("scenario delete "), vec!["main".to_string(), "attack".to_string()]);

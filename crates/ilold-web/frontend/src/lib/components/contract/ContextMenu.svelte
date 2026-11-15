@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   interface Props {
     menu: {
       x: number;
@@ -10,7 +11,7 @@
     } | null;
     expandedFuncs: Set<string>;
     seqExpanded: Map<string, boolean>;
-    mode: 'cfg' | 'sequences' | 'session';
+    mode: Mode;
     onexpandcfg: (funcName: string, nodeId: string) => void;
     onremovefunc: (funcName: string) => void;
     onremovenode: (nodeId: string) => void;
@@ -129,7 +130,6 @@
         ↗ Open in code
       </button>
     {/if}
-    <!-- Separator before cancel -->
     <div class="my-1" style="height: 1px; background: color-mix(in srgb, var(--color-border) 30%, transparent);"></div>
     <button
       class="block w-full px-3 py-1.5 bg-transparent border-none text-text-muted text-xs cursor-pointer text-left font-[inherit] transition-colors duration-150 hover:text-text"

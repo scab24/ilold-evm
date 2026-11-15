@@ -1,0 +1,167 @@
+{
+  "from": "Router",
+  "routes": [
+    {
+      "steps": [
+        {
+          "calls": [
+            {
+              "call": {
+                "callees": [
+                  {
+                    "basis": "inherits_interface",
+                    "contract": "Curve",
+                    "function": "Curve::buy",
+                    "tag": "INFERRED"
+                  }
+                ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Router.sol",
+                "function": "Router::buyWith",
+                "in_context": "Router",
+                "in_try": false,
+                "kind": "call",
+                "span": {
+                  "end_col": 40,
+                  "end_line": 14,
+                  "file_index": 5,
+                  "start_col": 9,
+                  "start_line": 14
+                },
+                "target": "ICurve::buy",
+                "transfers": [
+                  "Router::buyWith#0"
+                ],
+                "unresolved_reason": null,
+                "via": "Router::curve"
+              },
+              "callee": {
+                "basis": "inherits_interface",
+                "contract": "Curve",
+                "function": "Curve::buy",
+                "tag": "INFERRED"
+              },
+              "recorded": true
+            },
+            {
+              "call": {
+                "callees": [
+                  {
+                    "basis": "inherits_interface",
+                    "contract": "Curve",
+                    "function": "CurveBase::price",
+                    "tag": "INFERRED"
+                  }
+                ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Router.sol",
+                "function": "Router::quote",
+                "in_context": "Router",
+                "in_try": false,
+                "kind": "read",
+                "span": {
+                  "end_col": 29,
+                  "end_line": 18,
+                  "file_index": 5,
+                  "start_col": 16,
+                  "start_line": 18
+                },
+                "target": "ICurve::price",
+                "transfers": [],
+                "unresolved_reason": null,
+                "via": "Router::curve"
+              },
+              "callee": {
+                "basis": "inherits_interface",
+                "contract": "Curve",
+                "function": "CurveBase::price",
+                "tag": "INFERRED"
+              },
+              "recorded": true
+            }
+          ],
+          "from": "Router",
+          "to": "Curve"
+        },
+        {
+          "calls": [
+            {
+              "call": {
+                "callees": [
+                  {
+                    "basis": "inherits_interface",
+                    "contract": "Hook",
+                    "function": "Hook::migrate",
+                    "tag": "INFERRED"
+                  }
+                ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Curve.sol",
+                "function": "CurveBase::_graduate",
+                "in_context": "Curve",
+                "in_try": false,
+                "kind": "call",
+                "span": {
+                  "end_col": 63,
+                  "end_line": 27,
+                  "file_index": 1,
+                  "start_col": 9,
+                  "start_line": 27
+                },
+                "target": "IHook::migrate",
+                "transfers": [
+                  "CurveBase::_graduate#0"
+                ],
+                "unresolved_reason": null,
+                "via": "CurveBase::hook"
+              },
+              "callee": {
+                "basis": "inherits_interface",
+                "contract": "Hook",
+                "function": "Hook::migrate",
+                "tag": "INFERRED"
+              },
+              "recorded": true
+            },
+            {
+              "call": {
+                "callees": [
+                  {
+                    "basis": "inherits_interface",
+                    "contract": "Hook",
+                    "function": "Hook::fee",
+                    "tag": "INFERRED"
+                  }
+                ],
+                "file": "/Users/secoalba/Documents/PROGRAMACION/BLOCKCHAIN_DEV/TOOL/SECURITY/ilold-evm/crates/ilold-web/tests/fixtures/connections/src/Curve.sol",
+                "function": "CurveBase::_graduate",
+                "in_context": "Curve",
+                "in_try": false,
+                "kind": "read",
+                "span": {
+                  "end_col": 62,
+                  "end_line": 27,
+                  "file_index": 1,
+                  "start_col": 52,
+                  "start_line": 27
+                },
+                "target": "IHook::fee",
+                "transfers": [],
+                "unresolved_reason": null,
+                "via": "CurveBase::hook"
+              },
+              "callee": {
+                "basis": "inherits_interface",
+                "contract": "Hook",
+                "function": "Hook::fee",
+                "tag": "INFERRED"
+              },
+              "recorded": true
+            }
+          ],
+          "from": "Curve",
+          "to": "Hook"
+        }
+      ]
+    }
+  ],
+  "to": "Hook",
+  "truncated": false
+}

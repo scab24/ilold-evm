@@ -9,7 +9,6 @@ export interface ProjectSummary {
 }
 
 export interface ContractIdentity {
-  /** The bare name when unique, otherwise the qualified id. */
   name: string;
   display_name: string;
   qualified_id: string;
@@ -23,6 +22,7 @@ interface Bases {
 
 export interface ContractSummary extends ContractIdentity, Bases {
   kind: string;
+  folder: string;
   functions: number;
   state_vars: number;
 }
@@ -35,17 +35,15 @@ export interface ContractDetail extends ContractIdentity, Bases {
   inherited_state_vars?: StateVarSummary[];
   outgoing_links: ContractLink[];
   incoming_links: ContractLink[];
-  /** Transfers of its own and inherited functions, summed by direction, asset and counterparty. */
   value_flows: ValueFlow[];
-  /** Variables that gate which of its entry points can run. */
   phase_candidates: PhaseCandidate[];
 }
 
-export type Basis = 'self' | 'inherits_interface' | 'selector_match';
+export type Basis = 'library' | 'self' | 'inherits_interface' | 'selector_match';
+export type LinkBasis = Exclude<Basis, 'library'>;
 export type RelationTag = 'INFERRED' | 'AMBIGUOUS' | 'EXTRACTED' | 'TYPE_RESOLVED';
 export type UnresolvedReason = 'out_of_scope_interface' | 'no_implementation' | 'dynamic_address';
 
-/** A deployable contract that may answer an external call; `function` is `<contract>::<function key>`. */
 export interface DispatchCandidate {
   function: string;
   contract: string;
@@ -53,7 +51,6 @@ export interface DispatchCandidate {
   tag: RelationTag;
 }
 
-/** Where a state variable holding a called address is set; `function` is null for its declaration. */
 export interface AssignmentSite {
   state_var: string;
   function: string | null;
@@ -67,13 +64,110 @@ export interface ContractLink {
   to_contract: string;
   via_state_vars: string[];
   calls: { function: string; span: SourceSpan }[];
-  basis: Basis;
+  basis: LinkBasis;
   tag: RelationTag;
+}
+
+export type ContractCallKind = 'call' | 'read' | 'library' | 'self';
+
+export interface ContractCall {
+  in_context: string;
+  function: string;
+  span: SourceSpan;
+  kind: ContractCallKind;
+  target: string | null;
+  callees: DispatchCandidate[];
+  unresolved_reason: UnresolvedReason | null;
+  via: string | null;
+  in_try: boolean;
+  transfers: string[];
+  file: string | null;
+}
+
+export interface ConnectionGroup {
+  contract: string;
+  calls: ContractCall[];
+}
+
+export interface Connections {
+  contract: string;
+  outgoing: ConnectionGroup[];
+  incoming: ConnectionGroup[];
+  unresolved: ContractCall[];
+  assignments: AssignmentSite[];
+  transfers: ValueTransfer[];
+  outgoing_calls: number;
+  incoming_calls: number;
+  outgoing_contracts: number;
+  incoming_contracts: number;
+}
+
+export interface ContractPair {
+  from: string;
+  to: string;
+  calls: number;
+  reads: number;
+  library: number;
+  via_interface: number;
+  transfers: number;
+  ambiguous: boolean;
+  rows: ContractCall[];
+}
+
+export interface UnresolvedCalls {
+  from: string;
+  target: string;
+  rows: ContractCall[];
+}
+
+export interface CallCounts {
+  contract: string;
+  outgoing_calls: number;
+  incoming_calls: number;
+  outgoing_contracts: number;
+  incoming_contracts: number;
+  entry_points: number;
+  restricted: number;
+  moves_value: boolean;
+}
+
+export interface ConnectionTotals {
+  calls: number;
+  reads: number;
+  library: number;
+  via_interface: number;
+  transfers: number;
+  unresolved: number;
+}
+
+export interface ProjectConnections {
+  totals: ConnectionTotals;
+  contracts: CallCounts[];
+  pairs: ContractPair[];
+  unresolved: UnresolvedCalls[];
+}
+
+export interface RouteCall {
+  call: ContractCall;
+  callee: DispatchCandidate;
+  recorded: boolean;
+}
+
+export interface RouteStep {
+  from: string;
+  to: string;
+  calls: RouteCall[];
+}
+
+export interface Routes {
+  from: string;
+  to: string;
+  routes: { steps: RouteStep[] }[];
+  truncated: boolean;
 }
 
 export interface FunctionSummary {
   name: string;
-  /** The name, or the signature when overloaded. */
   key: string;
   signature: string;
   kind: string;
@@ -86,13 +180,9 @@ export interface FunctionSummary {
   modifiers: string[];
   access: AccessLevel;
   guards: GuardFact[];
-  /** Reads and writes of its own code and modifiers. */
   accesses: StorageAccess[];
-  /** Absent when the function has no try statement. */
   try_catches?: TryCatchFact[];
-  /** Absent when the function moves no value. */
   value_transfers?: ValueTransfer[];
-  /** Absent when the function reads no balance. */
   balance_reads?: BalanceRead[];
 }
 
@@ -101,7 +191,7 @@ export type ValueOperation = 'call' | 'create' | 'transfer' | 'send' | 'transfer
 export type ValueDirection = 'in' | 'out' | 'other';
 export type ValueReason = 'unresolved_declaration' | 'no_standard' | 'several_standards' | 'currency' | 'claims_flag';
 
-/** Value a call moves; a null `from_expr` is the running contract, `via_library` the library function that moves it. */
+/** A null `from_expr` is the running contract. */
 export interface ValueTransfer {
   id: string;
   function: string;
@@ -123,7 +213,7 @@ export interface ValueTransfer {
   reason: ValueReason | null;
 }
 
-/** A balance the code reads; a null `owner_expr` is the running contract. */
+/** A null `owner_expr` is the running contract. */
 export interface BalanceRead {
   id: string;
   function: string;
@@ -150,7 +240,28 @@ export interface ValueFlow {
   transfers: string[];
 }
 
-/** A bool, enum or uint compared with a constant that two or more entry points test and one writes; refs are `<contract>::<member>`. */
+export type Party =
+  | { kind: 'contract'; name: string[] }
+  | { kind: 'declared'; name: string }
+  | { kind: 'expression'; name: string | null };
+
+export interface ValuePair {
+  in_context: string;
+  from: Party;
+  to: Party;
+  asset_kind: AssetKind;
+  token_expr: string | null;
+  reason: ValueReason | null;
+  functions: string[];
+  transfers: string[];
+}
+
+export interface ValueFlowPairs {
+  contract: string | null;
+  pairs: ValuePair[];
+  transfers: ValueTransfer[];
+}
+
 export interface PhaseCandidate {
   state_var: string;
   in_context: string;
@@ -164,13 +275,11 @@ export interface PhaseCandidate {
 
 export type CatchKind = 'Error' | 'Panic' | 'bytes' | 'all';
 
-/** A write's raw path, a call's text or an event name, where the clause has it. */
 export interface EffectSite {
   text: string;
   span: SourceSpan;
 }
 
-/** What the clause's own code does; callees' effects are theirs. */
 export interface CatchEffects {
   writes: EffectSite[];
   calls: EffectSite[];
@@ -179,17 +288,13 @@ export interface CatchEffects {
 }
 
 export interface CatchClauseFact {
-  /** null when the clause names an error the language does not catch by name. */
   kind: CatchKind | null;
   span: SourceSpan;
-  /** No statement: the failure is swallowed. */
   empty: boolean;
   effects: CatchEffects;
-  /** CFG block the clause starts at. */
   block: number;
 }
 
-/** A try statement; `block` ends in the guarded call, `success_block` starts the success branch. */
 export interface TryCatchFact {
   id: string;
   function: string;
@@ -216,7 +321,6 @@ export interface StateVarSummary {
 
 export type KeyKind = 'msg_sender' | 'parameter' | 'state_var' | 'local' | 'literal' | 'this' | 'expression';
 
-/** One index level of a storage path; `ref` is `<contract>::<function or modifier>` for a parameter, `<contract>::<name>` for a state variable. */
 export interface AccessKey {
   text: string;
   kind: KeyKind;
@@ -232,7 +336,6 @@ export type AccessKind = 'read' | 'write';
 
 export interface StorageAccess {
   kind: AccessKind;
-  /** Raw path, keys included. */
   path: string;
   param: number | null;
   modifier: string | null;
@@ -241,7 +344,6 @@ export interface StorageAccess {
   keys: AccessKey[];
 }
 
-/** `keys` is set when every site shares one key set; otherwise `keys_reason` says why not. */
 export interface RecordKeys {
   keys: AccessKey[] | null;
   keys_reason: 'transitive' | 'several' | null;
@@ -263,7 +365,6 @@ export interface VariableInfo {
 export interface CytoscapeGraph {
   nodes: { data: CytoscapeNodeData }[];
   edges: { data: CytoscapeEdgeData }[];
-  /** CFGs with try statements only. */
   try_catches?: TryCatchFact[];
 }
 
@@ -278,7 +379,6 @@ export interface SourceSpan {
 export interface CytoscapeNodeData {
   id: string;
   label: string;
-  /** Call-graph nodes of functions the contract runs. */
   key?: string;
   node_type: string;
   contract: string;
@@ -286,7 +386,6 @@ export interface CytoscapeNodeData {
   statements?: string[];
   span?: SourceSpan;
   file?: string;
-  /** CFG blocks only. */
   accesses?: StorageAccess[];
 }
 
@@ -297,9 +396,7 @@ export interface CytoscapeEdgeData {
   kind: string;
   call_count: number;
   kind_label?: string;
-  /** Declaration named in source when virtual dispatch moved the target. */
   static_target?: string;
-  /** External calls to a contract only. */
   dispatch_candidates?: DispatchCandidate[];
   unresolved_reason?: UnresolvedReason;
   assigned_at?: AssignmentSite[];
@@ -337,7 +434,6 @@ export interface MapFunction {
   has_external_calls: boolean;
 }
 
-/** A call between functions, or with kind `ContractLink` and no functions, a contract link. */
 export interface MapRelationship {
   from_contract: string;
   from_function: string | null;
@@ -347,7 +443,7 @@ export interface MapRelationship {
   call_count: number;
   dispatch_candidates?: DispatchCandidate[];
   unresolved_reason?: UnresolvedReason;
-  basis: Basis | null;
+  basis: LinkBasis | null;
   tag: RelationTag | null;
   via_state_vars: string[];
 }
@@ -369,10 +465,6 @@ export async function body<T>(res: Response, fallback: string): Promise<T> {
 export function segment(value: string): string {
   if (value === '.' || value === '..') throw new Error(`'${value}' is not a valid path segment`);
   return encodeURIComponent(value);
-}
-
-export async function getProjectMap(): Promise<ProjectMap> {
-  return body(await fetch(`${BASE}/api/project/map`), 'Project map unavailable');
 }
 
 export interface DepGraphNode {
@@ -409,12 +501,29 @@ export async function getProjectDepgraph(): Promise<ProjectDepGraph> {
   return body(await fetch(`${BASE}/api/project/depgraph`), 'Dependency graph unavailable');
 }
 
+export async function getProjectConnections(): Promise<ProjectConnections> {
+  return body(await fetch(`${BASE}/api/project/connections`), 'Project connections unavailable');
+}
+
+export async function getValueFlow(): Promise<ValueFlowPairs> {
+  return body(await fetch(`${BASE}/api/project/value-flow`), 'Value flow unavailable');
+}
+
+export async function getRoute(from: string, to: string, reads: boolean): Promise<Routes> {
+  const params = new URLSearchParams({ from, to, reads: String(reads) });
+  return body(await fetch(`${BASE}/api/project/route?${params}`), `No route from ${from} to ${to}`);
+}
+
 export async function getProject(): Promise<ProjectSummary> {
   return body(await fetch(`${BASE}/api/project`), 'Project unavailable');
 }
 
 export async function getContract(name: string): Promise<ContractDetail> {
   return body(await fetch(`${BASE}/api/contract/${segment(name)}`), `Contract ${name} not found`);
+}
+
+export async function getConnections(name: string): Promise<Connections> {
+  return body(await fetch(`${BASE}/api/contract/${segment(name)}/connections`), `No connections for ${name}`);
 }
 
 export async function getCallGraph(contractName: string): Promise<CytoscapeGraph> {

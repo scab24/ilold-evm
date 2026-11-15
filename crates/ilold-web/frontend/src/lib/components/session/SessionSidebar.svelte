@@ -1,13 +1,22 @@
 <script lang="ts">
+  import type { Mode } from '$lib/components/chrome/AppHeader.svelte';
   import { untrack } from 'svelte';
   import EmbeddedTerminal from './EmbeddedTerminal.svelte';
   import SessionTimeline from './SessionTimeline.svelte';
   import StatePanel from './StatePanel.svelte';
   import NodeInspector from '$lib/components/contract/NodeInspector.svelte';
-  import type { CytoscapeGraph } from '$lib/api/rest';
+  import ConnectionsInspector from '$lib/components/contract/ConnectionsInspector.svelte';
   import { getScenarios, getActiveScenario } from '$lib/stores/session.svelte';
   import { promptScenarioName } from '$lib/scenarios/name';
   import { dispatchScenarioAction } from '$lib/scenarios/dispatch';
+  import Seg from '$lib/components/chrome/Seg.svelte';
+
+  type Tab = 'timeline' | 'state' | 'inspector';
+  const TABS: { id: Tab; label: string; title?: string }[] = [
+    { id: 'timeline', label: 'Timeline' },
+    { id: 'state', label: 'State' },
+    { id: 'inspector', label: 'Inspector' },
+  ];
 
   let {
     contract,
@@ -23,8 +32,10 @@
     onpathselect = () => {},
     onloadmorepaths = () => {},
     onexpandcfg = () => {},
-    callgraph = null,
     onviewsource = () => {},
+    inspect = null,
+    onphase = () => {},
+    onopen = () => {},
   }: {
     contract: string;
     selectedNode?: any;
@@ -32,23 +43,33 @@
     funcPaths?: Record<string, any>;
     expandedFuncs?: Set<string>;
     seqExpanded?: Map<string, boolean>;
-    mode?: 'cfg' | 'sequences' | 'session';
+    mode?: Mode;
     seqAnalysis?: any;
     contractDetail?: { name: string; functions?: any[]; inherited_functions?: any[] } | null;
     lookupBlock?: (blockId: string) => { statements: string[]; node_type: string } | null;
     onpathselect?: (funcName: string, path: any) => void;
     onloadmorepaths?: (funcName: string) => void;
     onexpandcfg?: (funcName: string, nodeId?: string) => void;
-    callgraph?: CytoscapeGraph | null;
     onviewsource?: (contract: string, func: string) => void;
+    inspect?: { contract: string; member: string | null } | null;
+    onphase?: (contract: string, member: string) => void;
+    onopen?: (contract: string) => void;
   } = $props();
 
+  export function showInspector() {
+    open = true;
+    activeTab = 'inspector';
+  }
+
   let open = $state(true);
-  let activeTab: 'timeline' | 'state' | 'inspector' = $state('timeline');
+  let activeTab: Tab = $state('timeline');
+  $effect(() => {
+    if (mode === 'connections') untrack(() => (activeTab = 'inspector'));
+  });
 
   let prevSelectedId = $state<string | null>(null);
   $effect(() => {
-    const currentId = selectedNode?.id ?? null;
+    const currentId = selectedNode?.id ?? (mode === 'connections' && inspect?.member ? `${inspect.contract}|${inspect.member}` : null);
     const prev = untrack(() => prevSelectedId);
     if (currentId && !prev) {
       activeTab = 'inspector';
@@ -74,8 +95,8 @@
     await dispatchScenarioAction({ Delete: { name } }, contract, 'delete');
   }
 
-  let sidebarWidth = $state(480);
-  const MIN_WIDTH = 320;
+  let sidebarWidth = $state(typeof window !== 'undefined' && window.innerWidth < 1200 ? 300 : 380);
+  const MIN_WIDTH = 284;
   const MAX_WIDTH = 900;
   let draggingWidth = $state(false);
 
@@ -105,11 +126,10 @@
   class="flex flex-col flex-shrink-0 relative h-full"
   style="
     width: {open ? `${sidebarWidth}px` : '28px'};
-    background: linear-gradient(180deg, rgba(20, 20, 28, 0.95) 0%, rgba(16, 16, 22, 0.98) 100%);
-    border-left: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-border-subtle);
   "
 >
-  <!-- Sidebar width drag handle (left edge) -->
   {#if open}
     <div
       class="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 {draggingWidth ? 'bg-accent-dark' : 'hover:bg-surface-alt'}"
@@ -120,7 +140,7 @@
   {/if}
 
   <button
-    class="absolute left-1 top-2 border cursor-pointer px-[3px] py-1 text-[10px] z-5 text-text-muted transition-colors duration-150 hover:text-accent-hover"
+    class="absolute left-1 top-2 border cursor-pointer px-[3px] py-1 text-[12px] z-5 text-text-muted transition-colors duration-150 hover:text-accent-hover"
     style="
       border-radius: 6px;
       border-color: color-mix(in srgb, var(--color-border) 40%, transparent);
@@ -133,96 +153,21 @@
   </button>
 
   <div class="flex flex-col flex-1 min-h-0" class:hidden={!open}>
-    <!-- Scenario selector — pill tabs, one per scenario plus a + button -->
-    <div
-      class="flex items-center gap-1 px-2 py-1.5 overflow-x-auto shrink-0"
-      style="
-        background: color-mix(in srgb, var(--color-surface) 60%, transparent);
-        border-bottom: 1px solid color-mix(in srgb, var(--color-border) 30%, transparent);
-      "
-    >
-      <span class="text-[9px] uppercase tracking-wider text-text-dim font-semibold mr-1 shrink-0">Scenarios</span>
+    <div class="ssb-head">
+      <span class="tlabel">Scenarios</span>
       {#each scenarioEntries as [name, steps] (name)}
         {@const isActive = name === activeScenario}
-        <div
-          class="shrink-0 inline-flex items-stretch border transition-colors duration-150"
-          style="
-            border-radius: 999px;
-            font-family: var(--font-mono), monospace;
-            border-color: {isActive ? 'var(--color-accent)' : 'color-mix(in srgb, var(--color-border) 50%, transparent)'};
-            background: {isActive ? 'color-mix(in srgb, var(--color-accent) 18%, transparent)' : 'rgba(30, 30, 40, 0.6)'};
-          "
-        >
-          <button
-            class="bg-transparent border-none {isActive ? 'text-accent-light' : 'text-text-muted hover:text-text'} transition-colors duration-150 cursor-pointer"
-            style="padding: 3px {isActive ? '8px' : '4px'} 3px 8px; font-size: 10px; font-family: inherit; border-radius: {isActive ? '999px' : '999px 0 0 999px'};"
-            onclick={() => switchScenario(name)}
-            title={isActive ? `Active scenario: ${name}` : `Switch to ${name}`}
-          >
-            {name} <span class="text-text-dim ml-0.5">• {steps.length}</span>
-          </button>
+        <span class="scn">
+          <button type="button" class="chip" class:on={isActive} onclick={() => switchScenario(name)} title={isActive ? `Active scenario: ${name}` : `Switch to ${name}`}>{name} · {steps.length}</button>
           {#if !isActive}
-            <button
-              class="bg-transparent border-none text-text-dim hover:text-danger transition-colors duration-150 cursor-pointer"
-              style="padding: 3px 6px 3px 2px; font-size: 9px; font-family: inherit; border-radius: 0 999px 999px 0;"
-              onclick={() => deleteScenario(name)}
-              title={`Delete scenario ${name}`}
-              aria-label={`Delete scenario ${name}`}
-            >
-              ✕
-            </button>
+            <button type="button" class="scn-x" onclick={() => deleteScenario(name)} title={`Delete scenario ${name}`} aria-label={`Delete scenario ${name}`}>✕</button>
           {/if}
-        </div>
+        </span>
       {/each}
-      <button
-        class="shrink-0 border cursor-pointer text-text-muted hover:text-accent-hover transition-colors duration-150"
-        style="
-          padding: 3px 8px;
-          border-radius: 999px;
-          font-size: 11px;
-          font-weight: 600;
-          border-color: color-mix(in srgb, var(--color-border) 50%, transparent);
-          background: rgba(30, 30, 40, 0.6);
-        "
-        onclick={newScenario}
-        title="Create new scenario"
-      >
-        +
-      </button>
+      <button type="button" class="chip" onclick={newScenario} title="Create new scenario" aria-label="Create new scenario">+</button>
     </div>
-
-    <!-- Tab header — glass effect -->
-    <div
-      class="flex px-1.5 mb-0"
-      style="
-        border-bottom: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
-        background: linear-gradient(180deg, rgba(30, 30, 40, 0.85) 0%, rgba(24, 24, 30, 0.9) 100%);
-        backdrop-filter: blur(16px) saturate(1.8);
-        -webkit-backdrop-filter: blur(16px) saturate(1.8);
-      "
-    >
-      <button
-        class="flex-1 py-2 bg-transparent border-none text-[10px] font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-150 {activeTab === 'timeline' ? 'text-accent' : 'text-text-muted hover:text-text'}"
-        style="border-bottom: 2px solid {activeTab === 'timeline' ? 'var(--color-accent)' : 'transparent'};"
-        onclick={() => activeTab = 'timeline'}
-      >
-        Timeline
-      </button>
-      <button
-        class="flex-1 py-2 bg-transparent border-none text-[10px] font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-150 {activeTab === 'state' ? 'text-accent' : 'text-text-muted hover:text-text'}"
-        style="border-bottom: 2px solid {activeTab === 'state' ? 'var(--color-accent)' : 'transparent'};"
-        onclick={() => activeTab = 'state'}
-      >
-        State
-      </button>
-      <button
-        class="flex-1 py-2 bg-transparent border-none text-[10px] font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-150 {activeTab === 'inspector' ? 'text-accent' : 'text-text-muted hover:text-text'}"
-        style="border-bottom: 2px solid {activeTab === 'inspector' ? 'var(--color-accent)' : 'transparent'};"
-        onclick={() => activeTab = 'inspector'}
-        title={selectedNode ? `Inspect: ${selectedNode._funcName || selectedNode.label}` : 'Inspector — select a node to populate'}
-      >
-        Inspector{#if selectedNode}<span class="ml-1 text-accent-light">●</span>{/if}
-      </button>
+    <div class="ssb-tabs">
+      <Seg label="Sidebar" options={TABS.map((t) => (t.id === 'inspector' ? { ...t, label: selectedNode || inspect?.member ? 'Inspector ●' : 'Inspector', title: selectedNode ? `Inspect: ${selectedNode._funcName || selectedNode.label}` : 'Select a node to inspect it' } : t))} value={activeTab} onpick={(t) => (activeTab = t)} />
     </div>
 
     <div class="flex-1 overflow-y-auto min-h-0 px-1">
@@ -231,6 +176,7 @@
       {:else if activeTab === 'state'}
         <StatePanel {contract} />
       {:else if contractDetail}
+        {#if mode !== 'connections'}
         <NodeInspector
           {selectedNode}
           {selectedPath}
@@ -244,13 +190,22 @@
           {onpathselect}
           {onloadmorepaths}
           {onexpandcfg}
-          {callgraph}
-          {onviewsource}
         />
+        {/if}
+        {#if inspect}
+          <ConnectionsInspector main={contract} contract={inspect.contract} member={inspect.member} titled={mode === 'connections'} {onphase} {onopen} onsource={onviewsource} />
+        {/if}
       {/if}
     </div>
   </div>
 
-  <!-- Floating terminal (positions itself fixed, outside sidebar flow) -->
   <EmbeddedTerminal {contract} />
 </div>
+
+<style>
+  .ssb-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 32px; overflow-x: auto; flex: none; border-bottom: 1px solid var(--color-border-subtle); }
+  .scn { display: inline-flex; align-items: center; flex: none; }
+  .scn-x { background: none; border: 0; padding: 0 4px; color: var(--root); cursor: pointer; font-size: 12px; }
+  .scn-x:hover { color: var(--color-danger-light); }
+  .ssb-tabs { display: flex; padding: 8px 10px; flex: none; border-bottom: 1px solid var(--color-border-subtle); }
+</style>

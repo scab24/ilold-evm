@@ -1,4 +1,3 @@
-//! The keys of each storage access: for every index level of the raw path, its text and where its value comes from.
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -28,21 +27,17 @@ pub enum KeyKind {
     Local,
     Literal,
     This,
-    /// Anything else, and any index the model cannot tell apart.
     Expression,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AccessKey {
-    /// As the source writes it.
     pub text: String,
     pub kind: KeyKind,
-    /// `<contract key>::<function or modifier key>` declaring a parameter; `<contract key>::<name>` of a state variable.
     #[serde(rename = "ref")]
     pub reference: Option<String>,
 }
 
-/// One index level per key, outermost first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeySite {
     pub keys: Vec<AccessKey>,
@@ -52,19 +47,14 @@ pub struct KeySite {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KeysReason {
-    /// The access happens in a callee, whose summary keeps no keys; its direct record has them.
     Transitive,
-    /// The sites of one record index with different keys.
     Several,
 }
 
-/// The keys of one reads or writes record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordKeys {
-    /// The key set every site shares.
     pub keys: Option<Vec<AccessKey>>,
     pub keys_reason: Option<KeysReason>,
-    /// Distinct, sorted by span, then key text.
     pub key_sites: Vec<KeySite>,
 }
 
@@ -89,29 +79,23 @@ pub enum AccessKind {
     Write,
 }
 
-/// A read or write in a function's own code or its modifiers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageAccess {
     pub kind: AccessKind,
-    /// The raw path, keys included.
     pub path: String,
-    /// Index of the `storage` parameter the path is rooted at.
     pub param: Option<usize>,
     pub modifier: Option<String>,
-    /// The statement of a write; the block of a read.
     pub span: SourceSpan,
     pub block: usize,
     pub keys: Vec<AccessKey>,
 }
 
 impl StorageAccess {
-    /// The state variable the path starts at; none for a path rooted at a `storage` parameter.
     pub fn state_var(&self) -> Option<&str> {
         self.param.is_none().then(|| target_base_name(&self.path))
     }
 }
 
-/// Per state variable name, the kinds of key every function `contract` runs indexes it with.
 pub fn key_kinds(project: &Project, contract: &ContractDef, cfgs: &HashMap<(String, String), CfgGraph>) -> BTreeMap<String, BTreeSet<KeyKind>> {
     let mut kinds: BTreeMap<String, BTreeSet<KeyKind>> = BTreeMap::new();
     for af in project.accessible_functions(contract) {
@@ -125,7 +109,6 @@ pub fn key_kinds(project: &Project, contract: &ContractDef, cfgs: &HashMap<(Stri
     kinds
 }
 
-/// Every storage access of `func`'s reachable code, as `context` runs it.
 pub fn storage_accesses(
     project: &Project,
     context: &ContractDef,
@@ -173,9 +156,7 @@ fn modifier_indexes(project: &Project, context: &ContractDef, name: &str) -> Ind
     Indexes::of(project, context, Code { reference: code_ref(owner, name), params: &def.params, returns: &[], body: &def.body })
 }
 
-/// A function's or modifier's code, with the declarations its indexes may name.
 struct Code<'a> {
-    /// `<contract key>::<function or modifier key>`.
     reference: String,
     params: &'a [Param],
     returns: &'a [Param],
@@ -188,7 +169,6 @@ impl<'a> Code<'a> {
     }
 }
 
-/// The texts inside the outermost brackets of a path, outermost level first.
 fn index_texts(path: &str) -> Vec<&str> {
     let (mut texts, mut depth, mut start) = (Vec::new(), 0usize, 0);
     for (i, ch) in path.char_indices() {
@@ -211,12 +191,11 @@ fn index_texts(path: &str) -> Vec<&str> {
     texts
 }
 
-/// The key each index text of some code stands for; `None` when the same text means different things.
 #[derive(Default)]
 struct Indexes(HashMap<String, Option<AccessKey>>);
 
 impl Indexes {
-    /// Callees returning a storage pointer count too: the builder follows them once, so their indexes reach the path.
+    /// Indexes from callees returning a storage pointer reach the path.
     fn of(project: &Project, context: &ContractDef, code: Code) -> Self {
         let mut indexes = Self::default();
         indexes.add(project, context, &code);
@@ -263,7 +242,6 @@ impl Indexes {
     }
 }
 
-/// Local variables by declaration id, or by name when the model has no ids.
 #[derive(Default)]
 struct Locals {
     ids: HashSet<DeclId>,
@@ -314,7 +292,6 @@ fn classify(project: &Project, context: &ContractDef, code: &Code, locals: &Loca
     }
 }
 
-/// The functions `body` calls that return one storage pointer.
 fn storage_getters<'p>(project: &'p Project, body: &[Statement]) -> Vec<(&'p ContractDef, &'p FunctionDef)> {
     let mut found: Vec<(&ContractDef, &FunctionDef)> = Vec::new();
     walk_all(body, &mut |_| {}, &mut |expr| {
