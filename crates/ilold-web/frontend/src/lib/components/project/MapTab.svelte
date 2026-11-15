@@ -510,6 +510,7 @@
       {'\n'}{tally(k, tip.edge.items.filter((i) => i.line === k).length)}
     {/each}
     {#if called.some((i) => i.ambiguous)}{'\n'}{called.filter((i) => i.ambiguous).length} AMBIGUOUS{/if}
+    {#if called.some((i) => i.value)}{'\n'}{plural(called.filter((i) => i.value).length, 'call moves value', 'calls move value')}{/if}
     {#each called.slice(0, 8) as i (rowId(i))}
       {'\n'}{label(i.from)}.{member(i.row.function)} · line {i.row.span.start_line} · {rowMeta(i, false)}
     {/each}

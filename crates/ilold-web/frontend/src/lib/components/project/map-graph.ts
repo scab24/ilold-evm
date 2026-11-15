@@ -144,7 +144,7 @@ export interface MapEdge {
 }
 
 export function edges(all: Item[], endpoint: (id: string) => string, lines: Record<Line, LineState>): MapEdge[] {
-  const byPair = new Map<string, MapEdge>();
+  const byLine = new Map<string, MapEdge>();
   for (const item of all) {
     const state = itemState(item, lines);
     if (state === 0) continue;
@@ -152,20 +152,17 @@ export function edges(all: Item[], endpoint: (id: string) => string, lines: Reco
     const to = endpoint(item.to);
     if (from === to) continue;
     const [a, b] = from < to ? [from, to] : [to, from];
-    const id = `${a}|${b}`;
-    const edge = byPair.get(id) ?? { id, a, b, items: [], forward: 0, back: 0, state: 0, look: 'calls' as Relation, basis: null };
+    const look = itemLook(item, lines);
+    const id = `${a}|${b}|${look}`;
+    const edge = byLine.get(id) ?? { id, a, b, items: [], forward: 0, back: 0, state: 0, look, basis: null };
     edge.items.push(item);
     if (from === a) edge.forward += 1;
     else edge.back += 1;
     edge.state = Math.max(edge.state, state);
-    byPair.set(id, edge);
+    byLine.set(id, edge);
   }
-  for (const edge of byPair.values()) {
-    const strongest = edge.items.filter((i) => itemState(i, lines) === edge.state);
-    edge.look = lookOf(strongest, lines);
-    edge.basis = weakest(strongest.map((i) => i.basis));
-  }
-  return [...byPair.values()];
+  for (const edge of byLine.values()) edge.basis = weakest(edge.items.filter((i) => itemState(i, lines) === edge.state).map((i) => i.basis));
+  return [...byLine.values()];
 }
 
 export function lookTone(look: Relation): '' | 'val' | 'amb' | 'ambig' {
