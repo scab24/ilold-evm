@@ -143,7 +143,6 @@
 
 <DraggablePanel title={`${func} — ${fileLabel}:${startLine || '?'}`} x={60} y={80} width={initialWidth} {onclose}>
   <div class="viewer">
-    <!-- Toolbar -->
     <div class="src-toolbar">
       <div class="tool-group" aria-label="Zoom controls">
         <button class="tool-btn icon" onclick={zoomOut} disabled={fontSize <= MIN_FONT} title="Zoom out (Cmd+-)">−</button>
@@ -169,7 +168,6 @@
       </div>
     </div>
 
-    <!-- Editor body -->
     <div class="source-container">
       {#if loading}
         <div class="src-msg">Loading source…</div>
@@ -187,7 +185,6 @@
       {/if}
     </div>
 
-    <!-- Status bar -->
     <div class="status-bar">
       <span class="status-file" title={filePath}>{fileLabel || '—'}</span>
       <span class="status-sep">·</span>

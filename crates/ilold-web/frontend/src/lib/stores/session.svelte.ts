@@ -17,7 +17,6 @@ import type {
 } from '$lib/api/types';
 
 
-// events for other contracts are ignored
 let sessionContract = $state<string | null>(null);
 let scenarios = $state<Map<string, SessionStep[]>>(new Map([['main', []]]));
 let activeScenario = $state<string>('main');
@@ -127,7 +126,7 @@ async function resync(): Promise<void> {
   const gen = ++resyncGen;
   try {
     const response = await getAllScenarios(contract);
-    if (gen !== resyncGen || contract !== sessionContract) return; // stale — superseded
+    if (gen !== resyncGen || contract !== sessionContract) return;
 
     const newMap = new Map<string, SessionStep[]>();
     const newOrigins = new Map<string, ForkOrigin>();

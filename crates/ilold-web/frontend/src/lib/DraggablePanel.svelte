@@ -85,7 +85,6 @@
       0 0 60px -20px rgba(91, 155, 213, 0.06);
   "
 >
-  <!-- Title bar — glass header -->
   <div
     class="flex items-center py-2 px-3 cursor-grab select-none gap-1.5 shrink-0 active:cursor-grabbing"
     style="
@@ -108,7 +107,6 @@
   <div class="drag-body flex-1 overflow-y-auto pb-3.5">
     {@render children()}
   </div>
-  <!-- Resize edges -->
   <div class="resize-e" onmousedown={(e) => onResizeStart('resize-e', e)}></div>
   <div class="resize-s" onmousedown={(e) => onResizeStart('resize-s', e)}></div>
   <div class="resize-se" onmousedown={(e) => onResizeStart('resize-se', e)}></div>

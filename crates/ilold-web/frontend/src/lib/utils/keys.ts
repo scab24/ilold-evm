@@ -10,7 +10,6 @@ export const KEY_KIND_LABEL: Record<KeyKind, string> = {
   expression: 'expr',
 };
 
-/** Whose slot the outermost key selects. */
 export const KEY_SCOPE: Record<KeyKind, string> = {
   msg_sender: 'per caller',
   parameter: 'chosen by an argument',
@@ -34,7 +33,6 @@ export interface KeyGroup {
   rows: KeyRow[];
 }
 
-/** Rows of every site grouped by the kinds of their keys; accesses made in callees form their own group. */
 export function groupByKeyKind(accesses: VariableAccess[]): KeyGroup[] {
   const groups = new Map<string, KeyGroup>();
   const add = (label: string, scope: string, row: KeyRow) => {

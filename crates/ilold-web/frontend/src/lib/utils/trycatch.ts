@@ -13,15 +13,13 @@ export function catchLabel(clause: CatchClauseFact): string {
   return clause.kind ? CATCH_LABEL[clause.kind] : 'catch ?';
 }
 
-/** The try statement and the clause each CFG block plays a part in, by block id. */
 export interface TryRoles {
   guards: Map<string, TryCatchFact>;
   clauses: Map<string, CatchClauseFact>;
-  /** `source->target` of each branch, with its label. */
   branches: Map<string, string>;
 }
 
-// the CFG labels a bare catch and a bytes catch alike; the fact tells them apart
+// the CFG labels a bare catch and a bytes catch alike
 export function tryRoles(facts: TryCatchFact[] = []): TryRoles {
   const roles: TryRoles = { guards: new Map(), clauses: new Map(), branches: new Map() };
   for (const fact of facts) {
@@ -36,7 +34,6 @@ export function tryRoles(facts: TryCatchFact[] = []): TryRoles {
   return roles;
 }
 
-/** One line per try statement, for a tooltip. */
 export function describeTries(facts: TryCatchFact[]): string {
   return facts
     .map((f) => {

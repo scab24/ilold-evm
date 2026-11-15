@@ -12,7 +12,7 @@ export interface LayoutOptions {
   minlen?: (edge: Edge) => number;
 }
 
-// own-property lookup, so names like `constructor` never hit Object.prototype
+// own-property lookup keeps names like `constructor` off Object.prototype
 export function ownEntry<T>(record: Record<string, T> | undefined, key: string): T | undefined {
   return record && Object.hasOwn(record, key) ? record[key] : undefined;
 }

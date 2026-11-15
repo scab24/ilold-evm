@@ -9,7 +9,6 @@ export interface ProjectSummary {
 }
 
 export interface ContractIdentity {
-  /** The bare name when unique, otherwise the qualified id. */
   name: string;
   display_name: string;
   qualified_id: string;
@@ -36,9 +35,7 @@ export interface ContractDetail extends ContractIdentity, Bases {
   inherited_state_vars?: StateVarSummary[];
   outgoing_links: ContractLink[];
   incoming_links: ContractLink[];
-  /** Transfers of its own and inherited functions, summed by direction, asset and counterparty. */
   value_flows: ValueFlow[];
-  /** Variables that gate which of its entry points can run. */
   phase_candidates: PhaseCandidate[];
 }
 
@@ -54,7 +51,6 @@ export interface DispatchCandidate {
   tag: RelationTag;
 }
 
-/** Where a state variable holding a called address is set; `function` is null for its declaration. */
 export interface AssignmentSite {
   state_var: string;
   function: string | null;
@@ -172,7 +168,6 @@ export interface Routes {
 
 export interface FunctionSummary {
   name: string;
-  /** The name, or the signature when overloaded. */
   key: string;
   signature: string;
   kind: string;
@@ -185,13 +180,9 @@ export interface FunctionSummary {
   modifiers: string[];
   access: AccessLevel;
   guards: GuardFact[];
-  /** Reads and writes of its own code and modifiers. */
   accesses: StorageAccess[];
-  /** Absent when the function has no try statement. */
   try_catches?: TryCatchFact[];
-  /** Absent when the function moves no value. */
   value_transfers?: ValueTransfer[];
-  /** Absent when the function reads no balance. */
   balance_reads?: BalanceRead[];
 }
 
@@ -200,7 +191,7 @@ export type ValueOperation = 'call' | 'create' | 'transfer' | 'send' | 'transfer
 export type ValueDirection = 'in' | 'out' | 'other';
 export type ValueReason = 'unresolved_declaration' | 'no_standard' | 'several_standards' | 'currency' | 'claims_flag';
 
-/** Value a call moves; a null `from_expr` is the running contract, `via_library` the library function that moves it. */
+/** A null `from_expr` is the running contract. */
 export interface ValueTransfer {
   id: string;
   function: string;
@@ -222,7 +213,7 @@ export interface ValueTransfer {
   reason: ValueReason | null;
 }
 
-/** A balance the code reads; a null `owner_expr` is the running contract. */
+/** A null `owner_expr` is the running contract. */
 export interface BalanceRead {
   id: string;
   function: string;
@@ -271,7 +262,6 @@ export interface ValueFlowPairs {
   transfers: ValueTransfer[];
 }
 
-/** A bool, enum or uint compared with a constant that two or more entry points test and one writes; refs are `<contract>::<member>`. */
 export interface PhaseCandidate {
   state_var: string;
   in_context: string;
@@ -285,13 +275,11 @@ export interface PhaseCandidate {
 
 export type CatchKind = 'Error' | 'Panic' | 'bytes' | 'all';
 
-/** A write's raw path, a call's text or an event name, where the clause has it. */
 export interface EffectSite {
   text: string;
   span: SourceSpan;
 }
 
-/** What the clause's own code does; callees' effects are theirs. */
 export interface CatchEffects {
   writes: EffectSite[];
   calls: EffectSite[];
@@ -300,17 +288,13 @@ export interface CatchEffects {
 }
 
 export interface CatchClauseFact {
-  /** null when the clause names an error the language does not catch by name. */
   kind: CatchKind | null;
   span: SourceSpan;
-  /** No statement: the failure is swallowed. */
   empty: boolean;
   effects: CatchEffects;
-  /** CFG block the clause starts at. */
   block: number;
 }
 
-/** A try statement; `block` ends in the guarded call, `success_block` starts the success branch. */
 export interface TryCatchFact {
   id: string;
   function: string;
@@ -337,7 +321,6 @@ export interface StateVarSummary {
 
 export type KeyKind = 'msg_sender' | 'parameter' | 'state_var' | 'local' | 'literal' | 'this' | 'expression';
 
-/** One index level of a storage path; `ref` is `<contract>::<function or modifier>` for a parameter, `<contract>::<name>` for a state variable. */
 export interface AccessKey {
   text: string;
   kind: KeyKind;
@@ -353,7 +336,6 @@ export type AccessKind = 'read' | 'write';
 
 export interface StorageAccess {
   kind: AccessKind;
-  /** Raw path, keys included. */
   path: string;
   param: number | null;
   modifier: string | null;
@@ -362,7 +344,6 @@ export interface StorageAccess {
   keys: AccessKey[];
 }
 
-/** `keys` is set when every site shares one key set; otherwise `keys_reason` says why not. */
 export interface RecordKeys {
   keys: AccessKey[] | null;
   keys_reason: 'transitive' | 'several' | null;
@@ -384,7 +365,6 @@ export interface VariableInfo {
 export interface CytoscapeGraph {
   nodes: { data: CytoscapeNodeData }[];
   edges: { data: CytoscapeEdgeData }[];
-  /** CFGs with try statements only. */
   try_catches?: TryCatchFact[];
 }
 
@@ -399,7 +379,6 @@ export interface SourceSpan {
 export interface CytoscapeNodeData {
   id: string;
   label: string;
-  /** Call-graph nodes of functions the contract runs. */
   key?: string;
   node_type: string;
   contract: string;
@@ -407,7 +386,6 @@ export interface CytoscapeNodeData {
   statements?: string[];
   span?: SourceSpan;
   file?: string;
-  /** CFG blocks only. */
   accesses?: StorageAccess[];
 }
 
@@ -418,9 +396,7 @@ export interface CytoscapeEdgeData {
   kind: string;
   call_count: number;
   kind_label?: string;
-  /** Declaration named in source when virtual dispatch moved the target. */
   static_target?: string;
-  /** External calls to a contract only. */
   dispatch_candidates?: DispatchCandidate[];
   unresolved_reason?: UnresolvedReason;
   assigned_at?: AssignmentSite[];
@@ -458,7 +434,6 @@ export interface MapFunction {
   has_external_calls: boolean;
 }
 
-/** A call between functions, or with kind `ContractLink` and no functions, a contract link. */
 export interface MapRelationship {
   from_contract: string;
   from_function: string | null;

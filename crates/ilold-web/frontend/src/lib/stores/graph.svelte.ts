@@ -7,7 +7,6 @@ export interface FunctionNodeData {
   [key: string]: unknown;
   _type: 'function';
   label: string;
-  /** Addresses the function in the API; `label` is for display. */
   funcKey?: string;
   is_external: boolean;
   contractName?: string;
@@ -18,25 +17,23 @@ export interface FunctionNodeData {
   modifiers?: string[];
   value_transfers?: ValueTransfer[];
   _sessionStep?: true;
-  _scenario?: string;             // the scenario that owns this rendered node
-  _scenariosPassingThrough?: string[]; // full set of scenarios whose path includes this node (inherited + own)
-  _activeScenario?: string;       // current active scenario (for highlight/mute classes)
-  stepIndex?: number;             // session-step index, used by right-click "Fork scenario here"
+  _scenario?: string;
+  _scenariosPassingThrough?: string[];
+  _activeScenario?: string;
+  stepIndex?: number;
 }
 
 export interface BlockNodeData {
   [key: string]: unknown;
   _type: 'block';
   label: string;
-  node_type: string; // "Entry" | "Return" | "Revert" | "Block" | "LoopCondition"
+  node_type: string;
   _parentFunc: string;
   statements?: string[];
   span?: SourceSpan;
   file?: string;
   accesses?: StorageAccess[];
-  /** The try statement whose guarded call ends the block. */
   tryCatch?: TryCatchFact;
-  /** The catch clause the block starts. */
   catchClause?: CatchClauseFact;
   _dimmed?: boolean;
 }

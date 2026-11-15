@@ -52,7 +52,6 @@
 
   let stored = new Map<string, { x: number; y: number }>();
 
-  // only the page changes stored positions
   $effect(() => {
     const storeNodes = getNodes();
     const liveByID = new Map(untrack(() => flowNodes).map(n => [n.id, n]));

@@ -48,7 +48,7 @@
     });
   });
 
-  /** The server then ends the attached REPL. */
+  /** Closing the socket makes the server end the attached REPL. */
   function disconnect() {
     const socket = ws;
     ws = null;
@@ -325,7 +325,6 @@
   });
 </script>
 
-<!-- Outer container: premium floating panel -->
 <div
   class="fixed z-50 flex flex-col overflow-hidden"
   class:opacity-0={!fadeIn}
@@ -346,7 +345,6 @@
     transition: height 200ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms ease-out;
   "
 >
-  <!-- Title bar (drag handle) — glass effect -->
   <div
     class="flex items-center justify-between px-3 shrink-0 select-none {dragging ? 'cursor-grabbing' : 'cursor-grab'}"
     style="
@@ -359,10 +357,8 @@
     onmousedown={onDragStart}
     role="toolbar"
   >
-    <!-- Left: traffic light buttons -->
     <div class="flex items-center gap-2">
       <div class="flex items-center gap-1.5">
-        <!-- Close (red) -->
         <button
           class="term-close"
           title="Close the terminal"
@@ -370,7 +366,6 @@
           onmousedown={(e: MouseEvent) => e.stopPropagation()}
           onclick={() => closePanel()}
         >×</button>
-        <!-- Maximize (green/success) -->
         <button
           class="w-3 h-3 rounded-full border-none cursor-pointer transition-all duration-150 hover:brightness-125"
           style="background: var(--color-success);"
@@ -381,9 +376,6 @@
         ></button>
       </div>
 
-      <!-- PTY link status — compact dot only. The docked StatusBar already
-           exposes the main WS state; labelling this one "connected" side
-           by side would have read as duplicate info. -->
       <div class="flex items-center gap-1.5 ml-3" title={connected ? 'PTY connected' : 'PTY disconnected'}>
         <span
           class="w-1.5 h-1.5 rounded-full inline-block"
@@ -394,24 +386,20 @@
       </div>
     </div>
 
-    <!-- Center: title -->
     <span
       class="text-[12px] font-semibold tracking-wider uppercase absolute left-1/2 -translate-x-1/2"
       style="color: var(--color-text-muted);"
     >Terminal</span>
 
-    <!-- Right: spacer for symmetry -->
     <div class="w-16"></div>
   </div>
 
-  <!-- Terminal body -->
   <div
     class="flex-1 min-h-0 relative"
     style="
       background: rgba(13, 17, 23, 0.97);
     "
   >
-    <!-- Inner shadow overlay for depth -->
     <div
       class="absolute inset-x-0 top-0 h-4 z-10 pointer-events-none"
       style="background: linear-gradient(180deg, rgba(0, 0, 0, 0.25) 0%, transparent 100%);"
@@ -419,10 +407,6 @@
     <div bind:this={terminalEl} class="h-full w-full" />
   </div>
 
-  <!-- Status bar (bottom) — glass style matching the docked StatusBar so
-       both strips read as the same UI layer (same height, gradient, font
-       size). Cols×rows and PTY dot stay inside the terminal because they
-       describe the xterm instance, not the global app. -->
   <div
       class="flex items-center justify-between px-3 shrink-0 select-none"
       style="
@@ -444,7 +428,6 @@
         ></span>
       </div>
       <div class="flex items-center gap-2">
-        <!-- Font size controls -->
         <div class="flex items-center gap-0.5">
           <button
             class="bg-transparent border-none text-text-dim hover:text-accent-hover cursor-pointer text-[12px] w-5 h-5 flex items-center justify-center rounded transition-colors duration-150"
@@ -470,7 +453,6 @@
       </div>
   </div>
 
-  <!-- Resize handle (bottom-right corner) — diagonal grip pattern -->
   <div
       class="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-10"
       onmousedown={onResizeStart}

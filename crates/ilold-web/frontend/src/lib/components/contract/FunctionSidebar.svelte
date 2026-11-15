@@ -41,10 +41,8 @@
     guarded: string | null;
     conditionallyGuarded: string | null;
     stateGuarded: string | null;
-    /** Tooltip of its try statements. */
     tries: string | null;
     swallows: boolean;
-    /** Tooltip of its value transfers. */
     transfers: string | null;
     source: 'own' | 'inherited';
   };
@@ -118,7 +116,6 @@
 <div
   class="sidebar flex flex-col shrink-0 transition-[width] duration-200 {sidebarOpen ? 'w-[260px]' : 'w-8'}"
 >
-  <!-- Header -->
   <div class="header flex items-center justify-between px-2.5 py-2">
     {#if sidebarOpen}
       <h2 class="title">Functions <span class="count">{visibleCount}/{totalCount}</span></h2>
@@ -131,7 +128,6 @@
   </div>
 
   {#if sidebarOpen}
-    <!-- Search input -->
     <div class="px-2 pt-2 pb-1">
       <div class="search-wrap">
         <span class="search-icon" aria-hidden="true">⌕</span>
@@ -153,7 +149,6 @@
       </div>
     </div>
 
-    <!-- Filter chips + canvas clear -->
     <div class="filters px-2 pb-2">
       {#each ALL_VISIBILITIES as v}
         <button
@@ -181,7 +176,6 @@
       {/if}
     </div>
 
-    <!-- Function list -->
     <div class="flex-1 overflow-y-auto p-1.5">
       {#if visibleCount === 0}
         <div class="empty-state">

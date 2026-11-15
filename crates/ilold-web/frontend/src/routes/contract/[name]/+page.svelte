@@ -53,14 +53,14 @@
 
   let contract: ContractDetail | null = $state(null);
   const funcIndex = $derived.by(() => functionIndex(contract?.functions, contract?.inherited_functions));
-  // canvas, caches and API calls use the key, so overloads never collide
+  // canvas, caches and API calls use the key so overloads stay distinct
   function routeKey(ref: string): string {
     return funcIndex.get(ref)?.key ?? ref;
   }
   let error: string | null = $state(null);
   let selectedNode: any = $state(null);
   let selectedPath: any = $state(null);
-  // Raw, replaced on every update: a $state proxy hides inherited keys such as `constructor`
+  // a $state proxy hides inherited keys such as `constructor`
   let funcPaths: Record<string, any> = $state.raw({});
   let expandedFuncs: Set<string> = $state(new Set());
   let selectionCount: number = $state(0);
@@ -79,7 +79,7 @@
     sessionStep?: { stepIndex: number };
   } | null = $state(null);
 
-  let canvasFuncs: Set<string> = $state(new Set()); // functions currently on canvas
+  let canvasFuncs: Set<string> = $state(new Set());
 
   let projectContracts: ContractSummary[] = $state([]);
   let mainConnections: Connections | null = $state(null);
@@ -127,8 +127,8 @@
 
   const SEQ_NODE_W = 260;
   const SEQ_NODE_H = 80;
-  const SEQ_SIBLING_GAP = 30; // gap between siblings at the same level
-  const SEQ_LEVEL_GAP = 120;  // gap between parent and children rank
+  const SEQ_SIBLING_GAP = 30;
+  const SEQ_LEVEL_GAP = 120;
   const SEQ_MAX_PER_ROW = 8;  // wider levels wrap into several rows (columns in LR)
 
   function relayoutSeqTree(rootId: string) {
@@ -444,7 +444,7 @@
           } as GraphNodeData,
         } as Node<GraphNodeData>;
       });
-      // unchanged steps keep their node objects, so a new step does not re-render the others
+      // unchanged steps keep their node objects to avoid re-rendering them
       setNodes([...otherNodes, ...composedNodes.map((n) => {
         const previous = previousNodes.get(n.id);
         return previous && sameJson([previous.position, previous.data], [n.position, n.data]) ? previous : n;
@@ -532,7 +532,7 @@
     });
   });
 
-  // the page component is reused across contracts, so every load keys on the route param and drops stale responses
+  // the page component is reused across contracts
   let loadGen = 0;
 
   async function loadContract(contractName: string) {
@@ -590,7 +590,7 @@
     untrack(() => loadContract(contractName));
   });
 
-  // a path search result opens once its contract shows; any other navigation in between drops it
+  // a path search result opens once its contract shows
   let navRequest: { nav: SearchNavigatePayload; gen: number } | null = null;
   $effect(() => {
     const nav = getSearchNavigate();
@@ -712,7 +712,6 @@
 
   function addFuncToCanvas(funcName: string) {
     if (!callgraphRaw || canvasFuncs.has(funcName)) return;
-    // the contract's own or inherited function, not a same-named call target elsewhere
     const nodeData = callgraphRaw.nodes.find(n => n.data.key === funcName);
     if (!nodeData) return;
 
@@ -879,7 +878,6 @@
     }
   }
 
-  // a response for an earlier load of the page is dropped
   async function loadPaths(funcName: string) {
     if (!contract) return;
     const gen = loadGen;
@@ -1147,7 +1145,6 @@
     if (!contract) return null;
     const cached = cfgCache.get(funcName);
     if (cached) return cached;
-    // a response for an earlier load of the page (A → B → A included) is dropped
     const gen = loadGen;
     try {
       const cfg = await getCfg(contract.name, funcName);
@@ -1161,7 +1158,6 @@
     }
   }
 
-  // from the cached CFG when collapsed, so a collapsed CFG still shows the flow
   function lookupBlock(blockId: string): { statements: string[]; node_type: string } | null {
     const node = findNode(blockId);
     if (node && node.data._type === 'block') {

@@ -130,7 +130,6 @@
     border-left: 1px solid var(--color-border-subtle);
   "
 >
-  <!-- Sidebar width drag handle (left edge) -->
   {#if open}
     <div
       class="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 {draggingWidth ? 'bg-accent-dark' : 'hover:bg-surface-alt'}"
@@ -200,7 +199,6 @@
     </div>
   </div>
 
-  <!-- Floating terminal (positions itself fixed, outside sidebar flow) -->
   <EmbeddedTerminal {contract} />
 </div>
 

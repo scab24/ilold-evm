@@ -106,7 +106,6 @@ export interface SearchResult {
   type: "search_result";
   contract: string;
   function: string;
-  /** Addresses the function on `contract`, overloads included. */
   key: string;
   path_id: number;
   terminal: string;
@@ -116,7 +115,6 @@ export interface SearchResult {
 
 export interface SearchComplete {
   type: "search_complete";
-  /** Only the first matches are streamed when `truncated`. */
   total: number;
   truncated: boolean;
 }
@@ -220,10 +218,8 @@ export type GuardKind =
   | "Pause"
   | "Reentrancy"
   | "Initializer"
-  /** Only inside a compound check. */
   | "Condition";
 
-/** Where a value comes from: a call's receiver or what a guard compares the caller with. */
 export type ValueSource =
   | { StateVar: { name: string; key: string | null } }
   | { Immutable: { name: string; key: string | null } }
@@ -234,24 +230,19 @@ export type ValueSource =
   | 'TxOrigin'
   | { Expression: { text: string } };
 
-/** A conditional guard holds on some paths only and never restricts the caller. */
 export type GuardScope = 'Unconditional' | 'Conditional';
 
-/** `via` is empty for the body. */
 export interface GuardFact {
   kind: GuardKind;
   condition: string;
   via: string[];
   span: { file_index: number; start_line: number; start_col: number; end_line: number; end_col: number } | null;
-  /** The modifier has no code to read. */
   heuristic: boolean;
   /** Absent in older snapshots, which only had unconditional guards. */
   scope?: GuardScope;
-  /** The tested call or comparison must be false to pass: a deny-list, which never restricts. */
   negated?: boolean;
-  /** Every way to pass needs a caller test that must hold; absent in older snapshots. */
+  /** Absent in older snapshots. */
   requires_caller?: boolean;
-  /** Empty on a compound guard: its parts carry them. */
   compared_against?: ValueSource;
   checked_by?: string;
   role?: ValueSource;
@@ -259,11 +250,9 @@ export interface GuardFact {
   account?: ValueSource;
   alternatives?: GuardTerm[];
   conjuncts?: GuardTerm[];
-  /** Not split into terms: part of the condition tests the caller in a way the analysis cannot read. */
   ambiguous?: boolean;
 }
 
-/** A test inside a guard's condition; a compound one lists its parts. */
 export interface GuardTerm {
   kind: GuardKind;
   condition: string;
@@ -302,12 +291,9 @@ export interface FunctionNarrative {
   transitive_external_calls?: TransitiveEffect[];
   transitive_events?: TransitiveEffect[];
   guards?: GuardFact[];
-  /** Reads and writes of its own code, with their keys; absent when there are none. */
   accesses?: StorageAccess[];
-  /** Its try statements; absent when there are none. */
   try_catches?: TryCatchFact[];
   value_transfers?: ValueTransfer[];
   balance_reads?: BalanceRead[];
-  /** Phases of the contract that runs it which it tests or writes; absent when there are none. */
   phase_candidates?: PhaseCandidate[];
 }

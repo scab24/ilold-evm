@@ -55,7 +55,6 @@
     return node.visibility ?? summary?.visibility ?? null;
   }
 
-  // the variable whose readers and writers are shown, cleared with each new selection
   let whoVar = $state<string | null>(null);
   $effect(() => {
     selectedNode;

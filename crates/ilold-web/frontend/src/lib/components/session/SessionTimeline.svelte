@@ -56,7 +56,7 @@
     const gen = ++narrativeGen;
     try {
       const res = await getStepNarrative(stepIndex, contract);
-      if (gen !== narrativeGen) return; // stale
+      if (gen !== narrativeGen) return;
       narrative = res;
     } catch (e: unknown) {
       if (gen !== narrativeGen) return;
@@ -102,7 +102,6 @@
 </script>
 
 <div class="flex flex-col max-h-full h-full overflow-hidden" style="background: transparent;">
-  <!-- Header — glass effect -->
   <div
     class="flex items-center justify-between px-3 py-2.5 flex-shrink-0"
     style="
@@ -119,7 +118,6 @@
     >{steps.length}</span>
   </div>
 
-  <!-- Body -->
   <div class="timeline-body flex-1 overflow-y-auto py-1.5" bind:this={scrollContainer}>
     {#if steps.length === 0}
       <div class="py-8 px-4 text-root text-[12px] text-center leading-relaxed" style="font-style: italic;">
@@ -206,7 +204,6 @@
     {/if}
   </div>
 
-  <!-- Footer -->
   {#if steps.length > 0}
     <div class="px-2.5 py-2 flex-shrink-0" style="border-top: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);">
       <button

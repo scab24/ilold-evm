@@ -35,7 +35,6 @@ export function lineStyle(relation: Relation, basis: Basis | null = null, tag: R
   return { color: tag === 'AMBIGUOUS' ? AMBIGUOUS_COLOR : color, width, dash: basis ? BASIS_DASH[basis] : '' };
 }
 
-/** `<contract>::<function key>` split into its parts. */
 export function splitRef(ref: string): { contract: string; member: string } {
   const at = ref.lastIndexOf('::');
   return at < 0 ? { contract: '', member: ref } : { contract: ref.slice(0, at), member: ref.slice(at + 2) };

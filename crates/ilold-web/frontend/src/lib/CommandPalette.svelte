@@ -360,8 +360,6 @@
   }
 </script>
 
-<!-- Reusable row markup — extracted as a snippet so the suggestion
-     sub-grouped path and the standard category path don't duplicate it. -->
 {#snippet commandRow(cmd: Command)}
   {@const idx = flatIndexOf(cmd)}
   {@const positions = query ? matchPositions(cmd.label, query) : []}
@@ -412,8 +410,6 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if paletteOpen}
-  <!-- Backdrop: click closes. Using a button with transparent styling
-       keeps the keyboard-activation story simple and a11y-clean. -->
   <div class="backdrop" role="presentation">
     <button
       type="button"
@@ -479,11 +475,6 @@
         {:else}
           {#each grouped as group (group.category)}
             {#if group.category === 'Suggestion'}
-              <!-- Suggestions get sub-headers per backend category
-                   (Functions / State Variables / Events / External Calls /
-                   Path Types) with the colour mapping from the old
-                   SearchPanel — the parent "Suggestions" header is
-                   suppressed because the sub-headers carry the meaning. -->
               {#each subgroupSuggestions(group.cmds) as sub (sub.label)}
                 <div
                   class="group-label sub"

@@ -18,7 +18,6 @@
     loading = true;
     error = null;
     try {
-      // a read, never a command that takes the session over
       stateVars = await getSessionState(contract);
     } catch (e: any) {
       error = e.message ?? 'Failed to fetch state';
@@ -47,7 +46,6 @@
 </script>
 
 <div class="flex flex-col overflow-hidden h-full" style="background: transparent;">
-  <!-- Header — glass effect -->
   <div
     class="flex items-center justify-between px-3 py-2.5 flex-shrink-0"
     style="
@@ -72,7 +70,6 @@
     </button>
   </div>
 
-  <!-- Body -->
   <div class="panel-body flex-1 overflow-y-auto p-1.5">
     {#if loading && stateVars.length === 0}
       <div class="text-[12px] text-text-dim py-6 px-2 text-center italic">Loading state...</div>

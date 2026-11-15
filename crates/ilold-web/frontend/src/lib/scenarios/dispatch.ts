@@ -7,7 +7,7 @@ export async function dispatchScenarioAction(
   contract: string | undefined,
   label: string,
 ): Promise<void> {
-  // Deleting drops the scenario's steps, so it asks first like Clear does.
+  // Deleting drops the scenario's steps, so it asks first.
   if (typeof action === 'object' && 'Delete' in action
     && !confirm(`Delete scenario "${action.Delete.name}" and its steps?`)) return;
   try {
