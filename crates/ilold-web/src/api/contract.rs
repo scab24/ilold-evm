@@ -399,7 +399,7 @@ pub async fn get_cfg(
                     target: format!("b{}", cfg[dst].id),
                     kind: format!("{:?}", edge),
                     call_count: 0,
-                    kind_label: None,
+                    kind_label: cfg_edge_label(edge),
                     static_target: None,
                     dispatch_candidates: None,
                     unresolved_reason: None,
@@ -625,7 +625,16 @@ pub async fn get_search_suggestions(
 }
 
 
-use ilold_core::cfg::types::{BasicBlock, BlockKind, CfgStatement};
+use ilold_core::cfg::types::{BasicBlock, BlockKind, BranchEdge, CfgStatement};
+
+fn cfg_edge_label(edge: &BranchEdge) -> Option<String> {
+    match edge {
+        BranchEdge::ConditionalTrue { condition } => Some(condition.clone()),
+        BranchEdge::ConditionalFalse { condition } => Some(format!("!({condition})")),
+        BranchEdge::CatchClause { kind } => Some(kind.clone()),
+        _ => None,
+    }
+}
 
 fn summarize_stmt(stmt: &CfgStatement) -> String {
     match stmt {

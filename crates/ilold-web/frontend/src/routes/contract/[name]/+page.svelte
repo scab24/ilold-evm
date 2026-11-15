@@ -290,21 +290,11 @@
     return `stroke-dasharray: 5 3; stroke: ${stroke}`;
   }
 
-  function extractCondition(kind: string): string | undefined {
-    const match = kind.match(/condition:\s*"([^"]+)"/);
-    return match?.[1];
-  }
-
-  function extractCatchKind(kind: string): string | undefined {
-    const match = kind.match(/kind:\s*"([^"]+)"/);
-    return match?.[1];
-  }
-
   function truncateLabel(text: string, max = 30): string {
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
   }
 
-  function cfgEdgeStyle(kind: string): {
+  function cfgEdgeStyle(kind: string, text?: string): {
     color: string;
     label?: string;
     animated: boolean;
@@ -312,20 +302,18 @@
     targetHandle: string;
   } {
     if (kind.startsWith('ConditionalTrue')) {
-      const cond = extractCondition(kind);
       return {
         color: 'var(--color-success)',
-        label: cond ? truncateLabel(cond) : '✓',
+        label: text ? truncateLabel(text) : '✓',
         animated: false,
         sourceHandle: 'b',
         targetHandle: 't',
       };
     }
     if (kind.startsWith('ConditionalFalse')) {
-      const cond = extractCondition(kind);
       return {
         color: 'var(--color-warning)',
-        label: cond ? truncateLabel(cond) : '✗',
+        label: text ? truncateLabel(text) : '✗',
         animated: false,
         sourceHandle: 'b',
         targetHandle: 't',
@@ -364,10 +352,9 @@
       };
     }
     if (kind.startsWith('CatchClause')) {
-      const catchKind = extractCatchKind(kind);
       return {
         color: 'var(--color-danger-light)',
-        label: catchKind ? truncateLabel(catchKind) : undefined,
+        label: text ? truncateLabel(text) : undefined,
         animated: false,
         sourceHandle: 'b',
         targetHandle: 't',
@@ -1071,7 +1058,7 @@
     }));
 
     const cfgEdges: Edge[] = cfg.edges.map((e, i) => {
-      const es = cfgEdgeStyle(e.data.kind);
+      const es = cfgEdgeStyle(e.data.kind, e.data.kind_label);
       es.label = roles.branches.get(`${e.data.source}->${e.data.target}`) ?? es.label;
       return {
         id: `cfg-edge:${funcName}:${i}`,
